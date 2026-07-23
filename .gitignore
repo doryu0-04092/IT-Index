@@ -1,0 +1,16 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+
+# 環境変数
+.env
+.env.*
+!.env.example
+
+# ログ
+*.log
