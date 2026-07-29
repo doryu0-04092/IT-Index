@@ -140,6 +140,18 @@ export default function App() {
     setScreen({ name: 'chat', sessionId: session.id, subject });
   }
 
+  // トリガー③（明示的な確定操作）。確定処理（AI呼び出し）はバックグラウンドで進め、
+  // クリックした時点でローカル検索画面へ戻す——確定結果を待たせない（2026-07-29）。
+  // 分配案が用意できたら onProposalReady が承認画面へ遷移させるので、その時点で
+  // どの画面にいても割り込む形になる。activeChatSessionId はここで解除しておかないと、
+  // 次に別のチャットを始めたときにこの（既に確定処理へ回した）セッションへもう一度
+  // トリガー①がかかってしまう（実害は無い＝冪等だが、無駄なAI呼び出しになる）。
+  function commitAndReturnToSearch(sessionId: string) {
+    void commitOrchestrator.triggerCommit(sessionId);
+    setActiveChatSessionId(null);
+    setScreen({ name: 'search' });
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -192,7 +204,7 @@ export default function App() {
             apiKeyStore={apiKeyStore}
             keyReady={keyReady}
             onKeyReady={() => setKeyReady(true)}
-            onCommit={(sessionId) => commitOrchestrator.triggerCommit(sessionId)}
+            onCommit={commitAndReturnToSearch}
             onChangeSubject={(termId) => void startChat(termId, null)}
             onBack={() => setScreen({ name: 'search' })}
           />
