@@ -1,0 +1,49 @@
+import Dexie, { type Table } from 'dexie';
+import type {
+  AskRecord,
+  ChatMessageRecord,
+  ChatSessionRecord,
+  KeyStoreRecord,
+  NoteRecord,
+  SettingsRecord,
+  SyncFolderRecord,
+  TermRecord,
+} from './types';
+
+/**
+ * Dexie バージョン番号は seed-format.md の schemaVersion / architecture.md の
+ * syncSchemaVersion とは別物（ローカルDBの構造だけを表す）。
+ * 変更する際は既存の version(n) 定義を書き換えず、新しい version(n+1) を追加すること。
+ */
+export class ItIndexDB extends Dexie {
+  terms!: Table<TermRecord, string>;
+  notes!: Table<NoteRecord, string>;
+  asks!: Table<AskRecord, string>;
+  chatSessions!: Table<ChatSessionRecord, string>;
+  chatMessages!: Table<ChatMessageRecord, string>;
+  settings!: Table<SettingsRecord, string>;
+  keyStore!: Table<KeyStoreRecord, string>;
+  syncFolder!: Table<SyncFolderRecord, string>;
+
+  constructor(name = 'it-index') {
+    super(name);
+    this.version(1).stores({
+      terms: 'id, field, origin, deletedAt',
+      notes: 'termId, updatedAt',
+      asks: 'id, termId, sessionId, [at+id]',
+      chatSessions: 'id, termId, status, lastActiveAt',
+      chatMessages: 'id, sessionId, at',
+      settings: 'key',
+    });
+    // v2: 鍵ストア追加（APIキーの暗号化保存が明示オプトインされた場合のみ使う。同期対象外）
+    this.version(2).stores({
+      keyStore: 'key',
+    });
+    // v3: 手動同期「共有フォルダ方式」で選んだフォルダの参照を保持（docs/manual-sync.md）。同期対象外
+    this.version(3).stores({
+      syncFolder: 'key',
+    });
+  }
+}
+
+export const db = new ItIndexDB();

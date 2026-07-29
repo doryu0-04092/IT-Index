@@ -124,8 +124,11 @@ erDiagram
 | `asks` | **する** | 追記のみ。`id` で和集合。重み付けの計算元 |
 | `chatSessions` / `chatMessages` | **しない** | 共有すべきは統合された結果であって、過程ではない |
 | `settings` | **しない** | 端末固有。**APIキーは含めない** |
+| `keyStore` | **しない** | APIキーの暗号化保存用（明示オプトイン時のみ1行）。復号鍵は保存せずWebAuthn PRFから毎回導出するため、他端末にコピーしても意味を持たない。詳細は [data-layer.md §2.2](./data-layer.md) |
 
 > **例外**: `origin: 'ai'` の語（初期データに無く、チャットから登録された語）は他端末に存在しないため、`terms` も同期対象に含める。
+
+**実装状況（2026-07-27）**: `mergeSnapshot()`（決定的マージ）は実装済み。**同期の主手段は手動ファイル書き出しに方針転換**（Google Cloud側の運用負荷を理由とする。[manual-sync.md](./manual-sync.md)）。Drive経由の読み書き層（`src/drive/`）も実装済みだが休眠中（[drive-sync.md](./drive-sync.md)）。
 
 ### 設計上の要点
 
