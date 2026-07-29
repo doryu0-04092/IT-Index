@@ -3,7 +3,7 @@ import type { ChatRepository } from '../repositories/chat';
 import type { NotesRepository } from '../repositories/notes';
 import type { TermsRepository } from '../repositories/terms';
 import type { AiClient } from './aiClient';
-import { autoApplyAskedTerms, proposeDistribution, type DistributionProposal } from './distribution';
+import { commitProposal, proposeDistribution, type AutoUpdateExistingTermsMode } from './distribution';
 
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -11,16 +11,11 @@ export interface CommitOrchestratorDeps {
   chatRepo: ChatRepository;
   termsRepo: TermsRepository;
   notesRepo: NotesRepository;
+  asksRepo: AsksRepository;
   claude: AiClient;
-  /**
-   * askedByUser=true の語を承認画面を経由せず自動保存するために使う（2026-07-29追加）。
-   * どちらも省略した場合は自動保存を行わず、これまでどおり全件を onProposalReady 経由の
-   * 承認画面に回す（テスト等、自動保存を検証しない呼び出し元との後方互換のため任意項目にしてある）。
-   */
-  asksRepo?: AsksRepository;
-  deviceId?: string | null;
-  /** 分配案（askedByUser=falseの残りだけ）が用意できたら呼ばれる。ここではDBに一切書き込まない */
-  onProposalReady: (proposal: DistributionProposal) => void;
+  deviceId: string;
+  /** 要件定義書§5.3「既存語の自動更新」。設定画面で切り替える（既定 'askedOnly'） */
+  autoUpdateExistingTerms: AutoUpdateExistingTermsMode;
   /** AI呼び出し失敗時。状態遷移図どおりセッションは open のまま残り、次回再試行される */
   onError?: (sessionId: string, error: unknown) => void;
   timeoutMs?: number;
@@ -39,14 +34,15 @@ export interface CommitOrchestrator {
 }
 
 /**
- * docs/architecture.md §5 の状態遷移図（open → committing → approving → committed）のうち
- * open→committing→approving の部分を実装する。承認・DB書き込み（applyDistribution）は
- * このオーケストレーターの外（承認画面UI、未実装）が担う——「分配は必ず承認画面を挟む」
- * （要件定義書§5.3）を構造として守るため、ここでは絶対にDBへ書き込まない。
+ * docs/architecture.md §5 の状態遷移図（open → committing → committed）を実装する。
  *
- * 「処理は冪等」（状態遷移図の注記）は proposeDistribution 自体が読み取り専用なので
- * 自然に満たされる。同じセッションを2回confirmしても、2回とも同じ提案が生成されるだけで
- * 実害が無い（実際の書き込みは承認後の applyDistribution 呼び出し1回だけ）。
+ * 2026-07-30改訂: 承認画面（approving 状態）を廃止した。分配案は必ず commitProposal() で
+ * 自動反映され、DBへの書き込みとセッションの commitSession() までこのオーケストレーターの
+ * 責務になる（旧: 承認画面UIが担っていた）。何を自動反映するかは commitProposal() 内の
+ * ルールと `autoUpdateExistingTerms` 設定で決まる（要件定義書§5.3）。
+ *
+ * 「処理は冪等」（状態遷移図の注記）は proposeDistribution 自体が読み取り専用、
+ * commitSession() 自体も冪等なので保たれる。
  */
 export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOrchestrator {
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -67,9 +63,8 @@ export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOr
       // 「AIに聞く」ボタンを押した時点でセッションはDBに作成される（＝チャット画面が
       // 開かれる前提で先にIDが要る）。そのため、画面を開いただけで一言も送らずに
       // 離脱したセッションが open のまま残り得る。中身が無いのにAIへ確定処理を投げると、
-      // 文脈ゼロの指示に対してAIが何かを捏造して返し、利用者の操作なしに承認画面へ
-      // 遷移してしまう（実際に報告された不具合）。送信済みメッセージが1件も無い
-      // セッションは、確定する内容が無いとみなしてAI呼び出し自体をスキップする。
+      // 文脈ゼロの指示に対してAIが何かを捏造して返してしまう（実際に報告された不具合）。
+      // 送信済みメッセージが1件も無いセッションは、確定する内容が無いとみなしてAI呼び出し自体をスキップする。
       const messages = await deps.chatRepo.getMessages(sessionId);
       if (messages.length === 0) {
         await deps.chatRepo.commitSession(sessionId);
@@ -83,25 +78,13 @@ export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOr
         claude: deps.claude,
       });
 
-      if (deps.asksRepo && deps.deviceId) {
-        const { autoApplied, remaining } = await autoApplyAskedTerms(proposal, {
-          termsRepo: deps.termsRepo,
-          notesRepo: deps.notesRepo,
-          asksRepo: deps.asksRepo,
-          deviceId: deps.deviceId,
-        });
-        // 元の提案が空だった場合（IT用語が1つも無い会話）は従来どおり空の提案を
-        // 承認画面へ回す。自動保存によって「残りが0件になった」場合だけ、
-        // 承認画面を出さずにそのままセッションを確定する。
-        if (autoApplied.length > 0 && remaining.length === 0) {
-          await deps.chatRepo.commitSession(sessionId);
-          return;
-        }
-        deps.onProposalReady({ sessionId, proposedTerms: remaining });
-        return;
-      }
-
-      deps.onProposalReady(proposal);
+      await commitProposal(proposal, deps.autoUpdateExistingTerms, {
+        termsRepo: deps.termsRepo,
+        notesRepo: deps.notesRepo,
+        asksRepo: deps.asksRepo,
+        chatRepo: deps.chatRepo,
+        deviceId: deps.deviceId,
+      });
     } catch (error) {
       // committing --> open（API呼び出し失敗）。セッションは元々 open のままなので状態変更は不要
       deps.onError?.(sessionId, error);

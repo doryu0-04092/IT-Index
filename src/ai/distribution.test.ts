@@ -4,7 +4,7 @@ import { createAsksRepository } from '../repositories/asks';
 import { createChatRepository } from '../repositories/chat';
 import { createNotesRepository } from '../repositories/notes';
 import { buildTermRecord, createTermsRepository, makeTermId } from '../repositories/terms';
-import { applyDistribution, autoApplyAskedTerms, proposeDistribution } from './distribution';
+import { commitProposal, proposeDistribution } from './distribution';
 import { createScriptedAiClient } from './testSupport';
 
 function distributionJson(items: unknown[]): string {
@@ -238,78 +238,21 @@ describe('proposeDistribution / applyDistribution', () => {
     expect(proposal.proposedTerms[0].finalBody).toBe('新しい説明。'); // draftBodyのまま
   });
 
-  it('applyDistribution only writes approved terms, adds one ask per approved term, and commits the session', async () => {
-    const chatRepo = createChatRepository(db);
-    const termsRepo = createTermsRepository(db);
-    const notesRepo = createNotesRepository(db);
-    const asksRepo = createAsksRepository(db);
-    const session = await chatRepo.createSession(null);
-
-    const proposal = {
-      sessionId: session.id,
-      proposedTerms: [
-        {
-          term: 'TCP/IP',
-          termId: makeTermId('TCP/IP'),
-          isNewTerm: true,
-          askedByUser: true,
-          summary: '層に分けた通信規約の集まり。',
-          readings: ['ティーシーピーアイピー'],
-          field: 'ネットワーク' as const,
-          finalBody: '説明A',
-          diagrams: [],
-        },
-        {
-          term: 'MTU',
-          termId: makeTermId('MTU'),
-          isNewTerm: true,
-          askedByUser: true,
-          summary: '一度に送れるデータの最大サイズ。',
-          readings: ['エムティーユー'],
-          field: 'ネットワーク' as const,
-          finalBody: '説明B',
-          diagrams: [],
-        },
-      ],
-    };
-
-    // TCP/IP だけ承認、MTU は却下
-    await applyDistribution(proposal, new Set([makeTermId('TCP/IP')]), {
-      termsRepo,
-      notesRepo,
-      asksRepo,
-      chatRepo,
-      deviceId: 'device-A',
-    });
-
-    const created = await termsRepo.getById(makeTermId('TCP/IP'));
-    expect(created).toBeDefined();
-    expect(created?.summary).toBe('層に分けた通信規約の集まり。'); // AI新規登録語もAI生成の初期説明を持つ（2026-07-29〜）
-    expect(await termsRepo.getById(makeTermId('MTU'))).toBeUndefined();
-    expect((await notesRepo.getByTermId(makeTermId('TCP/IP')))?.body).toBe('説明A');
-    expect(await asksRepo.getByTermId(makeTermId('TCP/IP'))).toHaveLength(1);
-    expect(await asksRepo.getByTermId(makeTermId('MTU'))).toHaveLength(0);
-
-    const staleSessions = await chatRepo.findStaleOpenSessions(Date.now(), 0);
-    expect(staleSessions.map((s) => s.id)).not.toContain(session.id); // committed済み
-  });
-
-  describe('autoApplyAskedTerms', () => {
-    it('writes askedByUser:true items to the DB without an approval step, and leaves askedByUser:false items untouched', async () => {
+  describe('commitProposal（2026-07-30: 承認画面を廃止し常に自動反映する）', () => {
+    it('mode:askedOnly writes askedByUser:true items and skips askedByUser:false ones, then commits the session', async () => {
       const chatRepo = createChatRepository(db);
       const termsRepo = createTermsRepository(db);
       const notesRepo = createNotesRepository(db);
       const asksRepo = createAsksRepository(db);
       const session = await chatRepo.createSession(null);
 
-      const now = Date.now();
       const existingRouting = buildTermRecord({
         term: 'ルーティング',
         readings: ['ルーティング'],
         summary: '経路制御。',
         field: 'ネットワーク',
         origin: 'seed',
-        now,
+        now: Date.now(),
       });
       await termsRepo.bulkPutFromSeed([existingRouting]);
 
@@ -341,54 +284,91 @@ describe('proposeDistribution / applyDistribution', () => {
         ],
       };
 
-      const { autoApplied, remaining } = await autoApplyAskedTerms(proposal, {
+      const { written, skipped } = await commitProposal(proposal, 'askedOnly', {
         termsRepo,
         notesRepo,
         asksRepo,
+        chatRepo,
         deviceId: 'device-A',
       });
 
-      expect(autoApplied.map((t) => t.term)).toEqual(['TCP/IP']);
-      expect(remaining.map((t) => t.term)).toEqual(['ルーティング']);
+      expect(written.map((t) => t.term)).toEqual(['TCP/IP']);
+      expect(skipped.map((t) => t.term)).toEqual(['ルーティング']);
 
-      // askedByUser:true（TCP/IP）は書き込み済み
-      expect(await termsRepo.getById(makeTermId('TCP/IP'))).toBeDefined();
+      // askedByUser:true（TCP/IP）は書き込み済み。新規語なのでAI生成のsummaryも持つ
+      const created = await termsRepo.getById(makeTermId('TCP/IP'));
+      expect(created?.summary).toBe('層に分けた通信規約の集まり。');
       expect((await notesRepo.getByTermId(makeTermId('TCP/IP')))?.body).toBe('説明A');
       expect(await asksRepo.getByTermId(makeTermId('TCP/IP'))).toHaveLength(1);
 
-      // askedByUser:false（ルーティング）はまだ書き込まれていない（承認画面待ち）
+      // askedByUser:false（ルーティング）は書き込まれない（mode:askedOnly）
       expect((await notesRepo.getByTermId(makeTermId('ルーティング')))?.body).toBeUndefined();
       expect(await asksRepo.getByTermId(makeTermId('ルーティング'))).toHaveLength(0);
+
+      const staleSessions = await chatRepo.findStaleOpenSessions(Date.now(), 0);
+      expect(staleSessions.map((s) => s.id)).not.toContain(session.id); // committed済み（残り物が無くても必ず確定する）
     });
 
-    it('does not touch chatSessions.commitSession (caller decides when the session is fully resolved)', async () => {
+    it('mode:all writes askedByUser:false updates to existing terms too', async () => {
       const chatRepo = createChatRepository(db);
       const termsRepo = createTermsRepository(db);
       const notesRepo = createNotesRepository(db);
       const asksRepo = createAsksRepository(db);
       const session = await chatRepo.createSession(null);
 
+      const existingRouting = buildTermRecord({
+        term: 'ルーティング',
+        readings: ['ルーティング'],
+        summary: '経路制御。',
+        field: 'ネットワーク',
+        origin: 'seed',
+        now: Date.now(),
+      });
+      await termsRepo.bulkPutFromSeed([existingRouting]);
+
       const proposal = {
         sessionId: session.id,
         proposedTerms: [
           {
-            term: 'TCP/IP',
-            termId: makeTermId('TCP/IP'),
-            isNewTerm: true,
-            askedByUser: true,
-            summary: '層に分けた通信規約の集まり。',
-            readings: ['ティーシーピーアイピー'],
+            term: 'ルーティング',
+            termId: makeTermId('ルーティング'),
+            isNewTerm: false,
+            askedByUser: false,
+            summary: '経路を選ぶ仕組み。',
+            readings: ['ルーティング'],
             field: 'ネットワーク' as const,
-            finalBody: '説明A',
+            finalBody: '統合済みの説明',
             diagrams: [],
           },
         ],
       };
 
-      await autoApplyAskedTerms(proposal, { termsRepo, notesRepo, asksRepo, deviceId: 'device-A' });
+      const { written, skipped } = await commitProposal(proposal, 'all', {
+        termsRepo,
+        notesRepo,
+        asksRepo,
+        chatRepo,
+        deviceId: 'device-A',
+      });
+
+      expect(written.map((t) => t.term)).toEqual(['ルーティング']);
+      expect(skipped).toEqual([]);
+      expect((await notesRepo.getByTermId(makeTermId('ルーティング')))?.body).toBe('統合済みの説明');
+    });
+
+    it('always commits the session, even when there is nothing to write', async () => {
+      const chatRepo = createChatRepository(db);
+      const termsRepo = createTermsRepository(db);
+      const notesRepo = createNotesRepository(db);
+      const asksRepo = createAsksRepository(db);
+      const session = await chatRepo.createSession(null);
+
+      const proposal = { sessionId: session.id, proposedTerms: [] };
+
+      await commitProposal(proposal, 'askedOnly', { termsRepo, notesRepo, asksRepo, chatRepo, deviceId: 'device-A' });
 
       const stillOpen = await chatRepo.findStaleOpenSessions(Date.now(), 0);
-      expect(stillOpen.map((s) => s.id)).toContain(session.id); // まだ committed になっていない
+      expect(stillOpen.map((s) => s.id)).not.toContain(session.id);
     });
   });
 });

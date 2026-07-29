@@ -20,6 +20,7 @@ describe('SettingsRepository', () => {
     expect(settings.key).toBe('singleton');
     expect(settings.seedVersion).toBeNull();
     expect(settings.deviceId).toBeTruthy();
+    expect(settings.autoUpdateExistingTerms).toBe('askedOnly'); // 既定は「利用者が尋ねた語だけ」
   });
 
   it('returns the same row on subsequent calls', async () => {
@@ -36,6 +37,14 @@ describe('SettingsRepository', () => {
     await repo.setSeedVersion('2026-07-27');
 
     expect((await repo.get()).seedVersion).toBe('2026-07-27');
+  });
+
+  it('setAutoUpdateExistingTerms updates the existing row', async () => {
+    const repo = createSettingsRepository(db);
+    await repo.get();
+    await repo.setAutoUpdateExistingTerms('all');
+
+    expect((await repo.get()).autoUpdateExistingTerms).toBe('all');
   });
 
   it('does not throw when get() is called concurrently on first access (regression)', async () => {

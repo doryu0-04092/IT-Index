@@ -1,6 +1,6 @@
 # PC版UI設計
 
-- 版: 2.10（2026-07-29）
+- 版: 2.11（2026-07-30）
 - 前提: [要件定義書](./requirements.md) §5.1〜§5.4 / [データ層設計](./data-layer.md) / [AIクライアント設計](./ai-client.md)
 
 ## 0. この文書の目的
@@ -18,14 +18,15 @@ src/ui/pc/
   ApiKeyPrompt.tsx          … プロバイダ選択・モデル名・APIキー入力（セッションのみ／永続保存の両対応。フルスクリーン・設定モーダルの両方から再利用）
   ChatScreen.tsx            … チャット（要件定義書§5.3）
   TermPicker.tsx            … 「話題を変える」で使う用語ピッカー（検索と同じscore()を再利用。2026-07-29）
-  ApprovalScreen.tsx        … 分配統合の承認画面（要件定義書§5.3）
   HistoryScreen.tsx         … 重み付け／時系列ビュー（要件定義書§5.4。1画面にタブで統合。2026-07-29）
-  SettingsModal.tsx         … 設定モーダル（APIキー変更・パスキー管理。2026-07-29）
+  SettingsModal.tsx         … 設定モーダル（APIキー変更・パスキー管理・既存語の自動更新範囲。2026-07-29〜30）
 src/ui/shared/
   useDebouncedValue.ts       … 入力デバウンス（§6非機能要件「150ms程度」）
 ```
 
-`src/App.tsx` が画面遷移（`search` / `detail` / `chat` / `approve` / `history`）と、`src/ai/commitOrchestrator.ts`（確定オーケストレーション）・シード取り込みを統括する。ルーティングライブラリは使わず、単純な `useState` によるビュー切り替え。設定モーダル（`SettingsModal`）は画面遷移とは独立に、`App.tsx` の `settingsOpen` フラグで開閉する（どの画面の上にも重ねて開ける）。
+**2026-07-30: `ApprovalScreen.tsx` を削除した。** 分配統合の承認画面を廃止し、確定は常に自動でDBへ反映されるようにしたため（要件定義書§5.3、[ai-client.md §3](./ai-client.md)）。何を自動反映するかは`askedByUser`と`SettingsModal`の「既存語の自動更新」設定で決まる。
+
+`src/App.tsx` が画面遷移（`search` / `detail` / `chat` / `history`）と、`src/ai/commitOrchestrator.ts`（確定オーケストレーション）・シード取り込みを統括する。ルーティングライブラリは使わず、単純な `useState` によるビュー切り替え。設定モーダル（`SettingsModal`）は画面遷移とは独立に、`App.tsx` の `settingsOpen` フラグで開閉する（どの画面の上にも重ねて開ける）。
 
 ### SearchScreen
 
@@ -38,7 +39,7 @@ src/ui/shared/
 
 ### TermDetailScreen
 
-- `summary`（初期説明）は `null` の場合セクション自体を出さない（AI新規登録語。[ai-client.md §4.3](./ai-client.md)）
+- `summary`（初期説明）は `null` の場合セクション自体を出さない。**2026-07-29〜、AI新規登録語も登録時にAIが生成した初期説明を持つため、この分岐が実際に効くのはそれ以前に登録された古いレコードだけ**（[ai-client.md §4.3](./ai-client.md)）
 - `notes.body` は現状プレーンテキスト表示（`white-space: pre-wrap`）。**Markdown・Mermaidの描画は未実装**。図（`diagrams`）は生のMermaid文字列を`<pre>`でそのまま表示し、「未描画」と明示する
 - 「この語についてAIに聞く」から `termId` 付きのチャットセッションを開始できる
 
@@ -56,15 +57,9 @@ src/ui/shared/
 - 「今は使わない」で今回のセッションだけバナーを消せる（次回起動時はまた出る）
 - 復元に成功すると `keyReady` が立ち、以後 `ChatScreen` は `ApiKeyPrompt` を出さずそのままチャットできる
 - 送信のたびに `sendChatTurn()` を呼び、セッションの全履歴を選択中のAIプロバイダへ渡す（`src/ai/chat.ts`）
-- 「この会話を確定する」ボタンは `App.tsx` の `commitAndReturnToSearch(sessionId)` を呼ぶ（トリガー③）。**待たない・即座に検索画面へ戻る（2026-07-29変更）**——`commitAndReturnToSearch` は `commitOrchestrator.triggerCommit(sessionId)` を `await` せず fire-and-forget で起動し、`activeChatSessionId` を解除したうえで同期的に `setScreen({ name: 'search' })` する。`ChatScreen` はこの関数を呼ぶだけで、確定処理の完了を待たない。成否のフィードバックはこの画面のローカル状態を持たず、既存のグローバルな経路に委ねる：成功時は分配案が用意でき次第 `onProposalReady` が（どの画面を見ていても）承認画面へ割り込んで遷移させ、失敗時は `commitOrchestrator` の `onError` が `App.tsx` の `globalError` に表示する
+- 「この会話を確定する」ボタンは `App.tsx` の `commitAndReturnToSearch(sessionId)` を呼ぶ（トリガー③）。**待たない・即座に検索画面へ戻る（2026-07-29変更）**——`commitAndReturnToSearch` は `commitOrchestrator.triggerCommit(sessionId)` を `await` せず fire-and-forget で起動し、`activeChatSessionId` を解除したうえで同期的に `setScreen({ name: 'search' })` する。`ChatScreen` はこの関数を呼ぶだけで、確定処理の完了を待たない。**2026-07-30: 承認画面を廃止したため、`triggerCommit()` は裏側でDB書き込み・`commitSession()` まで完結する。** 失敗時のみ `commitOrchestrator` の `onError` が `App.tsx` の `globalError` に表示する
 - 画面上部に現在の主題（`SubjectContext`）を示すチップを常設する。用語モードなら「『○○』について質問中」、自由モードなら主題を確定させない表現にする（要件定義書§5.3、[ai-client.md §2](./ai-client.md)）。チップには用語名・分野程度のみ表示し、`notes.body` 全文は表示しない（モデルへ送る文脈と画面表示は分離する）
 - `[話題を変える]`（自由モードでは「用語を選ぶ」）ボタンは、**質問入力欄と「この会話を確定する」ボタンの間に配置する（2026-07-29変更。以前は主題チップの中にあった）**。押すと `TermPicker.tsx` を開く。選択すると `App.tsx` の `startChat()` をそのまま呼ぶ——既存のトリガー①（別の用語のチャットを開いた＝前の会話は終わり）がそのまま「話題変更時は自動で確定してから切り替える」を満たすため、専用の分岐は追加していない（利用者に別途確認は挟まない。安全性の根拠は要件定義書§5.3参照）
-
-### ApprovalScreen
-
-- `DistributionProposal.proposedTerms` を一覧表示。チェックボックスは既定で全選択、新規語には「新規語」バッジ
-- 承認 = `applyDistribution()` を呼ぶ唯一の経路。却下は何もせず戻るだけ（会話は `open` のまま残る。要件定義書§5.3）
-- **この画面に並ぶのは `askedByUser: false` の語だけ（2026-07-29〜）**。`askedByUser: true` の語は `commitOrchestrator.ts` の `autoApplyAskedTerms()` が確定と同時に自動保存し、この画面には出さない（[ai-client.md §3.4](./ai-client.md)、要件定義書§5.3「利用者が確認してきた語は、承認画面を経由せず自動保存する」）。残りが0件になった場合はこの画面自体を経由せずセッションが確定する
 
 ### HistoryScreen（2026-07-29: 1画面に統合）
 
@@ -74,11 +69,15 @@ src/ui/shared/
 - 時系列タブ: `at` の新しい順に並べ替えて表示
 - `initialView` propで開始タブを指定（検索画面の「重み付けビュー」「時系列ビュー」ボタンから連動）
 
-### SettingsModal（2026-07-29）
+### SettingsModal（2026-07-29〜30）
 
 画面左下に固定表示する歯車アイコン（`.settings-gear`）から開くモーダル。画面遷移とは独立しており、どの画面の上からでも開ける。
 
 - 「AIプロバイダ・APIキー」セクション: 現在の設定（プロバイダ・モデル）を表示し、「変更」ボタンで`ApiKeyPrompt`をモーダル内に埋め込んで再利用する（`backLabel="← 設定に戻る"`で戻り先の文言を変える）
+- **「既存語の自動更新」セクション（2026-07-30追加）**: ラジオボタン2択（`autoUpdateExistingTerms`）。承認画面を廃止した代わりに、利用者が事前に選べる唯一のコントロール（要件定義書§5.3）
+  - 「自分が検索・質問した語だけ自動更新する（既定）」＝ `askedOnly`
+  - 「他の語について調べた際に出てきた情報も自動更新する」＝ `all`
+  - 選択は `App.tsx` の `settingsRepo.setAutoUpdateExistingTerms()` で即座に永続化し、次回の確定処理から反映される（`commitOrchestrator` の `useMemo` 依存配列に `autoUpdateExistingTerms` を含めてあるため、設定変更のたびにオーケストレーターを作り直す）
 - 「この端末への保存」セクション: 保存済み（`hasPersistedCredential()`）の場合のみ表示。「パスキーで認証」（`tryRestore()`を呼ぶ）・「この端末の保存を削除」（`disablePersistence()`）を提供
 - ヘッダーの入口認証バナー（§1後述）と役割が重なる部分（パスキー認証）があるが、バナーは「サイトに入った直後、まだ認証していない」状態専用、モーダルは「認証状態を確認・変更したいとき、いつでも」という使い分け
 
@@ -98,7 +97,6 @@ src/ui/shared/
 - Markdown/Mermaidの実際の描画
 - Service Worker（オフライン動作）
 - トリガー②（15分無操作での自動確定）の`ChatScreen`側配線
-- 複数の分配案が同時に `approve` 待ちになった場合の扱い（`recoverStaleSessions()`が複数セッションを一括処理すると、`onProposalReady`が連続で呼ばれ、画面遷移が最後の1件で上書きされる。実運用でstaleセッションが複数残ることは稀だが、未対応のまま）
 
 ---
 

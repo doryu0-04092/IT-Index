@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getProviderInfo } from '../../ai/providers/types';
+import type { AutoUpdateExistingTermsMode } from '../../ai/distribution';
 import { logAiError } from '../../ai/logError';
 import type { ApiKeyStore } from '../../keystore/apiKeyStore';
 import { getSessionCredential } from '../../keystore/apiKeyStore';
@@ -10,13 +11,24 @@ export interface SettingsModalProps {
   onClose: () => void;
   /** APIキーが（再）設定された、または保存済み資格情報を復元できたときに呼ぶ */
   onCredentialReady: () => void;
+  /** 要件定義書§5.3「既存語の自動更新」。現在の設定値 */
+  autoUpdateExistingTerms: AutoUpdateExistingTermsMode;
+  onChangeAutoUpdateExistingTerms: (mode: AutoUpdateExistingTermsMode) => void;
 }
 
 /**
  * 歯車アイコンから開く設定モーダル。APIキー（プロバイダ・モデルの変更含む）と、
  * この端末への保存（パスキー）をここに集約する（2026-07-28設計）。
+ * 既存語の自動更新範囲（2026-07-30追加）もここに置く——承認画面を廃止した代わりに、
+ * 利用者が事前に選べる唯一のコントロールになる。
  */
-export default function SettingsModal({ apiKeyStore, onClose, onCredentialReady }: SettingsModalProps) {
+export default function SettingsModal({
+  apiKeyStore,
+  onClose,
+  onCredentialReady,
+  autoUpdateExistingTerms,
+  onChangeAutoUpdateExistingTerms,
+}: SettingsModalProps) {
   const [editingKey, setEditingKey] = useState(false);
   const [hasPersisted, setHasPersisted] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
@@ -87,6 +99,31 @@ export default function SettingsModal({ apiKeyStore, onClose, onCredentialReady 
           <button type="button" onClick={() => setEditingKey(true)}>
             {credential ? 'APIキーを変更' : 'APIキーを設定'}
           </button>
+        </section>
+
+        <section className="settings-section">
+          <h3>既存語の自動更新</h3>
+          <p className="search-status">
+            AIチャットの確定は承認画面を挟まず自動でAI補足に反映されます。この設定は、話題にしていない語（会話の中でついでに触れられただけの既存語）まで反映するかどうかを決めます。
+          </p>
+          <label className="settings-radio">
+            <input
+              type="radio"
+              name="autoUpdateExistingTerms"
+              checked={autoUpdateExistingTerms === 'askedOnly'}
+              onChange={() => onChangeAutoUpdateExistingTerms('askedOnly')}
+            />
+            自分が検索・質問した語だけ自動更新する（既定）
+          </label>
+          <label className="settings-radio">
+            <input
+              type="radio"
+              name="autoUpdateExistingTerms"
+              checked={autoUpdateExistingTerms === 'all'}
+              onChange={() => onChangeAutoUpdateExistingTerms('all')}
+            />
+            他の語について調べた際に出てきた情報も自動更新する
+          </label>
         </section>
 
         {hasPersisted && (

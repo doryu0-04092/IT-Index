@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createDynamicAiClient } from './ai/providers';
 import { createCommitOrchestrator } from './ai/commitOrchestrator';
-import type { DistributionProposal } from './ai/distribution';
+import type { AutoUpdateExistingTermsMode } from './ai/distribution';
 import { logAiError } from './ai/logError';
 import { buildSubjectContext, type SubjectContext } from './ai/subjectContext';
 import { db } from './db';
@@ -14,7 +14,6 @@ import { createNotesRepository } from './repositories/notes';
 import { createSettingsRepository } from './repositories/settings';
 import { createTermsRepository } from './repositories/terms';
 import { fetchSeedFile, importSeed } from './seedImport';
-import ApprovalScreen from './ui/pc/ApprovalScreen';
 import ChatScreen from './ui/pc/ChatScreen';
 import HistoryScreen, { type HistoryView } from './ui/pc/HistoryScreen';
 import SearchScreen from './ui/pc/SearchScreen';
@@ -25,13 +24,13 @@ type Screen =
   | { name: 'search' }
   | { name: 'detail'; termId: string }
   | { name: 'chat'; sessionId: string; subject: SubjectContext }
-  | { name: 'approve'; proposal: DistributionProposal }
   | { name: 'history'; view: HistoryView };
 
 export default function App() {
   const [seedStatus, setSeedStatus] = useState('シードを確認中…');
   const [seedSettled, setSeedSettled] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [autoUpdateExistingTerms, setAutoUpdateExistingTerms] = useState<AutoUpdateExistingTermsMode>('askedOnly');
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [screen, setScreen] = useState<Screen>({ name: 'search' });
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null);
@@ -45,32 +44,32 @@ export default function App() {
   const notesRepo = useMemo(() => createNotesRepository(db), []);
   const asksRepo = useMemo(() => createAsksRepository(db), []);
   const chatRepo = useMemo(() => createChatRepository(db), []);
+  const settingsRepo = useMemo(() => createSettingsRepository(db), []);
   const keyStoreRepo = useMemo(() => createKeyStoreRepository(db), []);
   const webauthn = useMemo(() => createBrowserWebAuthnClient(), []);
   const apiKeyStore = useMemo(() => createApiKeyStore(keyStoreRepo, webauthn), [keyStoreRepo, webauthn]);
   const claude = useMemo(() => createDynamicAiClient(getSessionCredential), []);
 
-  const commitOrchestrator = useMemo(
-    () =>
-      createCommitOrchestrator({
-        chatRepo,
-        termsRepo,
-        notesRepo,
-        claude,
-        asksRepo,
-        deviceId,
-        onProposalReady: (proposal) => setScreen({ name: 'approve', proposal }),
-        onError: (sessionId, error) => {
-          logAiError(`commitOrchestrator(session=${sessionId})`, error);
-          setGlobalError(`確定処理に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
-        },
-      }),
-    [chatRepo, termsRepo, notesRepo, claude, asksRepo, deviceId],
-  );
+  // deviceId が読み込まれるまでは作らない——commitOrchestrator は書き込みに実在の
+  // deviceId を要するため（要件定義書§5.3、2026-07-30改訂で承認画面を廃止し常に自動反映するようにした）。
+  const commitOrchestrator = useMemo(() => {
+    if (deviceId === null) return null;
+    return createCommitOrchestrator({
+      chatRepo,
+      termsRepo,
+      notesRepo,
+      claude,
+      asksRepo,
+      deviceId,
+      autoUpdateExistingTerms,
+      onError: (sessionId, error) => {
+        logAiError(`commitOrchestrator(session=${sessionId})`, error);
+        setGlobalError(`確定処理に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+      },
+    });
+  }, [chatRepo, termsRepo, notesRepo, claude, asksRepo, deviceId, autoUpdateExistingTerms]);
 
   useEffect(() => {
-    const settingsRepo = createSettingsRepository(db);
-
     importSeed(fetchSeedFile, termsRepo, settingsRepo)
       .then(async (result) => {
         const count = (await termsRepo.getAll()).length;
@@ -83,11 +82,14 @@ export default function App() {
       })
       .finally(() => setSeedSettled(true));
 
-    settingsRepo.get().then((s) => setDeviceId(s.deviceId));
-  }, [termsRepo]);
+    settingsRepo.get().then((s) => {
+      setDeviceId(s.deviceId);
+      setAutoUpdateExistingTerms(s.autoUpdateExistingTerms);
+    });
+  }, [termsRepo, settingsRepo]);
 
   useEffect(() => {
-    return () => commitOrchestrator.dispose();
+    return () => commitOrchestrator?.dispose();
   }, [commitOrchestrator]);
 
   useEffect(() => {
@@ -95,7 +97,7 @@ export default function App() {
     // APIキーの認証（keyReady）が済むまでは実行しない——認証前に試みると、
     // 単に「まだキーが無い」だけなのに「APIキーが設定されていません」という
     // 紛らわしい失敗表示が出てしまう（実際に報告された不具合）。
-    if (!keyReady) return;
+    if (!keyReady || !commitOrchestrator) return;
     commitOrchestrator.recoverStaleSessions();
   }, [commitOrchestrator, keyReady]);
 
@@ -134,7 +136,7 @@ export default function App() {
   // 前の会話は終わり）がそのまま「話題変更時は自動で確定してから切り替える」を満たす。
   async function startChat(termId: string | null, seedQuery: string | null) {
     if (activeChatSessionId) {
-      void commitOrchestrator.triggerCommit(activeChatSessionId);
+      void commitOrchestrator?.triggerCommit(activeChatSessionId);
     }
     const subject = await buildSubjectContext(termId, seedQuery, { termsRepo, notesRepo });
     const session = await chatRepo.createSession(termId);
@@ -142,14 +144,14 @@ export default function App() {
     setScreen({ name: 'chat', sessionId: session.id, subject });
   }
 
-  // トリガー③（明示的な確定操作）。確定処理（AI呼び出し）はバックグラウンドで進め、
+  // トリガー③（明示的な確定操作）。確定処理（AI呼び出し・DB書き込み）はバックグラウンドで進め、
   // クリックした時点でローカル検索画面へ戻す——確定結果を待たせない（2026-07-29）。
-  // 分配案が用意できたら onProposalReady が承認画面へ遷移させるので、その時点で
-  // どの画面にいても割り込む形になる。activeChatSessionId はここで解除しておかないと、
-  // 次に別のチャットを始めたときにこの（既に確定処理へ回した）セッションへもう一度
-  // トリガー①がかかってしまう（実害は無い＝冪等だが、無駄なAI呼び出しになる）。
+  // 2026-07-30: 承認画面を廃止したため、確定＝そのままDBへの自動反映になる。
+  // activeChatSessionId はここで解除しておかないと、次に別のチャットを始めたときに
+  // この（既に確定処理へ回した）セッションへもう一度トリガー①がかかってしまう
+  // （実害は無い＝冪等だが、無駄なAI呼び出しになる）。
   function commitAndReturnToSearch(sessionId: string) {
-    void commitOrchestrator.triggerCommit(sessionId);
+    void commitOrchestrator?.triggerCommit(sessionId);
     setActiveChatSessionId(null);
     setScreen({ name: 'search' });
   }
@@ -220,21 +222,6 @@ export default function App() {
             onChangeSubject={(termId) => void startChat(termId, null)}
             onBack={() => setScreen({ name: 'search' })}
           />
-        ) : screen.name === 'approve' ? (
-          deviceId && (
-            <ApprovalScreen
-              proposal={screen.proposal}
-              termsRepo={termsRepo}
-              notesRepo={notesRepo}
-              asksRepo={asksRepo}
-              chatRepo={chatRepo}
-              deviceId={deviceId}
-              onDone={() => {
-                setActiveChatSessionId(null);
-                setScreen({ name: 'search' });
-              }}
-            />
-          )
         ) : (
           <HistoryScreen
             asksRepo={asksRepo}
@@ -254,6 +241,11 @@ export default function App() {
           apiKeyStore={apiKeyStore}
           onClose={() => setSettingsOpen(false)}
           onCredentialReady={() => setKeyReady(true)}
+          autoUpdateExistingTerms={autoUpdateExistingTerms}
+          onChangeAutoUpdateExistingTerms={(mode) => {
+            setAutoUpdateExistingTerms(mode);
+            void settingsRepo.setAutoUpdateExistingTerms(mode);
+          }}
         />
       )}
     </div>

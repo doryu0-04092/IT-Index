@@ -8,11 +8,11 @@ import { parseDistributionResponse } from './parseDistribution';
 import { parseMergeResponse } from './parseMerge';
 import { buildDistributionMessages, buildMergeMessages, DISTRIBUTION_SYSTEM_PROMPT, MERGE_SYSTEM_PROMPT } from './prompts';
 
-/** 承認画面に出す1語ぶんの提案。isTerm:false の項目は最初から含まれない */
+/** 分配統合の候補1語ぶん。isTerm:false の項目は最初から含まれない */
 export interface ProposedTerm {
   term: string;
   termId: string;
-  /** 辞書に無い語か。承認画面での「新規語には印を付ける」（要件定義書§5.3）に使う */
+  /** 辞書に無い語か */
   isNewTerm: boolean;
   /** ユーザー自身がこの語について明示的に尋ねたか。自動保存の可否判定に使う（commitOrchestrator.ts） */
   askedByUser: boolean;
@@ -31,9 +31,10 @@ export interface DistributionProposal {
 }
 
 /**
- * docs/architecture.md §4.1 の「確定」〜「承認画面」まで。DBへは一切書き込まない
- * （承認は必ず挟む、という要件定義書§5.3の方針をコードでも徹底するため、
- * 書き込みは applyDistribution() に分離してある）。
+ * docs/architecture.md §4.1 の「確定」〜分配案の組み立てまで。DBへは一切書き込まない
+ * （書き込みは commitProposal() に分離してある。要件定義書§5.3改訂〔2026-07-30〕：
+ * 承認画面は廃止し、分配案は常に自動でDBへ反映される。分岐は書き込み時の
+ * commitProposal() 側が担う）。
  */
 export async function proposeDistribution(
   sessionId: string,
@@ -56,9 +57,11 @@ export async function proposeDistribution(
     const existingTerm = await deps.termsRepo.getById(termId);
 
     // 辞書に無い語（＝新規登録になる語）は、ユーザー自身が明示的に尋ねた場合のみ候補にする。
-    // AIが別の語を説明する過程で触れただけの語まで新規登録候補に上げると、
-    // 会話1回につき無関係な新規語が何件も承認画面に並ぶことになるため（要件定義書§5.3）。
-    // 既存語への追記（統合）はこの絞り込みの対象外（MERGE_SYSTEM_PROMPTの非破壊ルールで安全性を担保済み）。
+    // AIが別の語を説明する過程で触れただけの語まで新規登録候補にすると、会話1回につき
+    // 無関係な新規語が何件も自動登録されてしまう（要件定義書§5.3）。この絞り込みは
+    // autoUpdateExistingTerms設定の対象外——新規登録は常にこのルール1本で決まる。
+    // 既存語への追記（統合）はこの絞り込みの対象外（MERGE_SYSTEM_PROMPTの非破壊ルールで安全性を担保済み。
+    // 自動反映するかどうかは commitProposal() 側の autoUpdateExistingTerms 設定で決める）。
     if (!existingTerm && !item.askedByUser) continue;
 
     const existingNote = existingTerm ? await deps.notesRepo.getByTermId(termId) : undefined;
@@ -98,9 +101,8 @@ export async function proposeDistribution(
 }
 
 /**
- * 実際のDB書き込み（terms/notes/asks）だけを行う共通処理。セッションの commit 状態には
- * 触れない——呼び出し元（承認画面経由の applyDistribution、自動保存の autoApplyAskedTerms）
- * それぞれが、自分の文脈で「これで確定処理が完了したか」を判断して chatRepo.commitSession() を呼ぶ。
+ * 実際のDB書き込み（terms/notes/asks）だけを行う共通処理。セッションの commit 状態には触れない
+ * （chatRepo.commitSession() は呼び出し元の commitProposal() が呼ぶ）。
  */
 async function writeTerms(
   sessionId: string,
@@ -130,15 +132,27 @@ async function writeTerms(
   );
 }
 
+/** 既存語への自動反映の範囲。要件定義書§5.3・設定画面の「既存語の自動更新」に対応する */
+export type AutoUpdateExistingTermsMode = 'askedOnly' | 'all';
+
 /**
- * 承認された項目だけを1トランザクション相当の一連の書き込みで反映する。
- * commitSession は冪等なので、この関数自体を2回呼んでも補足が二重にならない
- * （ただし2回目は notes が既に更新済みの状態に再度同じ内容を書くだけ、asks は毎回追加される
- * 点に注意。再実行を許容する場面では呼び出し側で防止すること）。
+ * 要件定義書§5.3改訂（2026-07-30）: 承認画面を廃止し、分配案は常に自動でDBへ反映する。
+ *
+ * - 新規登録になる語は、proposeDistribution() の時点で既に askedByUser:true のものしか
+ *   候補に残っていない（上記の絞り込み参照）ので、常に書き込む対象になる
+ *   ——「利用者が検索・質問した語だけ新規登録する」を満たす
+ * - 既存語への追記は `mode` に従う:
+ *   - `askedOnly`（既定）: `askedByUser: true` の語だけ書き込む。会話の中で他の語に
+ *     ついて説明された際、ついでに触れられただけの既存語（askedByUser:false）は書き込まない
+ *   - `all`: askedByUser の値に関わらず、候補に残った既存語への追記もすべて書き込む
+ *     （「他の単語を調べた際に出てきた情報も自動更新する」設定）
+ *
+ * 書き込んだ後、必ず chatSessions を commitSession() する（承認待ちで宙に浮く状態が無いため、
+ * 分岐なしで毎回呼べる）。
  */
-export async function applyDistribution(
+export async function commitProposal(
   proposal: DistributionProposal,
-  approvedTermIds: ReadonlySet<string>,
+  mode: AutoUpdateExistingTermsMode,
   deps: {
     termsRepo: TermsRepository;
     notesRepo: NotesRepository;
@@ -146,29 +160,12 @@ export async function applyDistribution(
     chatRepo: ChatRepository;
     deviceId: string;
   },
-): Promise<void> {
-  const approved = proposal.proposedTerms.filter((t) => approvedTermIds.has(t.termId));
-  await writeTerms(proposal.sessionId, approved, deps);
-  await deps.chatRepo.commitSession(proposal.sessionId);
-}
+): Promise<{ written: ProposedTerm[]; skipped: ProposedTerm[] }> {
+  const written = mode === 'all' ? proposal.proposedTerms : proposal.proposedTerms.filter((t) => t.askedByUser);
+  const skipped = mode === 'all' ? [] : proposal.proposedTerms.filter((t) => !t.askedByUser);
 
-/**
- * 要件定義書§5.3改訂（2026-07-29）: askedByUser=true の語（＝利用者が会話中に明示的に
- * 尋ねた語）は、承認画面を経由せず自動でDBへ書き込む。既存語への追記も新規語登録も対象——
- * 新規語は proposeDistribution() の時点で既に askedByUser=true のものしか候補に残らないため
- * 「利用者が確認してきた語だけ自動登録・自動更新」を満たす。askedByUser=false（＝既存語への
- * 言及だが、利用者自身は尋ねていない）はここでは書き込まず、従来どおり承認画面に回す
- * ——利用者が明示的に確認していない変更を無断でDBに反映しないため。
- *
- * このオーケストレーション自体はDBに書き込むが、chatSessions の commitSession は呼ばない
- * （呼び出し元の commitOrchestrator が、残りの承認待ちが無いかどうかで判断する）。
- */
-export async function autoApplyAskedTerms(
-  proposal: DistributionProposal,
-  deps: { termsRepo: TermsRepository; notesRepo: NotesRepository; asksRepo: AsksRepository; deviceId: string },
-): Promise<{ autoApplied: ProposedTerm[]; remaining: ProposedTerm[] }> {
-  const autoApplied = proposal.proposedTerms.filter((t) => t.askedByUser);
-  const remaining = proposal.proposedTerms.filter((t) => !t.askedByUser);
-  await writeTerms(proposal.sessionId, autoApplied, deps);
-  return { autoApplied, remaining };
+  await writeTerms(proposal.sessionId, written, deps);
+  await deps.chatRepo.commitSession(proposal.sessionId);
+
+  return { written, skipped };
 }

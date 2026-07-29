@@ -137,6 +137,13 @@ export interface SettingsRecord {
   key: 'singleton';
   deviceId: string;
   seedVersion: string | null;
+  /**
+   * 既存語への追記（統合）を自動保存する範囲（2026-07-30追加。要件定義書§5.3）。
+   * 'askedOnly'（既定）＝利用者自身が尋ねた語（askedByUser:true）だけを自動保存する。
+   * 'all' ＝ 他の語についての会話で言及されただけの語（askedByUser:false）も自動保存する。
+   * 新規語の登録は常に askedByUser:true が必須（この設定の対象外。distribution.ts参照）。
+   */
+  autoUpdateExistingTerms: 'askedOnly' | 'all';
 }
 
 /**

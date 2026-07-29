@@ -602,3 +602,17 @@ body {
   color: var(--muted);
   margin: 0 0 8px;
 }
+
+.settings-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  margin-top: 8px;
+  cursor: pointer;
+}
+
+.settings-radio input {
+  flex: none;
+  width: auto;
+}

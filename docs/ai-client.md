@@ -1,6 +1,6 @@
 # AIクライアント設計
 
-- 版: 2.4（2026-07-29）
+- 版: 2.5（2026-07-30）
 - 前提: [要件定義書](./requirements.md) §5.3 / [アーキテクチャ](./architecture.md) §4.1 / [データ層設計](./data-layer.md)
 
 ## 0. この文書の目的
@@ -26,7 +26,7 @@ src/ai/
   prompts.ts        … システムプロンプト・メッセージ組み立て（プロバイダ非依存）
   parseDistribution.ts / parseMerge.ts … AI出力(JSON)の検証・パース（純関数、fetch非依存）
   chat.ts           … 通常のチャット往復（1ターン）
-  distribution.ts   … 分配統合（提案 propose / 反映 apply の2段階）
+  distribution.ts   … 分配統合（提案 propose / 反映 commit の2段階。承認画面は無い。2026-07-30〜）
   commitOrchestrator.ts … 確定オーケストレーション（§5）
   testSupport.ts    … テスト専用フェイク AiClient
 ```
@@ -161,39 +161,43 @@ system = CHAT_SYSTEM_PROMPT
 
 ## 3. 分配統合（`distribution.ts`）
 
-2段階に分離してある。**DBへの書き込みは `applyDistribution()`（承認画面経由）と `autoApplyAskedTerms()`（askedByUser=trueの自動保存経由。2026-07-29追加）だけが行う**——どちらも内部で共通の `writeTerms()` ヘルパーに委譲する（`terms`/`notes`/`asks` への書き込みロジックを1箇所にまとめ、ズレを防ぐため）。承認前に、利用者が確認していない語がDBへ書き込まれることが構造的に無いようにする点は変わらない。
+2段階に分離してある。**DBへの書き込みは `commitProposal()` だけが行う**（内部で共通の `writeTerms()` ヘルパーに委譲し、`terms`/`notes`/`asks` への書き込みロジックを1箇所にまとめてある）。
 
-### 3.1 `proposeDistribution()` — AI呼び出し＋承認前プレビューの組み立て
+**2026-07-30改訂**: 承認画面（UI）を廃止した。以前は `applyDistribution()`（承認画面経由の書き込み）と `autoApplyAskedTerms()`（`askedByUser: true` だけの自動保存）の2関数に分かれ、`askedByUser: false` の語は承認画面に回していたが、これを1つの `commitProposal()` に統合し、**両方とも自動でDBへ書き込む**ように変更した。何を書き込むかは `askedByUser` と `mode`（`AutoUpdateExistingTermsMode`。要件定義書§5.3）で決まる（§3.2参照）。
+
+### 3.1 `proposeDistribution()` — AI呼び出し＋分配案の組み立て
 
 1. セッションの全メッセージ + `DISTRIBUTION_INSTRUCTION` を Claude に渡す
 2. 出力（JSON配列）を `parseDistributionResponse()` で検証
-3. `isTerm: false` の項目は最初から除外する（要件定義書§5.3「2段の絞り込み」の1段目）
-4. `makeTermId()` で既存語かどうかを判定し、**辞書に無い語（新規登録になる語）は `askedByUser: false` なら除外する**（要件定義書§5.3「新規登録は、利用者が明示的に尋ねた語だけ」。2026-07-29追加）。既存語への更新はこの絞り込みの対象外——`askedByUser` の値に関わらず処理を続ける
+3. `isTerm: false` の項目は最初から除外する（要件定義書§5.3「`isTerm` による除外」）
+4. `makeTermId()` で既存語かどうかを判定し、**辞書に無い語（新規登録になる語）は `askedByUser: false` なら除外する**（要件定義書§5.3「新規登録は、利用者が明示的に尋ねた語だけ」）。既存語への更新はこの絞り込みの対象外——`askedByUser` の値に関わらず処理を続ける（書き込むかどうかは後段の `commitProposal()` が判断する）
 5. 残った各項目について
    - **既存語かつ既存の `notes.body` が空でない** → 「統合」プロンプト（`MERGE_SYSTEM_PROMPT`）で追加のAI呼び出しを行い、既存本文と新しい本文を1つに統合する
    - それ以外（新規語、または既存語だが本文が空）→ AIが起こした `draftBody` をそのまま使う
 6. 統合呼び出しが失敗・出力不正だった場合は `draftBody` にフォールバックする（**統合の失敗で分配統合全体を止めない**）
 
-この時点では **DBには一切書き込まない**。戻り値の `DistributionProposal` を承認画面に表示する想定。
+この時点では **DBには一切書き込まない**。戻り値の `DistributionProposal` を `commitProposal()` に渡す。
 
-### 3.2 `applyDistribution()` — 承認後の書き込み
+### 3.2 `commitProposal()` — 自動反映（2026-07-30改訂）
 
-- 承認された `termId` の集合を受け取り、`writeTerms()` でその分だけ `notes` を更新（新規語は `terms` も作成、`summary` はAI生成の一文を使う。§4.3参照）・`asks` を1件ずつ `source: 'ai'` で追加し、最後に `chatSessions` を `committed` にする
-- `commitSession()` 自体は冪等（既存実装済み）
-- 承認画面UI（`src/ui/pc/ApprovalScreen.tsx`）から呼ばれる。ここに残る項目は「`askedByUser: false` の語だけ」（§3.4参照）
+```ts
+function commitProposal(
+  proposal: DistributionProposal,
+  mode: AutoUpdateExistingTermsMode, // 'askedOnly' | 'all'
+  deps: { termsRepo; notesRepo; asksRepo; chatRepo; deviceId },
+): Promise<{ written: ProposedTerm[]; skipped: ProposedTerm[] }>
+```
+
+- `mode === 'all'` なら `proposal.proposedTerms` を全件書き込む
+- `mode === 'askedOnly'`（既定）なら `askedByUser: true` の項目だけ書き込み、`false` は `skipped` に回して書き込まない
+- 新規登録になる語は `proposeDistribution()` の時点で既に `askedByUser: true` のものしか候補に残っていない（§3.1手順4）ので、**`mode` に関わらず新規登録の判定は変わらない**——`mode` が効くのは既存語への追記だけ
+- 書き込みは `writeTerms()` に委譲: `notes` を更新（新規語は `terms` も作成、`summary` はAI生成の一文を使う。§4.3参照）・`asks` を1件ずつ `source: 'ai'` で追加
+- 最後に必ず `chatSessions` を `commitSession()` する（承認待ちで宙に浮く状態が無いため、書き込み対象が0件でも毎回呼べる）。`commitSession()` 自体は冪等
+- `commitOrchestrator.ts` の `commit()` から、`proposeDistribution()` の直後に呼ばれる
 
 ### 3.3 分配統合とマージの呼び出し回数
 
-1回の確定で Claude API は **1（分配統合） + 統合が必要な語の数** 回呼ばれる。既存語への言及が多い会話ほど呼び出し回数が増える。コスト面での上限は現状無い（§5参照）。
-
-### 3.4 `autoApplyAskedTerms()` — askedByUser=true の自動保存（2026-07-29追加）
-
-要件定義書§5.3「利用者が確認してきた語は、承認画面を経由せず自動保存する」に対応する実装。`commitOrchestrator.ts` から `proposeDistribution()` の直後に呼ばれる。
-
-- `proposal.proposedTerms` を `askedByUser` で2つに分ける: `autoApplied`（true）と `remaining`（false）
-- `autoApplied` だけを `writeTerms()` で即座にDBへ書き込む
-- `remaining` は書き込まず、そのまま呼び出し元へ返す——**`chatSessions` の `commitSession()` はここでは呼ばない。** 「これでセッションが完全に解決したか（＝remainingが空か）」の判断は呼び出し元（`commitOrchestrator.ts`）の責務にする
-- 新規語は `proposeDistribution()` の時点で既に `askedByUser: false` のものが除外済み（§2「用語でないものを登録しない」ではなく`distribution.ts`側の絞り込み。要件定義書§5.3参照）なので、`remaining` に残るのは「既存語への追記だが、利用者は尋ねていない」語だけになる
+1回の確定で Claude API は **1（分配統合） + 統合が必要な語の数** 回呼ばれる。既存語への言及が多い会話ほど呼び出し回数が増える。コスト面での上限は現状無い（§6参照）。
 
 ---
 
@@ -218,8 +222,8 @@ system = CHAT_SYSTEM_PROMPT
 ```
 
 - `isTerm: false` の項目は `term` と `diagrams` のみ（`readings`/`field`/`draftBody`/`askedByUser`/`summary` は要求しない）
-- `askedByUser`（2026-07-29追加）: `isTerm: true` の項目には必須。利用者自身がその語について明示的に尋ねたかどうか。辞書に無い語（新規登録）はこれが `false` だと候補から除外される（`distribution.ts`）。既存語への更新には影響しない。また `askedByUser: true` の語は承認画面を経由せず自動保存される（要件定義書§5.3「利用者が確認してきた語は、承認画面を経由せず自動保存する」。§5参照）
-- `summary`（2026-07-29追加）: `isTerm: true` の項目には必須。一文の初期説明。**新規登録になる語でのみ実際に使う**（`terms.summary` に採用される）。既存語では `applyDistribution`/`autoApplyAskedTerms` のどちらも `summary` を無視する（既存語の初期説明は不変。要件定義書§5.2「なぜAIが初期説明に触れないのか」参照）
+- `askedByUser`（2026-07-29追加）: `isTerm: true` の項目には必須。利用者自身がその語について明示的に尋ねたかどうか。辞書に無い語（新規登録）はこれが `false` だと候補から除外される（`distribution.ts`）。既存語への更新は `false` でも候補には残るが、書き込むかどうかは設定（`AutoUpdateExistingTermsMode`）次第——`commitProposal()` の判断材料になる（要件定義書§5.3「既存語への自動反映は設定で選ぶ」。§3.2参照）
+- `summary`（2026-07-29追加）: `isTerm: true` の項目には必須。一文の初期説明。**新規登録になる語でのみ実際に使う**（`terms.summary` に採用される）。既存語では `commitProposal()` が `summary` を無視する（既存語の初期説明は不変。要件定義書§5.2「なぜAIが初期説明に触れないのか」参照）
 - `field` は seed-format.md §5 と同じ24分類の一覧でバリデーションする（`FIELDS` を再利用）
 - コードフェンス（` ```json ... ``` `）で包まれていても剥がして解釈する
 
@@ -237,7 +241,7 @@ system = CHAT_SYSTEM_PROMPT
 
 **2026-07-29改訂**: 新規登録の瞬間にAIが生成した `summary`（分配統合の出力。§4.1参照）を使うように変更した。既存語（本人がシードとして用意した語）の `summary` は従来どおり不変・AIは一切書き換えない——変わったのは「AI新規登録語にも初期説明を持たせる」点だけで、「一度登録された初期説明は誰であってもその後は書き換えない」という不変性そのものは維持している。
 
-実装: `src/repositories/terms.ts` の `buildTermRecord()` が `summary: string | null` を受け取る（型は変更していない。旧仕様で登録済みの `summary: null` レコードとの後方互換のため）。`src/ai/distribution.ts` の内部ヘルパー `writeTerms()`（`applyDistribution()`/`autoApplyAskedTerms()` の両方が使う共通処理）が、新規登録時に `summary: item.summary`（AI生成の一文）を渡す。既存語の更新では `summary` に一切触れない（`notes.applyCommit()` だけを呼ぶ）。
+実装: `src/repositories/terms.ts` の `buildTermRecord()` が `summary: string | null` を受け取る（型は変更していない。旧仕様で登録済みの `summary: null` レコードとの後方互換のため）。`src/ai/distribution.ts` の内部ヘルパー `writeTerms()`（`commitProposal()` が使う共通処理）が、新規登録時に `summary: item.summary`（AI生成の一文）を渡す。既存語の更新では `summary` に一切触れない（`notes.applyCommit()` だけを呼ぶ）。
 
 用語詳細画面（`TermDetailScreen.tsx`）の表示条件（`summary !== null` で初期説明セクションを表示）自体は変更していない——この改訂により、新規登録された語も自然に初期説明を持つようになるため、表示側の分岐を変える必要が無かった。
 
@@ -245,18 +249,14 @@ system = CHAT_SYSTEM_PROMPT
 
 ## 5. 確定オーケストレーション（`commitOrchestrator.ts`）
 
-architecture.md §5 の状態遷移図（`open → committing → approving → committed`）のうち、**`open → committing → approving` までを実装する。**
+architecture.md §5 の状態遷移図（元は `open → committing → approving → committed`）のうち、**2026-07-30改訂で `approving`（承認画面）状態を廃止した。** 現在は `open → committing → committed` の3状態のみで、`createCommitOrchestrator()` 自身が `proposeDistribution()` → `commitProposal()`（DB書き込み・`commitSession()`まで）を最後まで行う。
 
-**2026-07-27〜28時点**: `approving → committed`（承認・DB書き込み）は担当せず、`createCommitOrchestrator()` はどんな経路でも**DBに一切書き込まない**設計だった（「分配は必ず承認画面を挟む」を構造として強制するため）。
+**経緯**:
+- **2026-07-27〜28時点**: `createCommitOrchestrator()` はどんな経路でも**DBに一切書き込まない**設計だった（「分配は必ず承認画面を挟む」を構造として強制するため）。書き込みは承認画面UI（`applyDistribution()`）の役目だった。
+- **2026-07-29改訂**: `askedByUser: true` の語だけ承認画面無しで自動保存する`autoApplyAskedTerms()`を導入し、残りは承認画面に回す形にした。
+- **2026-07-30改訂**: 承認画面そのものを廃止。`autoApplyAskedTerms()`/`applyDistribution()` の2関数を `commitProposal()` に統合し（§3.2）、`commit()` は常にこれを呼んで最後まで確定処理を完了させる。「何を自動反映するか」は `askedByUser` と `deps.autoUpdateExistingTerms`（設定画面で選ぶ。要件定義書§5.3）で決まる。
 
-**2026-07-29改訂**: `askedByUser: true` の語を承認画面無しで自動保存する（要件定義書§5.3）ため、この境界を変更した。`proposeDistribution()` の直後に `autoApplyAskedTerms()`（§3.4）を呼び、
-
-- **残り（`askedByUser: false` の語）が無ければ**、承認画面を経由せず `chatRepo.commitSession()` を直接呼んでセッションを確定する（`onProposalReady` は呼ばない）
-- **残りがあれば**、その分だけを積んだ `DistributionProposal` を `onProposalReady` に渡す（＝承認画面には `askedByUser: false` の語だけが並ぶ）
-
-この分岐は `deps.asksRepo`/`deps.deviceId` が両方渡されている場合のみ有効にしてある（どちらも省略可能な任意項目）。省略した場合は従来どおり全件を `onProposalReady` に渡す——テスト等、自動保存を検証しない呼び出し元との後方互換のため。`App.tsx` は実運用として両方を渡す。
-
-「承認・DB書き込みを一切行わない」という不変条件そのものは、`askedByUser: false` の語（＝利用者が確認していない語）については変わらず維持されている。
+`CommitOrchestratorDeps` は `asksRepo`/`deviceId`/`autoUpdateExistingTerms` を**必須**にしてある（旧版では承認画面との後方互換のため任意項目だったが、承認画面が無くなった以上これが唯一の経路になったため）。
 
 4つのトリガーすべてに対応する:
 
@@ -267,9 +267,11 @@ architecture.md §5 の状態遷移図（`open → committing → approving → 
 | ③ | 明示的な確定操作 | `triggerCommit(sessionId)`（①と同じ実装） |
 | ④ | 起動時に検出（15分以上前から放置） | `recoverStaleSessions()`。`chatRepo.findStaleOpenSessions()` を使って一括で確定処理へ回す |
 
-AI呼び出し（`proposeDistribution()`）が失敗した場合は `onError` を呼ぶだけで、セッションの状態は変更しない（`committing --> open` に相当。次回のトリガーで再試行される）。自動保存（`autoApplyAskedTerms()`）自体は読み書きとも例外を投げない構造だが、内部の `writeTerms()` が失敗した場合はこの `catch` に含まれ、同様に扱われる。
+AI呼び出し（`proposeDistribution()`）や書き込み（`commitProposal()`）が失敗した場合は `onError` を呼ぶだけで、セッションの状態は変更しない（`committing --> open` に相当。次回のトリガーで再試行される）。
 
-**未配線（このオーケストレーター自体はテスト済み）**: `noteActivity()`（トリガー②・15分無操作）を `ChatScreen` のメッセージ送受信から呼ぶ配線だけがまだ無い。`onProposalReady`（承認画面へ）・`recoverStaleSessions()`（起動時）は `App.tsx` に配線済み（[ui-pc.md](./ui-pc.md)）。
+`App.tsx` は `deviceId` が読み込まれるまで（起動直後の一瞬）`createCommitOrchestrator()` 自体を作らない（`deviceId: string | null` のうち `null` の間は `commitOrchestrator` を `null` にする）——書き込みに実在の `deviceId` を要するため。
+
+**未配線（このオーケストレーター自体はテスト済み）**: `noteActivity()`（トリガー②・15分無操作）を `ChatScreen` のメッセージ送受信から呼ぶ配線だけがまだ無い。`recoverStaleSessions()`（起動時）は `App.tsx` に配線済み（[ui-pc.md](./ui-pc.md)）。
 
 ### テスト時の注意: fake-indexeddb と `vi.useFakeTimers()` は併用できない
 

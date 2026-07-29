@@ -1,6 +1,6 @@
 # データ層設計（Dexie / IndexedDB）
 
-- 版: 1.1（2026-07-29）
+- 版: 1.2（2026-07-30）
 - 前提: [要件定義書](./requirements.md) / [アーキテクチャ](./architecture.md) / [初期データ形式仕様](./seed-format.md)
 
 ## 0. この文書の位置づけ
@@ -178,6 +178,7 @@ export interface SettingsRecord {
   key: 'singleton';            // 常に1行しか存在しない固定キー
   deviceId: string;
   seedVersion: string | null;  // 取り込み済みの seed version。未取り込みは null
+  autoUpdateExistingTerms: 'askedOnly' | 'all'; // 既存語の自動更新範囲。既定 'askedOnly'（2026-07-30追加。要件定義書§5.3）
   // driveToken 等の認可情報は別ストア（鍵ストア）で扱い、このテーブルには置かない。
   // 「同期対象外」を型レベルでも徹底するため、Drive同期のシリアライズ関数は
   // SettingsRecord を一切参照しない実装にする（下記§3.5参照）。
@@ -272,6 +273,7 @@ export interface ChatRepository {
 export interface SettingsRepository {
   get(): Promise<SettingsRecord>;      // 無ければ deviceId を新規発行して1行作る
   setSeedVersion(version: string): Promise<void>;
+  setAutoUpdateExistingTerms(mode: 'askedOnly' | 'all'): Promise<void>; // 2026-07-30追加
 }
 
 // repositories/keyStore.ts

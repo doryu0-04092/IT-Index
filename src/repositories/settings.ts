@@ -5,6 +5,7 @@ export interface SettingsRepository {
   /** 無ければ deviceId を新規発行して1行作る */
   get(): Promise<SettingsRecord>;
   setSeedVersion(version: string): Promise<void>;
+  setAutoUpdateExistingTerms(mode: SettingsRecord['autoUpdateExistingTerms']): Promise<void>;
 }
 
 export function createSettingsRepository(db: ItIndexDB): SettingsRepository {
@@ -22,6 +23,7 @@ export function createSettingsRepository(db: ItIndexDB): SettingsRepository {
           key: 'singleton',
           deviceId: crypto.randomUUID(),
           seedVersion: null,
+          autoUpdateExistingTerms: 'askedOnly',
         };
         await db.settings.put(created);
         return created;
@@ -30,6 +32,10 @@ export function createSettingsRepository(db: ItIndexDB): SettingsRepository {
 
     async setSeedVersion(version) {
       await db.settings.update('singleton', { seedVersion: version });
+    },
+
+    async setAutoUpdateExistingTerms(mode) {
+      await db.settings.update('singleton', { autoUpdateExistingTerms: mode });
     },
   };
 }
