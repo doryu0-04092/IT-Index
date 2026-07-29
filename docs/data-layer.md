@@ -1,6 +1,6 @@
 # データ層設計（Dexie / IndexedDB）
 
-- 版: 1.0（2026-07-27）
+- 版: 1.1（2026-07-29）
 - 前提: [要件定義書](./requirements.md) / [アーキテクチャ](./architecture.md) / [初期データ形式仕様](./seed-format.md)
 
 ## 0. この文書の位置づけ
@@ -149,9 +149,10 @@ export interface NoteHistoryEntry {
 export interface AskRecord {
   id: string;                  // crypto.randomUUID()
   termId: string;
-  sessionId: string;
+  sessionId: string | null;    // AIチャット確定由来のみ。ローカル検索確定（source:'search'）は null
   at: number;                  // epoch ms。(at, id) が通し番号の複合キー
   deviceId: string;
+  source: 'ai' | 'search';     // 2026-07-29追加。重み付けの倍率が異なる（core/computeWeights.ts）
 }
 
 /** Drive 同期対象外（過程は共有しない。統合結果である notes/asks だけ共有） */
@@ -250,7 +251,8 @@ export interface NotesRepository {
 
 // repositories/asks.ts
 export interface AsksRepository {
-  addMany(asks: Omit<AskRecord, 'id'>[]): Promise<void>; // 分配先の全語に1件ずつ、1トランザクションで追加
+  addMany(asks: Omit<AskRecord, 'id'>[]): Promise<void>; // 分配先の全語に1件ずつ、1トランザクションで追加（source:'ai'）
+  addSearchConfirm(termId: string, deviceId: string, at: number): Promise<void>; // 2026-07-29追加。ローカル検索で用語詳細を開いた1件（source:'search'）
   getAllOrdered(): Promise<AskRecord[]>;          // [at+id] インデックスで全件取得。computeWeights() の入力
   getByTermId(termId: string): Promise<AskRecord[]>;
   upsertFromSync(asks: AskRecord[]): Promise<void>; // id の和集合。既存 id はスキップ
@@ -319,7 +321,8 @@ export function mergeSnapshot(local: LocalSnapshot, remoteFiles: SyncFile[]): Me
 // core/computeWeights.ts
 export interface WeightedTerm { termId: string; weight: number; }
 export function computeWeights(asksOrdered: AskRecord[], halfLife?: number): WeightedTerm[];
-// score(語) = Σ r^(N-i), r = 0.5^(1/H), H既定50。§要件定義書5.4 の式そのまま
+// score(語) = Σ w_i・r^(N-i), r = 0.5^(1/H), H既定50。要件定義書§5.4の式そのまま
+// w_i はイベントの重み: ask.source==='ai' なら3、'search' なら1（2026-07-29追加。source未設定の旧レコードは'ai'扱い）
 
 // core/validateSeed.ts（seed-format.md §8 の検証をそのまま実装。fetchもIndexedDBも持たない）
 export type SeedValidationResult = { ok: true; file: SeedFile } | { ok: false; reason: string };

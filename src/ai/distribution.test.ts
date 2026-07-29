@@ -4,7 +4,7 @@ import { createAsksRepository } from '../repositories/asks';
 import { createChatRepository } from '../repositories/chat';
 import { createNotesRepository } from '../repositories/notes';
 import { buildTermRecord, createTermsRepository, makeTermId } from '../repositories/terms';
-import { applyDistribution, proposeDistribution } from './distribution';
+import { applyDistribution, autoApplyAskedTerms, proposeDistribution } from './distribution';
 import { createScriptedAiClient } from './testSupport';
 
 function distributionJson(items: unknown[]): string {
@@ -36,6 +36,7 @@ describe('proposeDistribution / applyDistribution', () => {
           term: 'TCP/IP',
           isTerm: true,
           askedByUser: true,
+          summary: '通信の取り決めを層に分けた規約の集まり。',
           readings: ['ティーシーピーアイピー'],
           field: 'ネットワーク',
           draftBody: '層に分けた通信規約の集まり。',
@@ -50,6 +51,8 @@ describe('proposeDistribution / applyDistribution', () => {
     expect(proposal.proposedTerms[0]).toMatchObject({
       term: 'TCP/IP',
       isNewTerm: true,
+      askedByUser: true,
+      summary: '通信の取り決めを層に分けた規約の集まり。',
       finalBody: '層に分けた通信規約の集まり。',
     });
     expect(claude.calls).toHaveLength(1); // マージ呼び出しは発生しない
@@ -69,6 +72,7 @@ describe('proposeDistribution / applyDistribution', () => {
           term: 'TCP/IP',
           isTerm: true,
           askedByUser: true,
+          summary: '層に分けた通信規約の集まり。',
           readings: ['ティーシーピーアイピー'],
           field: 'ネットワーク',
           draftBody: '層に分けた通信規約の集まり。',
@@ -78,6 +82,7 @@ describe('proposeDistribution / applyDistribution', () => {
           term: 'ルーティング',
           isTerm: true,
           askedByUser: false,
+          summary: '経路を選ぶ仕組み。',
           readings: ['ルーティング'],
           field: 'ネットワーク',
           draftBody: '経路を選ぶ仕組み。',
@@ -117,6 +122,7 @@ describe('proposeDistribution / applyDistribution', () => {
           term: 'ルーティング',
           isTerm: true,
           askedByUser: false,
+          summary: '経路を選ぶ仕組み。',
           readings: ['ルーティング'],
           field: 'ネットワーク',
           draftBody: '経路を選ぶ仕組み。',
@@ -128,7 +134,7 @@ describe('proposeDistribution / applyDistribution', () => {
     const proposal = await proposeDistribution(session.id, { chatRepo, termsRepo, notesRepo, claude });
 
     expect(proposal.proposedTerms).toHaveLength(1);
-    expect(proposal.proposedTerms[0]).toMatchObject({ term: 'ルーティング', isNewTerm: false });
+    expect(proposal.proposedTerms[0]).toMatchObject({ term: 'ルーティング', isNewTerm: false, askedByUser: false });
   });
 
   it('filters out isTerm:false items entirely', async () => {
@@ -171,6 +177,7 @@ describe('proposeDistribution / applyDistribution', () => {
           term: 'TCP/IP',
           isTerm: true,
           askedByUser: true,
+          summary: '規約の集まり。',
           readings: ['ティーシーピーアイピー'],
           field: 'ネットワーク',
           draftBody: '新しく聞いた説明。',
@@ -216,6 +223,7 @@ describe('proposeDistribution / applyDistribution', () => {
           term: 'TCP/IP',
           isTerm: true,
           askedByUser: true,
+          summary: '規約の集まり。',
           readings: ['ティーシーピーアイピー'],
           field: 'ネットワーク',
           draftBody: '新しい説明。',
@@ -244,6 +252,8 @@ describe('proposeDistribution / applyDistribution', () => {
           term: 'TCP/IP',
           termId: makeTermId('TCP/IP'),
           isNewTerm: true,
+          askedByUser: true,
+          summary: '層に分けた通信規約の集まり。',
           readings: ['ティーシーピーアイピー'],
           field: 'ネットワーク' as const,
           finalBody: '説明A',
@@ -253,6 +263,8 @@ describe('proposeDistribution / applyDistribution', () => {
           term: 'MTU',
           termId: makeTermId('MTU'),
           isNewTerm: true,
+          askedByUser: true,
+          summary: '一度に送れるデータの最大サイズ。',
           readings: ['エムティーユー'],
           field: 'ネットワーク' as const,
           finalBody: '説明B',
@@ -272,7 +284,7 @@ describe('proposeDistribution / applyDistribution', () => {
 
     const created = await termsRepo.getById(makeTermId('TCP/IP'));
     expect(created).toBeDefined();
-    expect(created?.summary).toBeNull(); // AI新規登録語には初期説明という概念が無い
+    expect(created?.summary).toBe('層に分けた通信規約の集まり。'); // AI新規登録語もAI生成の初期説明を持つ（2026-07-29〜）
     expect(await termsRepo.getById(makeTermId('MTU'))).toBeUndefined();
     expect((await notesRepo.getByTermId(makeTermId('TCP/IP')))?.body).toBe('説明A');
     expect(await asksRepo.getByTermId(makeTermId('TCP/IP'))).toHaveLength(1);
@@ -280,5 +292,103 @@ describe('proposeDistribution / applyDistribution', () => {
 
     const staleSessions = await chatRepo.findStaleOpenSessions(Date.now(), 0);
     expect(staleSessions.map((s) => s.id)).not.toContain(session.id); // committed済み
+  });
+
+  describe('autoApplyAskedTerms', () => {
+    it('writes askedByUser:true items to the DB without an approval step, and leaves askedByUser:false items untouched', async () => {
+      const chatRepo = createChatRepository(db);
+      const termsRepo = createTermsRepository(db);
+      const notesRepo = createNotesRepository(db);
+      const asksRepo = createAsksRepository(db);
+      const session = await chatRepo.createSession(null);
+
+      const now = Date.now();
+      const existingRouting = buildTermRecord({
+        term: 'ルーティング',
+        readings: ['ルーティング'],
+        summary: '経路制御。',
+        field: 'ネットワーク',
+        origin: 'seed',
+        now,
+      });
+      await termsRepo.bulkPutFromSeed([existingRouting]);
+
+      const proposal = {
+        sessionId: session.id,
+        proposedTerms: [
+          {
+            term: 'TCP/IP',
+            termId: makeTermId('TCP/IP'),
+            isNewTerm: true,
+            askedByUser: true,
+            summary: '層に分けた通信規約の集まり。',
+            readings: ['ティーシーピーアイピー'],
+            field: 'ネットワーク' as const,
+            finalBody: '説明A',
+            diagrams: [],
+          },
+          {
+            term: 'ルーティング',
+            termId: makeTermId('ルーティング'),
+            isNewTerm: false,
+            askedByUser: false,
+            summary: '経路を選ぶ仕組み。',
+            readings: ['ルーティング'],
+            field: 'ネットワーク' as const,
+            finalBody: '統合済みの説明',
+            diagrams: [],
+          },
+        ],
+      };
+
+      const { autoApplied, remaining } = await autoApplyAskedTerms(proposal, {
+        termsRepo,
+        notesRepo,
+        asksRepo,
+        deviceId: 'device-A',
+      });
+
+      expect(autoApplied.map((t) => t.term)).toEqual(['TCP/IP']);
+      expect(remaining.map((t) => t.term)).toEqual(['ルーティング']);
+
+      // askedByUser:true（TCP/IP）は書き込み済み
+      expect(await termsRepo.getById(makeTermId('TCP/IP'))).toBeDefined();
+      expect((await notesRepo.getByTermId(makeTermId('TCP/IP')))?.body).toBe('説明A');
+      expect(await asksRepo.getByTermId(makeTermId('TCP/IP'))).toHaveLength(1);
+
+      // askedByUser:false（ルーティング）はまだ書き込まれていない（承認画面待ち）
+      expect((await notesRepo.getByTermId(makeTermId('ルーティング')))?.body).toBeUndefined();
+      expect(await asksRepo.getByTermId(makeTermId('ルーティング'))).toHaveLength(0);
+    });
+
+    it('does not touch chatSessions.commitSession (caller decides when the session is fully resolved)', async () => {
+      const chatRepo = createChatRepository(db);
+      const termsRepo = createTermsRepository(db);
+      const notesRepo = createNotesRepository(db);
+      const asksRepo = createAsksRepository(db);
+      const session = await chatRepo.createSession(null);
+
+      const proposal = {
+        sessionId: session.id,
+        proposedTerms: [
+          {
+            term: 'TCP/IP',
+            termId: makeTermId('TCP/IP'),
+            isNewTerm: true,
+            askedByUser: true,
+            summary: '層に分けた通信規約の集まり。',
+            readings: ['ティーシーピーアイピー'],
+            field: 'ネットワーク' as const,
+            finalBody: '説明A',
+            diagrams: [],
+          },
+        ],
+      };
+
+      await autoApplyAskedTerms(proposal, { termsRepo, notesRepo, asksRepo, deviceId: 'device-A' });
+
+      const stillOpen = await chatRepo.findStaleOpenSessions(Date.now(), 0);
+      expect(stillOpen.map((s) => s.id)).toContain(session.id); // まだ committed になっていない
+    });
   });
 });

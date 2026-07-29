@@ -47,6 +47,7 @@ export const DISTRIBUTION_SYSTEM_PROMPT = `あなたはIT-Indexという学習�
     "term": "見出し語（例: TCP/IP）",
     "isTerm": true,
     "askedByUser": true,
+    "summary": "この語を簡潔に言い表す一文（初期説明。分かる人が見れば足りるレベルの短さ）",
     "readings": ["カタカナ読み。原則1要素"],
     "field": "分野。次のいずれか1つ: ${FIELDS.join(', ')}",
     "draftBody": "この語について会話から起こした、単独で読んで理解できる完結した説明文（Markdown）",
@@ -55,8 +56,9 @@ export const DISTRIBUTION_SYSTEM_PROMPT = `あなたはIT-Indexという学習�
 ]
 
 ルール:
-- 会話中でIT用語ではないもの（雑談など）を項目に含める場合は isTerm を false にしてください。isTerm が false の項目は term と diagrams（空配列でよい）だけを書き、readings・field・draftBody・askedByUser は書かないでください。
+- 会話中でIT用語ではないもの（雑談など）を項目に含める場合は isTerm を false にしてください。isTerm が false の項目は term と diagrams（空配列でよい）だけを書き、readings・field・draftBody・askedByUser・summary は書かないでください。
 - isTerm が true の項目には必ず askedByUser を含めてください。**ユーザー自身がその語について説明・意味・詳細を尋ねる発言をした場合のみ true** にしてください。あなた（AI）が別の語を説明する過程で、ユーザーから特に聞かれていないのに触れただけの語は false にしてください。ユーザーが「これ」「この」等の指示語で尋ねた場合、指し先の語（会話冒頭の文脈で示された語、または直前にAIが説明した語）も true として扱ってください。
+- summary は一文の要約であり、draftBody（前提知識・具体例を含む詳しい説明）とは役割が違います。**summary に draftBody の内容を重複して長く書かないでください。** summary はこの語が辞書に新規登録される場合にのみ使われ、既に辞書にある語では（AIが何を書いても）無視されます。
 - draftBody は「分からなかった人が、分かるようになるまでに必要だった情報」の記録として書いてください。前提知識・具体例・つまずきやすい点を含め、この文章だけを読んで理解できるようにしてください。読み手が既に知識を持っている前提で書かないでください。
 - 同じ用語が会話中に何度も出てきても、1項目にまとめてください（一度でもユーザーに聞かれていれば askedByUser は true）。
 - 用語が1つも無い会話なら、空配列 [] を返してください。`;

@@ -11,6 +11,8 @@ export type DistributionItem =
       isTerm: true;
       /** ユーザー自身がこの語について明示的に尋ねたか。新規語登録の可否判定に使う（distribution.ts） */
       askedByUser: boolean;
+      /** 新規語登録時のみ使う初期説明の一文（要件定義書§5.2、2026-07-29追加）。既存語では無視する */
+      summary: string;
       readings: string[];
       field: Field;
       draftBody: string;
@@ -64,6 +66,9 @@ export function parseDistributionResponse(raw: string): ParseDistributionResult 
     if (typeof e.askedByUser !== 'boolean') {
       return { ok: false, reason: `${e.term}: askedByUser が boolean ではありません` };
     }
+    if (typeof e.summary !== 'string' || e.summary === '') {
+      return { ok: false, reason: `${e.term}: summary がありません` };
+    }
     if (!Array.isArray(e.readings) || e.readings.length === 0 || !e.readings.every((r) => typeof r === 'string')) {
       return { ok: false, reason: `${e.term}: readings が不正です（1要素以上の文字列配列が必要）` };
     }
@@ -78,6 +83,7 @@ export function parseDistributionResponse(raw: string): ParseDistributionResult 
       term: e.term,
       isTerm: true,
       askedByUser: e.askedByUser,
+      summary: e.summary,
       readings: e.readings as string[],
       field: e.field as Field,
       draftBody: e.draftBody,

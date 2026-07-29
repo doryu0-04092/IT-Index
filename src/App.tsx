@@ -57,13 +57,15 @@ export default function App() {
         termsRepo,
         notesRepo,
         claude,
+        asksRepo,
+        deviceId,
         onProposalReady: (proposal) => setScreen({ name: 'approve', proposal }),
         onError: (sessionId, error) => {
           logAiError(`commitOrchestrator(session=${sessionId})`, error);
           setGlobalError(`確定処理に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
         },
       }),
-    [chatRepo, termsRepo, notesRepo, claude],
+    [chatRepo, termsRepo, notesRepo, claude, asksRepo, deviceId],
   );
 
   useEffect(() => {
@@ -152,6 +154,16 @@ export default function App() {
     setScreen({ name: 'search' });
   }
 
+  // 要件定義書§5.4「ローカル検索の確定」。検索結果一覧から用語を選んで詳細を開いた
+  // 瞬間だけを「確定」とみなす（検索欄への入力や一覧の閲覧だけでは呼ばない）。
+  // AIチャット確定（source:'ai'）より弱い重みで加算する（computeWeights.ts）。
+  function handleSelectFromSearch(termId: string) {
+    if (deviceId) {
+      void asksRepo.addSearchConfirm(termId, deviceId, Date.now());
+    }
+    setScreen({ name: 'detail', termId });
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -182,7 +194,7 @@ export default function App() {
           <SearchScreen
             termsRepo={termsRepo}
             seedStatus={seedStatus}
-            onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
+            onSelectTerm={handleSelectFromSearch}
             onStartChat={(termId, seedQuery) => void startChat(termId, seedQuery)}
             onOpenHistory={(view) => setScreen({ name: 'history', view })}
           />

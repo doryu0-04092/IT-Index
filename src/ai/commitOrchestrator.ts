@@ -1,8 +1,9 @@
+import type { AsksRepository } from '../repositories/asks';
 import type { ChatRepository } from '../repositories/chat';
 import type { NotesRepository } from '../repositories/notes';
 import type { TermsRepository } from '../repositories/terms';
 import type { AiClient } from './aiClient';
-import { proposeDistribution, type DistributionProposal } from './distribution';
+import { autoApplyAskedTerms, proposeDistribution, type DistributionProposal } from './distribution';
 
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
@@ -11,7 +12,14 @@ export interface CommitOrchestratorDeps {
   termsRepo: TermsRepository;
   notesRepo: NotesRepository;
   claude: AiClient;
-  /** 分配案が用意できたら呼ばれる。承認画面（未実装）に渡す想定。ここではDBに一切書き込まない */
+  /**
+   * askedByUser=true の語を承認画面を経由せず自動保存するために使う（2026-07-29追加）。
+   * どちらも省略した場合は自動保存を行わず、これまでどおり全件を onProposalReady 経由の
+   * 承認画面に回す（テスト等、自動保存を検証しない呼び出し元との後方互換のため任意項目にしてある）。
+   */
+  asksRepo?: AsksRepository;
+  deviceId?: string | null;
+  /** 分配案（askedByUser=falseの残りだけ）が用意できたら呼ばれる。ここではDBに一切書き込まない */
   onProposalReady: (proposal: DistributionProposal) => void;
   /** AI呼び出し失敗時。状態遷移図どおりセッションは open のまま残り、次回再試行される */
   onError?: (sessionId: string, error: unknown) => void;
@@ -74,6 +82,25 @@ export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOr
         notesRepo: deps.notesRepo,
         claude: deps.claude,
       });
+
+      if (deps.asksRepo && deps.deviceId) {
+        const { autoApplied, remaining } = await autoApplyAskedTerms(proposal, {
+          termsRepo: deps.termsRepo,
+          notesRepo: deps.notesRepo,
+          asksRepo: deps.asksRepo,
+          deviceId: deps.deviceId,
+        });
+        // 元の提案が空だった場合（IT用語が1つも無い会話）は従来どおり空の提案を
+        // 承認画面へ回す。自動保存によって「残りが0件になった」場合だけ、
+        // 承認画面を出さずにそのままセッションを確定する。
+        if (autoApplied.length > 0 && remaining.length === 0) {
+          await deps.chatRepo.commitSession(sessionId);
+          return;
+        }
+        deps.onProposalReady({ sessionId, proposedTerms: remaining });
+        return;
+      }
+
       deps.onProposalReady(proposal);
     } catch (error) {
       // committing --> open（API呼び出し失敗）。セッションは元々 open のままなので状態変更は不要

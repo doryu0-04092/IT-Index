@@ -7,6 +7,7 @@ function validJson() {
       term: 'TCP/IP',
       isTerm: true,
       askedByUser: true,
+      summary: '層に分けた通信規約の集まり。',
       readings: ['ティーシーピーアイピー'],
       field: 'ネットワーク',
       draftBody: '説明文',
@@ -67,6 +68,20 @@ describe('parseDistributionResponse', () => {
     const result = parseDistributionResponse(JSON.stringify(items));
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.items[0]).toMatchObject({ askedByUser: false });
+  });
+
+  it('rejects isTerm:true items missing summary', () => {
+    const items = JSON.parse(validJson());
+    delete items[0].summary;
+    const result = parseDistributionResponse(JSON.stringify(items));
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects isTerm:true items with an empty summary', () => {
+    const items = JSON.parse(validJson());
+    items[0].summary = '';
+    const result = parseDistributionResponse(JSON.stringify(items));
+    expect(result.ok).toBe(false);
   });
 
   it('rejects malformed JSON', () => {

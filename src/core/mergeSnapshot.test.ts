@@ -7,7 +7,7 @@ function note(termId: string, body: string, updatedAt: number, lastEditedBy: str
 }
 
 function ask(id: string, termId: string): AskRecord {
-  return { id, termId, sessionId: 's', at: 1, deviceId: 'd' };
+  return { id, termId, sessionId: 's', at: 1, deviceId: 'd', source: 'ai' };
 }
 
 function syncFile(deviceId: string, notes: NoteRecord[], asks: AskRecord[] = []): SyncFile {

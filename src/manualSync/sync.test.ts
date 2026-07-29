@@ -24,7 +24,7 @@ describe('exportOwnSyncFile / importSyncFiles', () => {
     const now = Date.now();
 
     await notesRepo.applyCommit('tcp/ip', '説明', [], deviceId, now);
-    await asksRepo.addMany([{ termId: 'tcp/ip', sessionId: 's1', at: now, deviceId }]);
+    await asksRepo.addMany([{ termId: 'tcp/ip', sessionId: 's1', at: now, deviceId, source: 'ai' }]);
 
     const exported = await exportOwnSyncFile({ deviceId, notesRepo, asksRepo, termsRepo });
 
@@ -47,7 +47,7 @@ describe('exportOwnSyncFile / importSyncFiles', () => {
         deviceId: 'device-B',
         writtenAt: 1,
         notes: [{ termId: 'udp', body: '別端末の説明', diagrams: [], updatedAt: 1, lastEditedBy: 'device-B', noteHistory: [] }],
-        asks: [{ id: 'ask-1', termId: 'udp', sessionId: 's-b', at: 1, deviceId: 'device-B' }],
+        asks: [{ id: 'ask-1', termId: 'udp', sessionId: 's-b', at: 1, deviceId: 'device-B', source: 'ai' }],
         aiTerms: [],
       }),
     };

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { AskRecord } from '../types';
 import { computeWeights } from './computeWeights';
 
-function ask(id: string, termId: string, at: number): AskRecord {
-  return { id, termId, sessionId: 's1', at, deviceId: 'd1' };
+function ask(id: string, termId: string, at: number, source: AskRecord['source'] = 'ai'): AskRecord {
+  return { id, termId, sessionId: source === 'ai' ? 's1' : null, at, deviceId: 'd1', source };
 }
 
 describe('computeWeights', () => {
@@ -34,5 +34,20 @@ describe('computeWeights', () => {
     const a = [ask('a', 'x', 100), ask('b', 'y', 100)];
     const b = [ask('b', 'y', 100), ask('a', 'x', 100)];
     expect(computeWeights(a)).toEqual(computeWeights(b));
+  });
+
+  it('AIチャット確定（source:ai）はローカル検索確定（source:search）の3倍の重みになる', () => {
+    // 通し番号（i, N）の影響を受けないよう、それぞれ単独のリストで比較する
+    // （N=1, i=1 なので r^(N-i)=1 になり、重みの差は倍率だけに由来する）
+    const aiWeight = computeWeights([ask('1', 'a', 1, 'ai')])[0].weight;
+    const searchWeight = computeWeights([ask('2', 'b', 1, 'search')])[0].weight;
+    expect(aiWeight).toBeCloseTo(searchWeight * 3);
+  });
+
+  it('source が無い（この変更以前の）レコードは ai 扱いにする（後方互換）', () => {
+    const legacy: AskRecord = { id: '1', termId: 'a', sessionId: 's1', at: 1, deviceId: 'd1' } as AskRecord;
+    const legacyWeight = computeWeights([legacy])[0].weight;
+    const searchWeight = computeWeights([ask('2', 'b', 1, 'search')])[0].weight;
+    expect(legacyWeight).toBeCloseTo(searchWeight * 3);
   });
 });

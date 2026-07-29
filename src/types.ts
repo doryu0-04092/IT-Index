@@ -65,9 +65,11 @@ export interface TermRecord {
   term: string;
   readings: string[]; // 原則1要素
   /**
-   * 不変・AIは触らない。本人が用意する「思い出す用」の簡潔な説明（要件定義書§5.2）。
-   * origin:'ai' の新規登録語には初期説明という概念自体が無いため null。
-   * その場合は notes.body（AI補足）だけが本文として扱われる。
+   * 不変（一度書かれたら二度と上書きしない。要件定義書§5.2）。
+   * origin:'seed' は本人が用意。origin:'ai' は新規登録の瞬間にAIが1回だけ生成する
+   * （2026-07-29決定。それ以前は origin:'ai' には概念自体が無く常に null だった）。
+   * どちらの origin でも、登録後の統合（merge）では一切書き換えない。
+   * null は主にこの変更以前に登録された古い origin:'ai' レコードの後方互換用。
    */
   summary: string | null;
   field: Field;
@@ -100,9 +102,16 @@ export interface NoteRecord {
 export interface AskRecord {
   id: string;
   termId: string;
-  sessionId: string;
+  /** AIチャットの確定由来なら該当セッションID。ローカル検索の確定由来（source:'search'）は null */
+  sessionId: string | null;
   at: number; // epoch ms。(at, id) が通し番号の複合キー
   deviceId: string;
+  /**
+   * 'ai' = AIチャットの確定で加算（従来どおり）。
+   * 'search' = ローカル検索結果から用語詳細を開いた「確定」で加算（2026-07-29追加。要件定義書§5.4）。
+   * 重み付けの倍率が異なる（src/core/computeWeights.ts）。未設定（この変更以前のレコード）は 'ai' 扱いにする。
+   */
+  source: 'ai' | 'search';
 }
 
 /** Drive 同期対象外（過程は共有しない） */
