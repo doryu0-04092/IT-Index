@@ -8,7 +8,7 @@ export interface TermDetailScreenProps {
   termsRepo: TermsRepository;
   notesRepo: NotesRepository;
   onBack: () => void;
-  onStartChat: (termId: string, termLabel: string) => void;
+  onStartChat: (termId: string) => void;
 }
 
 export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack, onStartChat }: TermDetailScreenProps) {
@@ -67,7 +67,7 @@ export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack,
             ) : (
               <p className="search-status">まだAIに聞いたことがありません。</p>
             )}
-            <button type="button" onClick={() => onStartChat(termId, term.term)}>
+            <button type="button" onClick={() => onStartChat(termId)}>
               この語についてAIに聞く
             </button>
           </section>

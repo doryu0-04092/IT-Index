@@ -3,6 +3,7 @@ import { ItIndexDB } from '../db';
 import { createChatRepository } from '../repositories/chat';
 import { sendChatTurn } from './chat';
 import { createScriptedAiClient } from './testSupport';
+import type { SubjectContext } from './subjectContext';
 
 describe('sendChatTurn', () => {
   let db: ItIndexDB;
@@ -15,7 +16,7 @@ describe('sendChatTurn', () => {
     await db.delete();
   });
 
-  it('appends the user message, calls Claude with full history, and appends the reply', async () => {
+  it('appends the user message as-is (no context prepended to message content), calls Claude with full history, and appends the reply', async () => {
     const chatRepo = createChatRepository(db);
     const session = await chatRepo.createSession('tcp');
     const claude = createScriptedAiClient(['TCP/IPとは...']);
@@ -46,46 +47,7 @@ describe('sendChatTurn', () => {
     ]);
   });
 
-  it('prepends the term context to the first message when termLabel is given (from a term detail screen)', async () => {
-    const chatRepo = createChatRepository(db);
-    const session = await chatRepo.createSession('tcp/ip');
-    const claude = createScriptedAiClient(['TCP/IPは...']);
-
-    await sendChatTurn(session.id, 'よく分かりません', { chatRepo, claude, termLabel: 'TCP/IP' });
-
-    const expectedContent =
-      '「TCP/IP」についての質問です。以下の質問文中の「これ」「この」などの指示語は、断りが無い限り「TCP/IP」自身を指すものとして読んでください。\n\nよく分かりません';
-    const messages = await chatRepo.getMessages(session.id);
-    expect(messages[0].content).toBe(expectedContent);
-    expect(claude.calls[0].messages).toEqual([{ role: 'user', content: expectedContent }]);
-  });
-
-  it('prepends context that disambiguates demonstrative pronouns like これ／この (regression: AI misread これ as an unrelated object)', async () => {
-    const chatRepo = createChatRepository(db);
-    const session = await chatRepo.createSession('linux');
-    const claude = createScriptedAiClient(['Linuxは...']);
-
-    await sendChatTurn(session.id, 'これはどういうもの？', { chatRepo, claude, termLabel: 'linux' });
-
-    const messages = await chatRepo.getMessages(session.id);
-    expect(messages[0].content).toContain('「これ」「この」などの指示語は');
-    expect(messages[0].content).toContain('「linux」自身を指すものとして読んでください');
-    expect(messages[0].content).toContain('これはどういうもの？');
-  });
-
-  it('does not prepend term context to the second message (history already carries it)', async () => {
-    const chatRepo = createChatRepository(db);
-    const session = await chatRepo.createSession('tcp/ip');
-    const claude = createScriptedAiClient(['1回目の回答', '2回目の回答']);
-
-    await sendChatTurn(session.id, '1つ目の質問', { chatRepo, claude, termLabel: 'TCP/IP' });
-    await sendChatTurn(session.id, '2つ目の質問', { chatRepo, claude, termLabel: 'TCP/IP' });
-
-    const messages = await chatRepo.getMessages(session.id);
-    expect(messages[2].content).toBe('2つ目の質問'); // 文脈を付けない
-  });
-
-  it('does not prepend anything when termLabel is not given (free chat from the search screen)', async () => {
+  it('uses the plain CHAT_SYSTEM_PROMPT when no subject is given', async () => {
     const chatRepo = createChatRepository(db);
     const session = await chatRepo.createSession(null);
     const claude = createScriptedAiClient(['自由な回答']);
@@ -93,6 +55,86 @@ describe('sendChatTurn', () => {
     await sendChatTurn(session.id, '何か質問', { chatRepo, claude });
 
     const messages = await chatRepo.getMessages(session.id);
-    expect(messages[0].content).toBe('何か質問');
+    expect(messages[0].content).toBe('何か質問'); // 文脈は混ぜない
+    expect(claude.calls[0].system).not.toContain('現在の話題');
+  });
+
+  it('adds a "現在の話題" block to the system prompt in term mode (regression: これ／この disambiguation)', async () => {
+    const chatRepo = createChatRepository(db);
+    const session = await chatRepo.createSession('linux');
+    const claude = createScriptedAiClient(['Linuxは...']);
+    const subject: SubjectContext = {
+      mode: 'term',
+      termId: 'linux',
+      label: 'Linux',
+      field: 'ソフトウェア',
+      readings: ['リナックス'],
+      existingSummary: null,
+      existingNoteBody: null,
+    };
+
+    await sendChatTurn(session.id, 'これはどういうもの？', { chatRepo, claude, subject });
+
+    const messages = await chatRepo.getMessages(session.id);
+    expect(messages[0].content).toBe('これはどういうもの？'); // 文脈はメッセージ本文に混ぜない
+    expect(claude.calls[0].system).toContain('現在の話題');
+    expect(claude.calls[0].system).toContain('Linux');
+    expect(claude.calls[0].system).toContain('「これ」「この」などの指示語は');
+    expect(claude.calls[0].system).toContain('「Linux」自身を指すものとして読んでください');
+  });
+
+  it('includes existing summary/note body as grounding when present', async () => {
+    const chatRepo = createChatRepository(db);
+    const session = await chatRepo.createSession('tcp/ip');
+    const claude = createScriptedAiClient(['回答']);
+    const subject: SubjectContext = {
+      mode: 'term',
+      termId: 'tcp/ip',
+      label: 'TCP/IP',
+      field: 'ネットワーク',
+      readings: ['ティーシーピーアイピー'],
+      existingSummary: '通信の取り決めを層に分けた規約の集まり。',
+      existingNoteBody: '過去にAIへ聞いて育った説明。',
+    };
+
+    await sendChatTurn(session.id, 'もっと教えて', { chatRepo, claude, subject });
+
+    expect(claude.calls[0].system).toContain('通信の取り決めを層に分けた規約の集まり。');
+    expect(claude.calls[0].system).toContain('過去にAIへ聞いて育った説明。');
+  });
+
+  it('sends the subject block on every turn, not just the first', async () => {
+    const chatRepo = createChatRepository(db);
+    const session = await chatRepo.createSession('tcp/ip');
+    const claude = createScriptedAiClient(['1回目の回答', '2回目の回答']);
+    const subject: SubjectContext = {
+      mode: 'term',
+      termId: 'tcp/ip',
+      label: 'TCP/IP',
+      field: 'ネットワーク',
+      readings: ['ティーシーピーアイピー'],
+      existingSummary: null,
+      existingNoteBody: null,
+    };
+
+    await sendChatTurn(session.id, '1つ目の質問', { chatRepo, claude, subject });
+    await sendChatTurn(session.id, '2つ目の質問', { chatRepo, claude, subject });
+
+    expect(claude.calls[0].system).toContain('現在の話題');
+    expect(claude.calls[1].system).toContain('現在の話題'); // 2通目以降も毎回付ける
+    const messages = await chatRepo.getMessages(session.id);
+    expect(messages[2].content).toBe('2つ目の質問'); // メッセージ本文は変わらず
+  });
+
+  it('mentions the seed query as reference-only context in free mode', async () => {
+    const chatRepo = createChatRepository(db);
+    const session = await chatRepo.createSession(null);
+    const claude = createScriptedAiClient(['回答']);
+    const subject: SubjectContext = { mode: 'free', seedQuery: 'TCP/PI' };
+
+    await sendChatTurn(session.id, '何ですか？', { chatRepo, claude, subject });
+
+    expect(claude.calls[0].system).toContain('TCP/PI');
+    expect(claude.calls[0].system).toContain('確定した用語ではありません');
   });
 });

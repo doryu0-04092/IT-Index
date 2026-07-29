@@ -9,8 +9,12 @@ const MAX_RESULTS = 30;
 export interface SearchScreenProps {
   termsRepo: TermsRepository;
   onSelectTerm: (termId: string) => void;
-  /** 検索欄に入力していた語を渡す。用語詳細画面からのチャット開始と同じ文脈付与に使う */
-  onStartChat: (query: string) => void;
+  /**
+   * AIチャットを開始する。termId を渡すと用語モード（利用者が明示的に選んだ語）、
+   * null なら自由モード（seedQuery は参考情報にすぎず、確定した主題ではない）。
+   * 最上位検索候補への自動ひも付けはしない（要件定義書§5.3）。
+   */
+  onStartChat: (termId: string | null, seedQuery: string | null) => void;
   onOpenHistory: (view: 'weighted' | 'timeline') => void;
   /** シード取り込み状況（例: 「最新です（3510語）」）。検索欄の直下に表示する */
   seedStatus: string;
@@ -63,20 +67,27 @@ export default function SearchScreen({ termsRepo, onSelectTerm, onStartChat, onO
       */}
       {debouncedQuery.trim() !== '' && terms.length > 0 && (
         <div className="search-ai-hint">
-          <button type="button" onClick={() => onStartChat(query)}>
-            求める語が見つからない場合 → AIに聞く
+          <button type="button" onClick={() => onStartChat(null, query.trim() === '' ? null : query.trim())}>
+            求める語が見つからない場合 → AIに聞く（自由な質問）
           </button>
         </div>
       )}
 
       <ul className="search-results">
         {results.map(({ term, score: s }) => (
-          <li key={term.id}>
+          <li key={term.id} className="search-result-row">
             <button type="button" className="search-result" onClick={() => onSelectTerm(term.id)}>
               <span className="search-result-term">{term.term}</span>
               <span className="search-result-reading">{term.readings[0]}</span>
               <span className="search-result-field">{term.field}</span>
               {import.meta.env.DEV && <span className="search-result-score">{s.toFixed(2)}</span>}
+            </button>
+            {/*
+              最上位候補への自動ひも付けはしない（要件定義書§5.3）。この語についてAIに聞きたい
+              場合は、利用者が行ごとに明示的に選ぶ。
+            */}
+            <button type="button" className="search-result-ask-ai" onClick={() => onStartChat(term.id, null)}>
+              この語について聞く
             </button>
           </li>
         ))}

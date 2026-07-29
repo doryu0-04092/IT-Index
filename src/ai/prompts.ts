@@ -1,10 +1,33 @@
 import { FIELDS } from '../types';
 import type { AiMessage } from './aiClient';
+import type { SubjectContext } from './subjectContext';
 
 /** 通常のチャット応答用。docs/requirements.md §5.2 の「分かるまでに必要だった情報」の思想をここでも踏襲する */
 export const CHAT_SYSTEM_PROMPT = `あなたはIT-Indexという学習アプリのチャット相手です。相手は未経験のITエンジニアです。
 前提知識が無くても理解できるよう、具体例やつまずきやすい点を交えて分かりやすく説明してください。
 専門用語を使う場合は、初出時に簡単な補足を添えてください。`;
+
+/**
+ * docs/ai-client.md §2「文脈の自動付与」。SubjectContext から毎ターン動的に生成し、
+ * CHAT_SYSTEM_PROMPT の末尾に追加する。ユーザーのメッセージ本文には一切手を加えない
+ * （文脈をメッセージ内容へ文字列連結する旧方式は、話題変更のたびに新しい一文パッチが
+ * 必要になる・会話履歴を汚染する、という理由で廃止した。docs/prompts.md 回帰ケース1参照）。
+ */
+export function buildSubjectContextBlock(subject: SubjectContext): string {
+  if (subject.mode === 'free') {
+    return subject.seedQuery
+      ? `利用者は検索で「${subject.seedQuery}」を探していましたが、確定した用語ではありません。`
+      : '(自由な質問)';
+  }
+
+  const parts = [`${subject.label}（分野: ${subject.field}、読み: ${subject.readings.join('/')}）`];
+  if (subject.existingSummary) parts.push(`既存の初期説明:\n${subject.existingSummary}`);
+  if (subject.existingNoteBody) parts.push(`既存のAI補足:\n${subject.existingNoteBody}`);
+  parts.push(
+    `この対話中「これ」「この」などの指示語は、断りが無い限り「${subject.label}」自身を指すものとして読んでください。`,
+  );
+  return parts.join('\n');
+}
 
 /**
  * docs/requirements.md §5.3「分配統合」。会話全体を渡した上で、この指示を最後に追加する

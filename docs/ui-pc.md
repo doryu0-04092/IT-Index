@@ -1,6 +1,6 @@
 # PC版UI設計
 
-- 版: 2.5（2026-07-29）
+- 版: 2.6（2026-07-29）
 - 前提: [要件定義書](./requirements.md) §5.1〜§5.4 / [データ層設計](./data-layer.md) / [AIクライアント設計](./ai-client.md)
 
 ## 0. この文書の目的
@@ -17,6 +17,7 @@ src/ui/pc/
   TermDetailScreen.tsx      … 用語詳細（要件定義書§5.2）
   ApiKeyPrompt.tsx          … プロバイダ選択・モデル名・APIキー入力（セッションのみ／永続保存の両対応。フルスクリーン・設定モーダルの両方から再利用）
   ChatScreen.tsx            … チャット（要件定義書§5.3）
+  TermPicker.tsx            … 「話題を変える」で使う用語ピッカー（検索と同じscore()を再利用。2026-07-29）
   ApprovalScreen.tsx        … 分配統合の承認画面（要件定義書§5.3）
   HistoryScreen.tsx         … 重み付け／時系列ビュー（要件定義書§5.4。1画面にタブで統合。2026-07-29）
   SettingsModal.tsx         … 設定モーダル（APIキー変更・パスキー管理。2026-07-29）
@@ -56,7 +57,7 @@ src/ui/shared/
 - 送信のたびに `sendChatTurn()` を呼び、セッションの全履歴を選択中のAIプロバイダへ渡す（`src/ai/chat.ts`）
 - 「この会話を確定する」ボタンは `commitOrchestrator.triggerCommit(sessionId)` を呼ぶ（トリガー③）。成功すると `App.tsx` 側の `onProposalReady` が承認画面へ遷移させる（`ChatScreen` 自身は遷移先を知らない）
 - 画面上部に現在の主題（`SubjectContext`）を示す表示を常設する。用語モードなら「『○○』について質問中」＋ `[話題を変える]`、自由モードなら主題を確定させない表現にする（要件定義書§5.3、[ai-client.md §2](./ai-client.md)）。チップには用語名・分野程度のみ表示し、`notes.body` 全文は表示しない（モデルへ送る文脈と画面表示は分離する）
-- `[話題を変える]` は検索と同じ `score()` を再利用した用語ピッカーを開く。選択すると、それ以前の会話をトリガー①相当として**自動で**確定してから、新しい `SubjectContext` で会話を続ける（利用者に別途確認は挟まない。安全性の根拠は要件定義書§5.3参照）
+- `[話題を変える]`（自由モードでは「用語を選ぶ」）は `TermPicker.tsx` を開く。選択すると `App.tsx` の `startChat()` をそのまま呼ぶ——既存のトリガー①（別の用語のチャットを開いた＝前の会話は終わり）がそのまま「話題変更時は自動で確定してから切り替える」を満たすため、専用の分岐は追加していない（利用者に別途確認は挟まない。安全性の根拠は要件定義書§5.3参照）
 
 ### ApprovalScreen
 
@@ -95,7 +96,6 @@ src/ui/shared/
 - Markdown/Mermaidの実際の描画
 - Service Worker（オフライン動作）
 - トリガー②（15分無操作での自動確定）の`ChatScreen`側配線
-- **`SubjectContext`（用語モード／自由モード）に基づくチャットの主題チップ、`[話題を変える]`用語ピッカー、検索結果行からの用語明示選択導線**（2026-07-29決定・設計は要件定義書§5.3／[ai-client.md §2](./ai-client.md)参照。現状の`ChatScreen`/`SearchScreen`は旧`termLabel`方式のまま）
 - 複数の分配案が同時に `approve` 待ちになった場合の扱い（`recoverStaleSessions()`が複数セッションを一括処理すると、`onProposalReady`が連続で呼ばれ、画面遷移が最後の1件で上書きされる。実運用でstaleセッションが複数残ることは稀だが、未対応のまま）
 
 ---

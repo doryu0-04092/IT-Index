@@ -156,6 +156,33 @@ body {
   font-size: 0.7rem;
 }
 
+.search-result-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.search-result-row .search-result {
+  flex: 1;
+}
+
+.search-result-ask-ai {
+  flex: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.search-result-ask-ai:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .term-detail-back {
   background: none;
   border: none;
@@ -290,6 +317,55 @@ body {
 }
 
 /* Chat screen */
+.chat-subject-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.chat-subject-free {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-subject-change {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: var(--accent);
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.term-picker input {
+  margin-bottom: 8px;
+}
+
+.term-picker .search-results {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.term-picker-cancel {
+  margin-top: 8px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
 .chat-messages {
   display: flex;
   flex-direction: column;

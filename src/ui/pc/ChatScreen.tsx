@@ -2,29 +2,37 @@ import { useEffect, useState } from 'react';
 import type { AiClient } from '../../ai/aiClient';
 import { sendChatTurn } from '../../ai/chat';
 import { logAiError } from '../../ai/logError';
+import type { SubjectContext } from '../../ai/subjectContext';
 import type { ApiKeyStore } from '../../keystore/apiKeyStore';
 import { getSessionCredential } from '../../keystore/apiKeyStore';
 import type { ChatRepository } from '../../repositories/chat';
+import type { TermsRepository } from '../../repositories/terms';
 import type { ChatMessageRecord } from '../../types';
 import ApiKeyPrompt from './ApiKeyPrompt';
+import TermPicker from './TermPicker';
 
 export interface ChatScreenProps {
   sessionId: string;
-  termLabel: string | null;
+  subject: SubjectContext;
   chatRepo: ChatRepository;
+  termsRepo: TermsRepository;
   claude: AiClient;
   apiKeyStore: ApiKeyStore;
   onCommit: (sessionId: string) => Promise<void>;
+  /** 「話題を変える」で用語を選んだ。トリガー①相当（自動確定してから新しい話題で続ける）は呼び出し元（App）の責務 */
+  onChangeSubject: (termId: string) => void;
   onBack: () => void;
 }
 
 export default function ChatScreen({
   sessionId,
-  termLabel,
+  subject,
   chatRepo,
+  termsRepo,
   claude,
   apiKeyStore,
   onCommit,
+  onChangeSubject,
   onBack,
 }: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
@@ -33,6 +41,7 @@ export default function ChatScreen({
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasKey, setHasKey] = useState(() => getSessionCredential() !== null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     chatRepo.getMessages(sessionId).then(setMessages);
@@ -45,7 +54,7 @@ export default function ChatScreen({
     setSending(true);
     setError(null);
     try {
-      await sendChatTurn(sessionId, text, { chatRepo, claude, termLabel: termLabel ?? undefined });
+      await sendChatTurn(sessionId, text, { chatRepo, claude, subject });
     } catch (err) {
       logAiError('ChatScreen.handleSend', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -82,7 +91,35 @@ export default function ChatScreen({
       <button type="button" className="term-detail-back" onClick={onBack}>
         ← 検索に戻る
       </button>
-      {termLabel && <p className="search-status">「{termLabel}」について</p>}
+
+      <div className="chat-subject-chip">
+        {subject.mode === 'term' ? (
+          <>
+            <span>「{subject.label}」について質問中</span>
+            <button type="button" className="chat-subject-change" onClick={() => setPickerOpen(true)}>
+              話題を変える
+            </button>
+          </>
+        ) : (
+          <span className="chat-subject-free">
+            自由な質問{subject.seedQuery ? `（検索語: ${subject.seedQuery}）` : ''}
+            <button type="button" className="chat-subject-change" onClick={() => setPickerOpen(true)}>
+              用語を選ぶ
+            </button>
+          </span>
+        )}
+      </div>
+
+      {pickerOpen && (
+        <TermPicker
+          termsRepo={termsRepo}
+          onSelect={(termId) => {
+            setPickerOpen(false);
+            onChangeSubject(termId);
+          }}
+          onCancel={() => setPickerOpen(false)}
+        />
+      )}
 
       <div className="chat-messages">
         {messages.map((m) => (

@@ -3,6 +3,7 @@ import { createDynamicAiClient } from './ai/providers';
 import { createCommitOrchestrator } from './ai/commitOrchestrator';
 import type { DistributionProposal } from './ai/distribution';
 import { logAiError } from './ai/logError';
+import { buildSubjectContext, type SubjectContext } from './ai/subjectContext';
 import { db } from './db';
 import { createApiKeyStore, getSessionCredential } from './keystore/apiKeyStore';
 import { createBrowserWebAuthnClient } from './keystore/webauthn';
@@ -23,7 +24,7 @@ import TermDetailScreen from './ui/pc/TermDetailScreen';
 type Screen =
   | { name: 'search' }
   | { name: 'detail'; termId: string }
-  | { name: 'chat'; sessionId: string; termLabel: string | null }
+  | { name: 'chat'; sessionId: string; subject: SubjectContext }
   | { name: 'approve'; proposal: DistributionProposal }
   | { name: 'history'; view: HistoryView };
 
@@ -125,15 +126,18 @@ export default function App() {
     }
   }
 
-  function startChat(termId: string | null, termLabel: string | null) {
+  // 要件定義書§5.3「チャットの主題（SubjectContext）」。termId が確定している場合のみ
+  // 用語モードにする（最上位検索候補への自動ひも付けはしない）。「話題を変える」も
+  // このstartChat()を呼ぶだけでよい——既存のトリガー①（別の用語のチャットを開いた＝
+  // 前の会話は終わり）がそのまま「話題変更時は自動で確定してから切り替える」を満たす。
+  async function startChat(termId: string | null, seedQuery: string | null) {
     if (activeChatSessionId) {
-      // トリガー①: 別の用語のチャットを開いた＝前の会話は終わり
       void commitOrchestrator.triggerCommit(activeChatSessionId);
     }
-    chatRepo.createSession(termId).then((session) => {
-      setActiveChatSessionId(session.id);
-      setScreen({ name: 'chat', sessionId: session.id, termLabel });
-    });
+    const subject = await buildSubjectContext(termId, seedQuery, { termsRepo, notesRepo });
+    const session = await chatRepo.createSession(termId);
+    setActiveChatSessionId(session.id);
+    setScreen({ name: 'chat', sessionId: session.id, subject });
   }
 
   return (
@@ -167,7 +171,7 @@ export default function App() {
             termsRepo={termsRepo}
             seedStatus={seedStatus}
             onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
-            onStartChat={(query) => startChat(null, query.trim() === '' ? null : query.trim())}
+            onStartChat={(termId, seedQuery) => void startChat(termId, seedQuery)}
             onOpenHistory={(view) => setScreen({ name: 'history', view })}
           />
         ) : screen.name === 'detail' ? (
@@ -176,16 +180,18 @@ export default function App() {
             termsRepo={termsRepo}
             notesRepo={notesRepo}
             onBack={() => setScreen({ name: 'search' })}
-            onStartChat={(termId, termLabel) => startChat(termId, termLabel)}
+            onStartChat={(termId) => void startChat(termId, null)}
           />
         ) : screen.name === 'chat' ? (
           <ChatScreen
             sessionId={screen.sessionId}
-            termLabel={screen.termLabel}
+            subject={screen.subject}
             chatRepo={chatRepo}
+            termsRepo={termsRepo}
             claude={claude}
             apiKeyStore={apiKeyStore}
             onCommit={(sessionId) => commitOrchestrator.triggerCommit(sessionId)}
+            onChangeSubject={(termId) => void startChat(termId, null)}
             onBack={() => setScreen({ name: 'search' })}
           />
         ) : screen.name === 'approve' ? (
