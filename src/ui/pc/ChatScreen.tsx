@@ -4,7 +4,6 @@ import { sendChatTurn } from '../../ai/chat';
 import { logAiError } from '../../ai/logError';
 import type { SubjectContext } from '../../ai/subjectContext';
 import type { ApiKeyStore } from '../../keystore/apiKeyStore';
-import { getSessionCredential } from '../../keystore/apiKeyStore';
 import type { ChatRepository } from '../../repositories/chat';
 import type { TermsRepository } from '../../repositories/terms';
 import type { ChatMessageRecord } from '../../types';
@@ -18,6 +17,17 @@ export interface ChatScreenProps {
   termsRepo: TermsRepository;
   claude: AiClient;
   apiKeyStore: ApiKeyStore;
+  /**
+   * APIキーが使える状態か。App.tsx が単一の真実源として持つ状態をそのまま受け取る
+   * （このコンポーネント自身ではローカルに保持しない）。
+   * 以前は `hasKey` をこの画面専用のローカル状態として別に持っていたため、画面を開いたまま
+   * 別経路（ヘッダーのバナー・設定モーダル）で認証すると、そちらは「登録済み」と表示されるのに
+   * この画面だけ古い状態のまま「APIキーが必要です」を表示し続ける不具合があった
+   * （実際に報告された不具合）。
+   */
+  keyReady: boolean;
+  /** この画面内でAPIキーが（初めて、または再度）使えるようになったときに呼ぶ。App.tsx側のkeyReadyを更新する */
+  onKeyReady: () => void;
   onCommit: (sessionId: string) => Promise<void>;
   /** 「話題を変える」で用語を選んだ。トリガー①相当（自動確定してから新しい話題で続ける）は呼び出し元（App）の責務 */
   onChangeSubject: (termId: string) => void;
@@ -31,6 +41,8 @@ export default function ChatScreen({
   termsRepo,
   claude,
   apiKeyStore,
+  keyReady,
+  onKeyReady,
   onCommit,
   onChangeSubject,
   onBack,
@@ -40,7 +52,6 @@ export default function ChatScreen({
   const [sending, setSending] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasKey, setHasKey] = useState(() => getSessionCredential() !== null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
@@ -82,8 +93,8 @@ export default function ChatScreen({
     }
   }
 
-  if (!hasKey) {
-    return <ApiKeyPrompt apiKeyStore={apiKeyStore} onSet={() => setHasKey(true)} onBack={onBack} />;
+  if (!keyReady) {
+    return <ApiKeyPrompt apiKeyStore={apiKeyStore} onSet={onKeyReady} onBack={onBack} />;
   }
 
   return (

@@ -190,6 +190,8 @@ export default function App() {
             termsRepo={termsRepo}
             claude={claude}
             apiKeyStore={apiKeyStore}
+            keyReady={keyReady}
+            onKeyReady={() => setKeyReady(true)}
             onCommit={(sessionId) => commitOrchestrator.triggerCommit(sessionId)}
             onChangeSubject={(termId) => void startChat(termId, null)}
             onBack={() => setScreen({ name: 'search' })}
