@@ -50,7 +50,6 @@ export default function ChatScreen({
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -79,18 +78,14 @@ export default function ChatScreen({
     }
   }
 
-  async function handleCommit() {
-    setCommitting(true);
-    setError(null);
-    try {
-      await onCommit(sessionId);
-      // 成功時は親（App）が分配案の受け取りコールバック経由で承認画面へ遷移させる
-    } catch (err) {
-      logAiError('ChatScreen.handleCommit', err);
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCommitting(false);
-    }
+  function handleCommit() {
+    // 確定処理（AI呼び出し）はバックグラウンドで進め、クリックした時点で操作をすぐ利用者に返す。
+    // 待たせない代わりに、成功/失敗のフィードバックはこの画面のローカル状態ではなく
+    // 既存のグローバルな経路に委ねる: 成功時は commitOrchestrator の onProposalReady が
+    // 承認画面へ遷移させ、失敗時は onError が App.tsx の globalError に表示する
+    // （commitOrchestrator.ts の commit() は内部で例外を握りつぶし onError を呼ぶだけなので、
+    // ここで reject することは無いが、念のためログだけは残す）。
+    onCommit(sessionId).catch((err) => logAiError('ChatScreen.handleCommit', err));
   }
 
   if (!keyReady) {
@@ -105,32 +100,11 @@ export default function ChatScreen({
 
       <div className="chat-subject-chip">
         {subject.mode === 'term' ? (
-          <>
-            <span>「{subject.label}」について質問中</span>
-            <button type="button" className="chat-subject-change" onClick={() => setPickerOpen(true)}>
-              話題を変える
-            </button>
-          </>
+          <span>「{subject.label}」について質問中</span>
         ) : (
-          <span className="chat-subject-free">
-            自由な質問{subject.seedQuery ? `（検索語: ${subject.seedQuery}）` : ''}
-            <button type="button" className="chat-subject-change" onClick={() => setPickerOpen(true)}>
-              用語を選ぶ
-            </button>
-          </span>
+          <span>自由な質問{subject.seedQuery ? `（検索語: ${subject.seedQuery}）` : ''}</span>
         )}
       </div>
-
-      {pickerOpen && (
-        <TermPicker
-          termsRepo={termsRepo}
-          onSelect={(termId) => {
-            setPickerOpen(false);
-            onChangeSubject(termId);
-          }}
-          onCancel={() => setPickerOpen(false)}
-        />
-      )}
 
       <div className="chat-messages">
         {messages.map((m) => (
@@ -164,13 +138,23 @@ export default function ChatScreen({
         </button>
       </div>
 
-      <button
-        type="button"
-        className="chat-commit-button"
-        onClick={handleCommit}
-        disabled={committing || messages.length === 0}
-      >
-        {committing ? '確定処理中…' : 'この会話を確定する'}
+      <button type="button" className="chat-subject-change" onClick={() => setPickerOpen(true)}>
+        {subject.mode === 'term' ? '話題を変える' : '用語を選ぶ'}
+      </button>
+
+      {pickerOpen && (
+        <TermPicker
+          termsRepo={termsRepo}
+          onSelect={(termId) => {
+            setPickerOpen(false);
+            onChangeSubject(termId);
+          }}
+          onCancel={() => setPickerOpen(false)}
+        />
+      )}
+
+      <button type="button" className="chat-commit-button" onClick={handleCommit} disabled={messages.length === 0}>
+        この会話を確定する
       </button>
     </div>
   );

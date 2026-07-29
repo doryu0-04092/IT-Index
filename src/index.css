@@ -329,13 +329,9 @@ body {
   color: var(--muted);
 }
 
-.chat-subject-free {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .chat-subject-change {
+  display: block;
+  margin: 10px 0;
   background: none;
   border: 1px solid var(--border);
   border-radius: 6px;
