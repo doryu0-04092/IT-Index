@@ -1,5 +1,6 @@
 import {
   getOrCreateSubdirectory,
+  pickSyncFolder,
   readFileLastModified,
   readMarkdownFilesFromFolder,
   readTextFile,
@@ -7,6 +8,7 @@ import {
 } from '../manualSync/folderTransport';
 import type { NotesRepository } from '../repositories/notes';
 import type { SettingsRepository } from '../repositories/settings';
+import type { SyncFolderRepository } from '../repositories/syncFolder';
 import type { TermsRepository } from '../repositories/terms';
 import { buildAiEditGuideFile } from './editRules';
 import { buildLocalDataExport } from './exportLocalData';
@@ -81,6 +83,32 @@ export interface LocalImportOutcome {
   /** false = `terms.json` の更新時刻が記録済みの値と変わっておらず、取り込みをスキップした */
   ran: boolean;
   result?: ImportLocalDataResult;
+}
+
+export interface SetupLocalFolderResult {
+  dir: FileSystemDirectoryHandle;
+  importOutcome: LocalImportOutcome;
+}
+
+/**
+ * 初回セットアップの一連の流れ（フォルダ選択 → 構造生成 → 参照の登録 → 初回取り込み）を
+ * 1つにまとめる。「ネイティブなフォルダ選択ダイアログを開く→そこで新規フォルダを作成・命名→
+ * 選択する」の3手で完了する（ダイアログ自体を省略することはブラウザの仕様上できない。
+ * docs/local-data.md §8）。`startIn` はダイアログの初期表示位置のヒント。
+ *
+ * ユーザーがダイアログを閉じた場合（`AbortError`）は、そのまま呼び出し元へ伝播する
+ * ——呼び出し元は「キャンセルされた」として扱ってよい（例外を握りつぶさない）。
+ */
+export async function setupLocalFolder(
+  syncFolderRepo: SyncFolderRepository,
+  deps: LocalFolderDeps,
+  startIn: 'desktop' | 'documents' | 'downloads' = 'documents',
+): Promise<SetupLocalFolderResult> {
+  const dir = await pickSyncFolder(startIn);
+  await ensureLocalDataStructure(dir);
+  await syncFolderRepo.set(dir);
+  const importOutcome = await runLocalImportIfChanged(dir, deps);
+  return { dir, importOutcome };
 }
 
 async function readLocalDataFiles(dataDir: FileSystemDirectoryHandle) {
