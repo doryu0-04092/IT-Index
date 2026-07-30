@@ -1,13 +1,9 @@
 import { useEffect, useState } from 'react';
+import { ensureFolderPermission, isFolderSyncAvailable } from '../../manualSync/folderTransport';
 import {
-  ensureFolderPermission,
-  isFolderSyncAvailable,
-  pickSyncFolder,
-} from '../../manualSync/folderTransport';
-import {
-  ensureLocalDataStructure,
   resetToInitialData,
   runLocalImportIfChanged,
+  setupLocalFolder,
   type LocalFolderDeps,
 } from '../../localData/localFolderSync';
 import type { SyncFolderRepository } from '../../repositories/syncFolder';
@@ -48,19 +44,16 @@ export default function LocalFolderPanel({ folder, onFolderChange, syncFolderRep
   }
 
   async function handlePickFolder() {
+    if (!deps) return;
     setBusy(true);
     setStatus(null);
     try {
-      const dir = await pickSyncFolder();
-      await ensureLocalDataStructure(dir);
-      await syncFolderRepo.set(dir);
+      const { dir, importOutcome } = await setupLocalFolder(syncFolderRepo, deps);
       onFolderChange(dir);
       setPermission('granted');
-      if (deps) {
-        const outcome = await runLocalImportIfChanged(dir, deps);
-        setStatus(summarizeOutcome(outcome.result));
-      }
+      setStatus(summarizeOutcome(importOutcome.result));
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return; // ダイアログを閉じただけ
       setStatus(`フォルダの選択に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(false);

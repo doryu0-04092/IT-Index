@@ -11,8 +11,10 @@ import {
   runLocalExport,
   runLocalImportBeforeCommit,
   runLocalImportIfChanged,
+  setupLocalFolder,
   type LocalFolderDeps,
 } from './localData/localFolderSync';
+import { isFolderSyncAvailable } from './manualSync/folderTransport';
 import { createAsksRepository } from './repositories/asks';
 import { createChatRepository } from './repositories/chat';
 import { createKeyStoreRepository } from './repositories/keyStore';
@@ -47,6 +49,10 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [localFolder, setLocalFolder] = useState<FileSystemDirectoryHandle | null>(null);
+  const [localFolderChecked, setLocalFolderChecked] = useState(false);
+  const [firstRunDismissed, setFirstRunDismissed] = useState(false);
+  const [firstRunBusy, setFirstRunBusy] = useState(false);
+  const [firstRunError, setFirstRunError] = useState<string | null>(null);
 
   const termsRepo = useMemo(() => createTermsRepository(db), []);
   const notesRepo = useMemo(() => createNotesRepository(db), []);
@@ -111,17 +117,38 @@ export default function App() {
     // 伴わない自動呼び出しをブラウザに拒否されるため（keyReady の復元と同じ理由）、
     // 設定画面の「今すぐ読み込む」ボタン（LocalFolderPanel）で復旧する。
     if (!seedSettled || !localFolderDeps) return;
-    syncFolderRepo.get().then(async (dir) => {
-      if (!dir) return;
-      setLocalFolder(dir);
-      const granted = (await dir.queryPermission({ mode: 'readwrite' })) === 'granted';
-      if (!granted) return;
-      const outcome = await runLocalImportIfChanged(dir, localFolderDeps);
-      if (outcome.result && !outcome.result.ok) {
-        setGlobalError(`ローカルデータの取り込みを中止しました: ${outcome.result.reason}`);
-      }
-    });
+    syncFolderRepo
+      .get()
+      .then(async (dir) => {
+        if (!dir) return;
+        setLocalFolder(dir);
+        const granted = (await dir.queryPermission({ mode: 'readwrite' })) === 'granted';
+        if (!granted) return;
+        const outcome = await runLocalImportIfChanged(dir, localFolderDeps);
+        if (outcome.result && !outcome.result.ok) {
+          setGlobalError(`ローカルデータの取り込みを中止しました: ${outcome.result.reason}`);
+        }
+      })
+      .finally(() => setLocalFolderChecked(true));
   }, [seedSettled, localFolderDeps, syncFolderRepo]);
+
+  // 初回セットアップの案内バナー用。「フォルダ選択ダイアログを開く→そこで新規フォルダを
+  // 作成・命名→選択する」の3手で完了させる（docs/local-data.md §8。ダイアログ自体を
+  // 省略することはブラウザの仕様上できない）。設定画面に潜らせず、ここで直接促す。
+  async function handleSetupLocalFolder() {
+    if (!localFolderDeps) return;
+    setFirstRunBusy(true);
+    setFirstRunError(null);
+    try {
+      const { dir } = await setupLocalFolder(syncFolderRepo, localFolderDeps);
+      setLocalFolder(dir);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return; // ダイアログを閉じただけ
+      setFirstRunError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setFirstRunBusy(false);
+    }
+  }
 
   useEffect(() => {
     // サイトに入った時点で「保存済みのAPIキーがあるか」だけ確認する（復号はしない）。
@@ -237,6 +264,18 @@ export default function App() {
               ✕
             </button>
           </p>
+        )}
+        {localFolderChecked && !localFolder && !firstRunDismissed && isFolderSyncAvailable() && (
+          <div className="auth-banner">
+            <span>Claude Codeなどで編集できるローカルフォルダを作成しますか？</span>
+            <button type="button" onClick={() => void handleSetupLocalFolder()} disabled={firstRunBusy || !localFolderDeps}>
+              {firstRunBusy ? '作成中…' : 'フォルダを作成'}
+            </button>
+            <button type="button" onClick={() => setFirstRunDismissed(true)} disabled={firstRunBusy}>
+              後で設定する
+            </button>
+            {firstRunError && <span className="chat-error">{firstRunError}</span>}
+          </div>
         )}
         {hasPersistedKey && !keyReady && (
           <div className="auth-banner">

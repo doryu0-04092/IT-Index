@@ -31,8 +31,10 @@ declare global {
     write(data: string | BufferSource | Blob): Promise<void>;
     close(): Promise<void>;
   }
+  type FsWellKnownDirectory = 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos';
+  type FsPickerOptions = FsPermissionMode & { startIn?: FsWellKnownDirectory | FileSystemHandle };
   interface Window {
-    showDirectoryPicker(options?: FsPermissionMode): Promise<FileSystemDirectoryHandle>;
+    showDirectoryPicker(options?: FsPickerOptions): Promise<FileSystemDirectoryHandle>;
   }
 }
 
@@ -40,11 +42,22 @@ export function isFolderSyncAvailable(): boolean {
   return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
 }
 
-export async function pickSyncFolder(): Promise<FileSystemDirectoryHandle> {
+/**
+ * `startIn` はダイアログの初期表示位置のヒントに過ぎない（ユーザーはどこでも選べるし、
+ * ダイアログ内の「新しいフォルダー」でその場に作成もできる）。ブラウザの仕様上、
+ * ユーザー操作を経ずにフォルダを自動作成・自動選択することはできない
+ * （docs/local-data.md §8）。既定で「ドキュメント」を起点にし、初回セットアップの
+ * クリック数を実質的に減らす（新規フォルダ作成→名前入力→選択、の3手で終わる）。
+ */
+export async function pickSyncFolder(startIn: 'desktop' | 'documents' | 'downloads' = 'documents'): Promise<FileSystemDirectoryHandle> {
   if (!isFolderSyncAvailable()) {
     throw new Error('この環境では共有フォルダ方式は使えません（File System Access API非対応）');
   }
-  return window.showDirectoryPicker({ mode: 'readwrite' });
+  // startIn は未知の値でも WebIDL の enum 仕様上無視されるだけなので、
+  // 対応判定やフォールバック分岐は不要（未対応環境でも通常のダイアログとして開く）。
+  // ユーザーがダイアログを閉じた場合は AbortError がそのまま呼び出し元へ伝播する
+  // （ここで再試行すると、閉じた直後にもう一度ダイアログが出てしまう）。
+  return window.showDirectoryPicker({ mode: 'readwrite', startIn });
 }
 
 /** 再訪時の権限確認。無許可なら再度リクエストする（ユーザー操作起点で呼ぶ必要がある） */
