@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { score } from '../../core/score';
+import type { ChatRepository } from '../../repositories/chat';
 import type { TermsRepository } from '../../repositories/terms';
 import type { TermRecord } from '../../types';
 import { useDebouncedValue } from '../shared/useDebouncedValue';
 
 const MAX_RESULTS = 30;
 
+interface PendingUpdate {
+  sessionId: string;
+  term: TermRecord;
+}
+
 export interface SearchScreenProps {
   termsRepo: TermsRepository;
+  chatRepo: ChatRepository;
   onSelectTerm: (termId: string) => void;
   /**
    * AIチャットを開始する。termId を渡すと用語モード（利用者が明示的に選んだ語）、
@@ -15,19 +22,60 @@ export interface SearchScreenProps {
    * 最上位検索候補への自動ひも付けはしない（要件定義書§5.3）。
    */
   onStartChat: (termId: string | null, seedQuery: string | null) => void;
+  /** 「AIによる単語更新待ち」一覧から再開する。既存の未確定セッションがあればそれを再開する（App.tsx側の責務） */
+  onOpenPendingTerm: (termId: string) => void;
+  /** 「AIによる単語更新待ち」一覧から、チャット画面を開かずその場で確定する */
+  onCommitPending: (sessionId: string) => void;
   onOpenHistory: (view: 'weighted' | 'timeline') => void;
   /** シード取り込み状況（例: 「最新です（3510語）」）。検索欄の直下に表示する */
   seedStatus: string;
 }
 
-export default function SearchScreen({ termsRepo, onSelectTerm, onStartChat, onOpenHistory, seedStatus }: SearchScreenProps) {
+export default function SearchScreen({
+  termsRepo,
+  chatRepo,
+  onSelectTerm,
+  onStartChat,
+  onOpenPendingTerm,
+  onCommitPending,
+  onOpenHistory,
+  seedStatus,
+}: SearchScreenProps) {
   const [terms, setTerms] = useState<TermRecord[]>([]);
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 150);
+  const [pendingUpdates, setPendingUpdates] = useState<PendingUpdate[]>([]);
 
   useEffect(() => {
     termsRepo.getAll().then(setTerms);
   }, [termsRepo]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPendingUpdates() {
+      const sessions = await chatRepo.getOpenSessions();
+      const items: PendingUpdate[] = [];
+      for (const session of sessions) {
+        if (!session.termId) continue; // 自由な質問はどの単語の更新待ちか特定できないため対象外
+        const messages = await chatRepo.getMessages(session.id);
+        if (messages.length === 0) continue; // まだ何もやり取りしていないセッションは表示不要
+        const term = await termsRepo.getById(session.termId);
+        if (term) items.push({ sessionId: session.id, term });
+      }
+      if (!cancelled) setPendingUpdates(items);
+    }
+    void loadPendingUpdates();
+    return () => {
+      cancelled = true;
+    };
+  }, [chatRepo, termsRepo]);
+
+  // 確定処理はバックグラウンドで進む（ChatScreenの「この会話を確定する」と同様）。
+  // 押した時点でこの一覧からは消してよい——結果を待たせない。
+  function handleCommitPending(sessionId: string) {
+    onCommitPending(sessionId);
+    setPendingUpdates((prev) => prev.filter((p) => p.sessionId !== sessionId));
+  }
 
   const results = useMemo(() => {
     if (debouncedQuery.trim() === '') return [];
@@ -58,6 +106,33 @@ export default function SearchScreen({ termsRepo, onSelectTerm, onStartChat, onO
 
       <p className="search-status">{seedStatus}</p>
       {terms.length === 0 && <p className="search-status">辞書を読み込み中です…</p>}
+
+      {/*
+        検索していない（ホーム）の間だけ表示する。確定する前にチャット画面を離れた語がここに並ぶ——
+        クエリを入力した瞬間に通常の検索結果一覧に切り替わる。
+      */}
+      {debouncedQuery.trim() === '' && pendingUpdates.length > 0 && (
+        <div className="search-pending">
+          <h3 className="search-pending-title">AIによる単語更新待ち</h3>
+          <ul className="search-pending-list">
+            {pendingUpdates.map((p) => (
+              <li key={p.sessionId} className="search-result-row">
+                <button type="button" className="search-pending-item" onClick={() => onOpenPendingTerm(p.term.id)}>
+                  <span className="search-result-term">{p.term.term}</span>
+                  <span className="search-result-reading">{p.term.readings[0]}</span>
+                </button>
+                <button
+                  type="button"
+                  className="search-pending-commit"
+                  onClick={() => handleCommitPending(p.sessionId)}
+                >
+                  確定する
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/*
         要件定義書§5.1: スコアリングは何かしら返すため「候補ゼロ」は構造的にほぼ発生しない

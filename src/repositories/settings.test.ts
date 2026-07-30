@@ -47,6 +47,14 @@ describe('SettingsRepository', () => {
     expect((await repo.get()).autoUpdateExistingTerms).toBe('all');
   });
 
+  it('setLocalTermsLastModified updates the existing row', async () => {
+    const repo = createSettingsRepository(db);
+    await repo.get();
+    await repo.setLocalTermsLastModified(1_700_000_000_000);
+
+    expect((await repo.get()).localTermsLastModified).toBe(1_700_000_000_000);
+  });
+
   it('does not throw when get() is called concurrently on first access (regression)', async () => {
     // 実バグ: get→無ければadd という非アトミックな手順だと、React StrictModeの
     // 二重effect実行など同時に2回呼ばれた場合、両方が「無い」と判定して

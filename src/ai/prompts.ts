@@ -1,3 +1,4 @@
+import { buildQualityRules } from '../localData/editRules';
 import { FIELDS } from '../types';
 import type { AiMessage } from './aiClient';
 import type { SubjectContext } from './subjectContext';
@@ -61,7 +62,10 @@ export const DISTRIBUTION_SYSTEM_PROMPT = `あなたはIT-Indexという学習�
 - summary は一文の要約であり、draftBody（前提知識・具体例を含む詳しい説明）とは役割が違います。**summary に draftBody の内容を重複して長く書かないでください。** summary はこの語が辞書に新規登録される場合にのみ使われ、既に辞書にある語では（AIが何を書いても）無視されます。
 - draftBody は「分からなかった人が、分かるようになるまでに必要だった情報」の記録として書いてください。前提知識・具体例・つまずきやすい点を含め、この文章だけを読んで理解できるようにしてください。読み手が既に知識を持っている前提で書かないでください。
 - 同じ用語が会話中に何度も出てきても、1項目にまとめてください（一度でもユーザーに聞かれていれば askedByUser は true）。
-- 用語が1つも無い会話なら、空配列 [] を返してください。`;
+- 用語が1つも無い会話なら、空配列 [] を返してください。
+
+summary・draftBody に共通の品質基準（docs/local-data.md。Claude Code によるファイル編集にも同じ基準を課している）:
+${buildQualityRules()}`;
 
 export function buildDistributionMessages(history: AiMessage[]): AiMessage[] {
   return [...history, { role: 'user', content: DISTRIBUTION_INSTRUCTION }];
@@ -82,7 +86,10 @@ export const MERGE_SYSTEM_PROMPT = `あなたはIT-Indexという学習アプリ
 
 ルール:
 - 既存の説明にある情報を勝手に削らないでください。重複は整理してよいですが、要約して薄めないでください。
-- 新しい説明で判明した情報（つまずきやすい点、具体例など）を優先的に残してください。`;
+- 新しい説明で判明した情報（つまずきやすい点、具体例など）を優先的に残してください。
+
+品質基準（docs/local-data.md。Claude Code によるファイル編集にも同じ基準を課している）:
+${buildQualityRules()}`;
 
 export function buildMergeMessages(
   term: string,

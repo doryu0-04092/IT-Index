@@ -305,8 +305,8 @@ describe('proposeDistribution / applyDistribution', () => {
       expect((await notesRepo.getByTermId(makeTermId('ルーティング')))?.body).toBeUndefined();
       expect(await asksRepo.getByTermId(makeTermId('ルーティング'))).toHaveLength(0);
 
-      const staleSessions = await chatRepo.findStaleOpenSessions(Date.now(), 0);
-      expect(staleSessions.map((s) => s.id)).not.toContain(session.id); // committed済み（残り物が無くても必ず確定する）
+      const openSessions = await chatRepo.getOpenSessions();
+      expect(openSessions.map((s) => s.id)).not.toContain(session.id); // committed済み（残り物が無くても必ず確定する）
     });
 
     it('mode:all writes askedByUser:false updates to existing terms too', async () => {
@@ -367,7 +367,7 @@ describe('proposeDistribution / applyDistribution', () => {
 
       await commitProposal(proposal, 'askedOnly', { termsRepo, notesRepo, asksRepo, chatRepo, deviceId: 'device-A' });
 
-      const stillOpen = await chatRepo.findStaleOpenSessions(Date.now(), 0);
+      const stillOpen = await chatRepo.getOpenSessions();
       expect(stillOpen.map((s) => s.id)).not.toContain(session.id);
     });
   });

@@ -194,6 +194,7 @@ sequenceDiagram
     participant DB as IndexedDB
     participant CH as チャット画面
     participant AI as Claude API
+    participant FS as ローカルフォルダ<br/>（docs/local-data.md）
 
     U->>S: 「MTU」と入力
     S->>C: normalize + score
@@ -218,17 +219,25 @@ sequenceDiagram
             CH-->>U: 表示＋言及された用語をチップ表示
         end
 
-        Note over CH: 確定トリガー<br/>①別用語のチャットを開く<br/>②15分経過<br/>③明示的な確定
+        Note over CH: 確定は明示的な操作のみ<br/>（2026-07-30改訂。docs/local-data.md §11）
+
+        opt ローカルフォルダが設定済み
+            CH->>FS: data/terms.json・data/notes/*.md を先に取り込む
+            Note over CH,FS: Claude Code の編集を先に反映する<br/>（docs/local-data.md §6）
+        end
 
         CH->>AI: 会話全体＋既存のAI補足<br/>「用語ごとに切り分けて統合せよ」
         AI-->>CH: [{term, body, diagrams, isTerm}, ...]
-        CH-->>U: 承認画面（分配先と内容を表示）
-        U->>CH: 承認
+        Note over CH: 承認画面は無い（2026-07-30廃止）<br/>常に自動でDBへ反映される
 
         CH->>DB: 既知の語 → notes を更新
         CH->>DB: 未知の語 → terms(origin:'ai') と notes を新規作成
         CH->>DB: 分配先の全語に asks を1件ずつ追加
         CH->>DB: chatSession を committed に
+
+        opt ローカルフォルダが設定済み
+            CH->>FS: DBの最新状態を書き出す
+        end
     end
 ```
 
@@ -307,27 +316,25 @@ sequenceDiagram
 
 ## 5. 状態遷移図 — チャットセッション
 
+**2026-07-30改訂（ローカルデータ層導入）**: 承認画面（`approving` 状態）は既に廃止済み（AI提案は確認なしに自動反映される）。さらに、自動トリガー（別用語のチャットを開いた／15分放置／起動時の放置セッション回収）を廃止し、確定操作は明示的なボタン実行のみにした（[local-data.md](./local-data.md) §11）。理由: Claude Code のファイル編集が既定で優先されるためには、確定タイミング（＝ファイル書き出しのタイミング）を利用者が制御できる必要があり、自動トリガーは書き出しタイミングを予測不能にして編集の衝突窓を広げるため。
+
 ```mermaid
 stateDiagram-v2
     [*] --> open: チャットを開始
 
     open --> open: メッセージ送受信<br/>（lastActiveAt を更新）
 
-    open --> committing: ① 別用語のチャットを開いた
-    open --> committing: ② 最終操作から15分経過
-    open --> committing: ③ 明示的な確定操作
-    open --> committing: ④ 起動時に検出<br/>（lastActiveAt が15分以上前）
+    open --> committing: 明示的な確定操作（確定ボタン）
 
-    committing --> approving: AIが分配案を返す
+    committing --> committed: DBへ自動反映
     committing --> open: API呼び出し失敗<br/>（open のまま残し次回再試行）
-
-    approving --> committed: 利用者が承認
-    approving --> open: 却下（会話は残る）
 
     committed --> [*]
 
     note right of open
-        この間 notes は更新しない
+        この間 notes は更新しない。
+        確定しない限りここに留まり続ける
+        （ホームの「AIによる単語更新待ち」一覧に表示される）
     end note
 
     note right of committing
@@ -336,8 +343,6 @@ stateDiagram-v2
         補足が二重にならない
     end note
 ```
-
-**④が重要。** タブを閉じられると15分タイマーは動かないため、**起動時に未確定セッションを回収する**。これが無いと会話が永久に `open` のまま残る。
 
 ---
 

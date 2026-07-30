@@ -21,6 +21,8 @@ declare global {
     requestPermission(descriptor?: FsPermissionMode): Promise<FsPermissionState>;
     entries(): AsyncIterableIterator<[string, FileSystemDirectoryHandle | FileSystemFileHandle]>;
     getFileHandle(name: string, options?: { create?: boolean }): Promise<FileSystemFileHandle>;
+    getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<FileSystemDirectoryHandle>;
+    removeEntry(name: string, options?: { recursive?: boolean }): Promise<void>;
   }
   interface FileSystemFileHandle {
     createWritable(): Promise<FileSystemWritableFileStream>;
@@ -68,4 +70,62 @@ export async function writeSyncFileToFolder(dir: FileSystemDirectoryHandle, file
   const writable = await handle.createWritable();
   await writable.write(file.content);
   await writable.close();
+}
+
+/**
+ * docs/local-data.md の実装。`data/terms.json` / `data/notes/*.md` / `AI_EDIT_GUIDE.md` /
+ * `backups/` を扱うための追加関数群。上記の①〜②（共有フォルダ方式の輸送層）とは別に、
+ * 本アプリのローカルデータ層（Claude Code が直接編集する対象）専用に用意する。
+ */
+
+/** サブディレクトリを取得する。無ければ作る */
+export async function getOrCreateSubdirectory(dir: FileSystemDirectoryHandle, name: string): Promise<FileSystemDirectoryHandle> {
+  return dir.getDirectoryHandle(name, { create: true });
+}
+
+/** ファイルのテキストを読む。存在しなければ undefined を返す（例外にしない） */
+export async function readTextFile(dir: FileSystemDirectoryHandle, name: string): Promise<string | undefined> {
+  try {
+    const handle = await dir.getFileHandle(name);
+    const file = await handle.getFile();
+    return await file.text();
+  } catch {
+    return undefined;
+  }
+}
+
+/** ファイルの最終更新時刻（epoch ms）を返す。存在しなければ undefined */
+export async function readFileLastModified(dir: FileSystemDirectoryHandle, name: string): Promise<number | undefined> {
+  try {
+    const handle = await dir.getFileHandle(name);
+    const file = await handle.getFile();
+    return file.lastModified;
+  } catch {
+    return undefined;
+  }
+}
+
+/** ファイルへテキストを書く。無ければ作る */
+export async function writeTextFile(dir: FileSystemDirectoryHandle, name: string, content: string): Promise<void> {
+  const handle = await dir.getFileHandle(name, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(content);
+  await writable.close();
+}
+
+export interface NamedFile {
+  /** 拡張子を除いたファイル名（`.md` の場合は termId、`.json` の場合はそのまま） */
+  name: string;
+  content: string;
+}
+
+/** ディレクトリ直下の `*.md` を全件読む。`notes/` 用（`data/notes/<termId>.md`） */
+export async function readMarkdownFilesFromFolder(dir: FileSystemDirectoryHandle): Promise<NamedFile[]> {
+  const files: NamedFile[] = [];
+  for await (const [name, handle] of dir.entries()) {
+    if (handle.kind !== 'file' || !name.endsWith('.md')) continue;
+    const file = await handle.getFile();
+    files.push({ name: name.slice(0, -'.md'.length), content: await file.text() });
+  }
+  return files;
 }

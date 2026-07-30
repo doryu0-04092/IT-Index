@@ -7,11 +7,18 @@ import { buildSubjectContext, type SubjectContext } from './ai/subjectContext';
 import { db } from './db';
 import { createApiKeyStore, getSessionCredential } from './keystore/apiKeyStore';
 import { createBrowserWebAuthnClient } from './keystore/webauthn';
+import {
+  runLocalExport,
+  runLocalImportBeforeCommit,
+  runLocalImportIfChanged,
+  type LocalFolderDeps,
+} from './localData/localFolderSync';
 import { createAsksRepository } from './repositories/asks';
 import { createChatRepository } from './repositories/chat';
 import { createKeyStoreRepository } from './repositories/keyStore';
 import { createNotesRepository } from './repositories/notes';
 import { createSettingsRepository } from './repositories/settings';
+import { createSyncFolderRepository } from './repositories/syncFolder';
 import { createTermsRepository } from './repositories/terms';
 import { fetchSeedFile, importSeed } from './seedImport';
 import ChatScreen from './ui/pc/ChatScreen';
@@ -23,7 +30,7 @@ import TermDetailScreen from './ui/pc/TermDetailScreen';
 type Screen =
   | { name: 'search' }
   | { name: 'detail'; termId: string }
-  | { name: 'chat'; sessionId: string; subject: SubjectContext }
+  | { name: 'chat'; sessionId: string; subject: SubjectContext; returnTermId: string | null }
   | { name: 'history'; view: HistoryView };
 
 export default function App() {
@@ -39,16 +46,25 @@ export default function App() {
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [localFolder, setLocalFolder] = useState<FileSystemDirectoryHandle | null>(null);
 
   const termsRepo = useMemo(() => createTermsRepository(db), []);
   const notesRepo = useMemo(() => createNotesRepository(db), []);
   const asksRepo = useMemo(() => createAsksRepository(db), []);
   const chatRepo = useMemo(() => createChatRepository(db), []);
   const settingsRepo = useMemo(() => createSettingsRepository(db), []);
+  const syncFolderRepo = useMemo(() => createSyncFolderRepository(db), []);
   const keyStoreRepo = useMemo(() => createKeyStoreRepository(db), []);
   const webauthn = useMemo(() => createBrowserWebAuthnClient(), []);
   const apiKeyStore = useMemo(() => createApiKeyStore(keyStoreRepo, webauthn), [keyStoreRepo, webauthn]);
   const claude = useMemo(() => createDynamicAiClient(getSessionCredential), []);
+
+  // docs/local-data.md。deviceId が読み込まれるまでは作らない（notesRepo.applyCommit に
+  // 実在の deviceId を要するため、commitOrchestrator と同じ理由）。
+  const localFolderDeps = useMemo<LocalFolderDeps | null>(() => {
+    if (deviceId === null) return null;
+    return { termsRepo, notesRepo, settingsRepo, deviceId };
+  }, [termsRepo, notesRepo, settingsRepo, deviceId]);
 
   // deviceId が読み込まれるまでは作らない——commitOrchestrator は書き込みに実在の
   // deviceId を要するため（要件定義書§5.3、2026-07-30改訂で承認画面を廃止し常に自動反映するようにした）。
@@ -89,17 +105,23 @@ export default function App() {
   }, [termsRepo, settingsRepo]);
 
   useEffect(() => {
-    return () => commitOrchestrator?.dispose();
-  }, [commitOrchestrator]);
-
-  useEffect(() => {
-    // トリガー④: 起動時に、放置されたままのチャットセッションを回収する。
-    // APIキーの認証（keyReady）が済むまでは実行しない——認証前に試みると、
-    // 単に「まだキーが無い」だけなのに「APIキーが設定されていません」という
-    // 紛らわしい失敗表示が出てしまう（実際に報告された不具合）。
-    if (!keyReady || !commitOrchestrator) return;
-    commitOrchestrator.recoverStaleSessions();
-  }, [commitOrchestrator, keyReady]);
+    // docs/local-data.md「自動化」。起動時、選択済みフォルダの権限が残っていれば
+    // （queryPermission は権限を求めず確認するだけなのでユーザー操作なしで呼べる）
+    // 無操作で取り込む。切れていた場合は何もしない——requestPermission はユーザー操作を
+    // 伴わない自動呼び出しをブラウザに拒否されるため（keyReady の復元と同じ理由）、
+    // 設定画面の「今すぐ読み込む」ボタン（LocalFolderPanel）で復旧する。
+    if (!seedSettled || !localFolderDeps) return;
+    syncFolderRepo.get().then(async (dir) => {
+      if (!dir) return;
+      setLocalFolder(dir);
+      const granted = (await dir.queryPermission({ mode: 'readwrite' })) === 'granted';
+      if (!granted) return;
+      const outcome = await runLocalImportIfChanged(dir, localFolderDeps);
+      if (outcome.result && !outcome.result.ok) {
+        setGlobalError(`ローカルデータの取り込みを中止しました: ${outcome.result.reason}`);
+      }
+    });
+  }, [seedSettled, localFolderDeps, syncFolderRepo]);
 
   useEffect(() => {
     // サイトに入った時点で「保存済みのAPIキーがあるか」だけ確認する（復号はしない）。
@@ -134,26 +156,64 @@ export default function App() {
   // 用語モードにする（最上位検索候補への自動ひも付けはしない）。「話題を変える」も
   // このstartChat()を呼ぶだけでよい——既存のトリガー①（別の用語のチャットを開いた＝
   // 前の会話は終わり）がそのまま「話題変更時は自動で確定してから切り替える」を満たす。
-  async function startChat(termId: string | null, seedQuery: string | null) {
-    if (activeChatSessionId) {
-      void commitOrchestrator?.triggerCommit(activeChatSessionId);
-    }
+  // returnTermId: 単語詳細画面の「この語についてAIに聞く」から来た場合のみ、その詳細画面へ
+  // 戻れるようにする（検索結果一覧やAI検索欄から直接チャットを開始した場合はnullのまま）。
+  //
+  // termIdについて、確定せずに残っている（status:'open'）セッションが既にあれば、それを新規作成
+  // せず再開する——ホームの「AIによる単語更新待ち」一覧から再度その語を開いた場合や、単語詳細画面で
+  // 「この語についてAIに聞く」をもう一度押した場合が該当する。
+  // 2026-07-30改訂（ローカルデータ層導入）: 確定操作はボタン実行のみにしたため、別の用語の
+  // チャットを開いても元のセッションは自動確定しない。「AIによる単語更新待ち」一覧に残り続け、
+  // 利用者が明示的に確定するまで開いたままになる（docs/local-data.md）。
+  async function startChat(termId: string | null, seedQuery: string | null, returnTermId: string | null = null) {
+    const existing = termId ? await chatRepo.findOpenSessionByTermId(termId) : undefined;
+    const session = existing ?? (await chatRepo.createSession(termId));
+
     const subject = await buildSubjectContext(termId, seedQuery, { termsRepo, notesRepo });
-    const session = await chatRepo.createSession(termId);
     setActiveChatSessionId(session.id);
-    setScreen({ name: 'chat', sessionId: session.id, subject });
+    setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId });
   }
 
-  // トリガー③（明示的な確定操作）。確定処理（AI呼び出し・DB書き込み）はバックグラウンドで進め、
-  // クリックした時点でローカル検索画面へ戻す——確定結果を待たせない（2026-07-29）。
+  // docs/local-data.md「確定処理の順序」。① Claude Code の編集を先に取り込む
+  // → ② AI要約処理・DB書き込み（commitOrchestrator） → ③ 最新状態をファイルへ書き戻す。
+  // ①を先に行うことで、Claude Code のファイル編集が既定で優先される
+  // （②がそのセッションが触れた語に限って上書きし得るが、それ以外は①の内容がそのまま残る）。
+  // フォルダが未設定の場合は①③とも何もしない（従来どおりDBのみで完結する）。
+  async function commitSessionWithLocalSync(sessionId: string): Promise<void> {
+    if (localFolder && localFolderDeps) {
+      try {
+        await runLocalImportBeforeCommit(localFolder, localFolderDeps);
+      } catch (error) {
+        logAiError(`localFolderSync.import(session=${sessionId})`, error);
+      }
+    }
+
+    await commitOrchestrator?.triggerCommit(sessionId);
+
+    if (localFolder && localFolderDeps) {
+      try {
+        await runLocalExport(localFolder, localFolderDeps);
+      } catch (error) {
+        logAiError(`localFolderSync.export(session=${sessionId})`, error);
+        setGlobalError('ローカルフォルダへの書き出しに失敗しました。');
+      }
+    }
+  }
+
+  // 明示的な確定操作（確定ボタン）。確定処理はバックグラウンドで進め、クリックした時点で
+  // ローカル検索画面へ戻す——確定結果を待たせない（2026-07-29）。
   // 2026-07-30: 承認画面を廃止したため、確定＝そのままDBへの自動反映になる。
-  // activeChatSessionId はここで解除しておかないと、次に別のチャットを始めたときに
-  // この（既に確定処理へ回した）セッションへもう一度トリガー①がかかってしまう
-  // （実害は無い＝冪等だが、無駄なAI呼び出しになる）。
   function commitAndReturnToSearch(sessionId: string) {
-    void commitOrchestrator?.triggerCommit(sessionId);
+    void commitSessionWithLocalSync(sessionId);
     setActiveChatSessionId(null);
     setScreen({ name: 'search' });
+  }
+
+  // ホームの「AIによる単語更新待ち」一覧から、チャット画面を開かずその場で確定する。
+  // 画面遷移はしない点だけがcommitAndReturnToSearchと異なる（既にsearch画面にいるため）。
+  function commitPendingTerm(sessionId: string) {
+    void commitSessionWithLocalSync(sessionId);
+    if (activeChatSessionId === sessionId) setActiveChatSessionId(null);
   }
 
   // 要件定義書§5.4「ローカル検索の確定」。検索結果一覧から用語を選んで詳細を開いた
@@ -195,9 +255,12 @@ export default function App() {
         {!seedSettled ? null : screen.name === 'search' ? (
           <SearchScreen
             termsRepo={termsRepo}
+            chatRepo={chatRepo}
             seedStatus={seedStatus}
             onSelectTerm={handleSelectFromSearch}
             onStartChat={(termId, seedQuery) => void startChat(termId, seedQuery)}
+            onOpenPendingTerm={(termId) => void startChat(termId, null)}
+            onCommitPending={commitPendingTerm}
             onOpenHistory={(view) => setScreen({ name: 'history', view })}
           />
         ) : screen.name === 'detail' ? (
@@ -206,12 +269,13 @@ export default function App() {
             termsRepo={termsRepo}
             notesRepo={notesRepo}
             onBack={() => setScreen({ name: 'search' })}
-            onStartChat={(termId) => void startChat(termId, null)}
+            onStartChat={(termId) => void startChat(termId, null, termId)}
           />
         ) : screen.name === 'chat' ? (
           <ChatScreen
             sessionId={screen.sessionId}
             subject={screen.subject}
+            returnTermId={screen.returnTermId}
             chatRepo={chatRepo}
             termsRepo={termsRepo}
             claude={claude}
@@ -220,7 +284,15 @@ export default function App() {
             onKeyReady={() => setKeyReady(true)}
             onCommit={commitAndReturnToSearch}
             onChangeSubject={(termId) => void startChat(termId, null)}
-            onBack={() => setScreen({ name: 'search' })}
+            onBack={() => {
+              // 「確定する」を押さずに離れた場合、自動確定はしない（2026-07-30改訂）。
+              // セッションは open のまま「AIによる単語更新待ち」一覧に残り、
+              // 利用者が明示的に確定するまでそのまま残る（docs/local-data.md）。
+              setScreen({ name: 'search' });
+            }}
+            onBackToTerm={(termId) => {
+              setScreen({ name: 'detail', termId });
+            }}
           />
         ) : (
           <HistoryScreen
@@ -246,6 +318,10 @@ export default function App() {
             setAutoUpdateExistingTerms(mode);
             void settingsRepo.setAutoUpdateExistingTerms(mode);
           }}
+          localFolder={localFolder}
+          onLocalFolderChange={setLocalFolder}
+          syncFolderRepo={syncFolderRepo}
+          localFolderDeps={localFolderDeps}
         />
       )}
     </div>

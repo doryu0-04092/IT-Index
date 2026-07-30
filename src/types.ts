@@ -144,6 +144,13 @@ export interface SettingsRecord {
    * 新規語の登録は常に askedByUser:true が必須（この設定の対象外。distribution.ts参照）。
    */
   autoUpdateExistingTerms: 'askedOnly' | 'all';
+  /**
+   * ローカルデータ層（docs/local-data.md）。`data/terms.json` の最終取り込み時に記録した
+   * `lastModified`（epoch ms）。次回起動時、ファイルのこの値と比較して変化が無ければ
+   * 取り込み処理そのものをスキップする（3510語規模の再パースを避けるため）。
+   * まだ一度もフォルダを選んでいない・取り込んでいなければ null。
+   */
+  localTermsLastModified: number | null;
 }
 
 /**

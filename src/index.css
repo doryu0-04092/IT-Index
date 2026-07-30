@@ -105,6 +105,63 @@ body {
   font-size: 0.85rem;
 }
 
+.search-pending {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+}
+
+.search-pending-title {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.search-pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search-pending-item {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.search-pending-item:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.search-pending-list .search-result-row .search-pending-item {
+  flex: 1;
+}
+
+.search-pending-commit {
+  flex: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
 .search-results {
   list-style: none;
   margin: 16px 0 0;
@@ -329,9 +386,42 @@ body {
   color: var(--muted);
 }
 
+.chat-back-to-term {
+  display: block;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+}
+
+.chat-quick-asks {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.chat-quick-asks button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.chat-subject-row {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+
 .chat-subject-change {
   display: block;
-  margin: 10px 0;
+  margin: 0;
   background: none;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -340,6 +430,28 @@ body {
   font-size: 0.75rem;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.chat-loading {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.chat-spinner {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border: 3px solid rgba(37, 99, 235, 0.25);
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: chat-spinner-rotate 0.7s linear infinite;
+}
+
+@keyframes chat-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .term-picker input {

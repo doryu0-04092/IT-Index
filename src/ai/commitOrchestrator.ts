@@ -5,8 +5,6 @@ import type { TermsRepository } from '../repositories/terms';
 import type { AiClient } from './aiClient';
 import { commitProposal, proposeDistribution, type AutoUpdateExistingTermsMode } from './distribution';
 
-const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
-
 export interface CommitOrchestratorDeps {
   chatRepo: ChatRepository;
   termsRepo: TermsRepository;
@@ -18,19 +16,11 @@ export interface CommitOrchestratorDeps {
   autoUpdateExistingTerms: AutoUpdateExistingTermsMode;
   /** AI呼び出し失敗時。状態遷移図どおりセッションは open のまま残り、次回再試行される */
   onError?: (sessionId: string, error: unknown) => void;
-  timeoutMs?: number;
-  now?: () => number;
 }
 
 export interface CommitOrchestrator {
-  /** トリガー①③（別用語のチャットを開いた／明示的な確定操作）。 即座に確定処理へ回す */
+  /** 明示的な確定操作（確定ボタン）。即座に確定処理へ回す */
   triggerCommit(sessionId: string): Promise<void>;
-  /** メッセージ送受信のたびに呼ぶ（open→openの遷移）。15分無操作でトリガー②が発火するようタイマーを引き直す */
-  noteActivity(sessionId: string): void;
-  /** トリガー④。起動時に1回呼ぶ。lastActiveAtが15分以上前のopenセッションをまとめて確定処理へ回す */
-  recoverStaleSessions(): Promise<void>;
-  /** アプリ終了時にタイマーを片付ける */
-  dispose(): void;
 }
 
 /**
@@ -41,24 +31,19 @@ export interface CommitOrchestrator {
  * 責務になる（旧: 承認画面UIが担っていた）。何を自動反映するかは commitProposal() 内の
  * ルールと `autoUpdateExistingTerms` 設定で決まる（要件定義書§5.3）。
  *
+ * 2026-07-30改訂（ローカルデータ層導入）: 自動トリガー（別用語のチャットを開いた／15分放置／
+ * 起動時の放置セッション回収）を廃止し、確定操作は明示的なボタン実行（triggerCommit）のみにした
+ * （docs/local-data.md）。理由は2つ: (1) Claude Code によるファイル編集を確定処理の起点である
+ * 「取り込み → 適用 → 書き出し」の直前に必ず読む設計にしたため、確定タイミングを利用者が
+ * 制御できることが前提になった、(2) 自動確定はファイル書き出しのタイミングを予測不能にし、
+ * Claude Code の編集と衝突する窓を広げる。確定していないセッションはホームの
+ * 「AIによる単語更新待ち」一覧（ChatRepository.getOpenSessions()）に残り、そこから確定する。
+ *
  * 「処理は冪等」（状態遷移図の注記）は proposeDistribution 自体が読み取り専用、
  * commitSession() 自体も冪等なので保たれる。
  */
 export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOrchestrator {
-  const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const now = deps.now ?? (() => Date.now());
-  const timers = new Map<string, ReturnType<typeof setTimeout>>();
-
-  function clearTimer(sessionId: string): void {
-    const timer = timers.get(sessionId);
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      timers.delete(sessionId);
-    }
-  }
-
   async function commit(sessionId: string): Promise<void> {
-    clearTimer(sessionId);
     try {
       // 「AIに聞く」ボタンを押した時点でセッションはDBに作成される（＝チャット画面が
       // 開かれる前提で先にIDが要る）。そのため、画面を開いただけで一言も送らずに
@@ -94,26 +79,6 @@ export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOr
   return {
     async triggerCommit(sessionId) {
       await commit(sessionId);
-    },
-
-    noteActivity(sessionId) {
-      clearTimer(sessionId);
-      const timer = setTimeout(() => {
-        void commit(sessionId);
-      }, timeoutMs);
-      timers.set(sessionId, timer);
-    },
-
-    async recoverStaleSessions() {
-      const stale = await deps.chatRepo.findStaleOpenSessions(now(), timeoutMs);
-      for (const session of stale) {
-        await commit(session.id);
-      }
-    },
-
-    dispose() {
-      for (const timer of timers.values()) clearTimeout(timer);
-      timers.clear();
     },
   };
 }

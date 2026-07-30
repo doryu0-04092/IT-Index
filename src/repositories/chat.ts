@@ -5,8 +5,10 @@ export interface ChatRepository {
   createSession(termId: string | null): Promise<ChatSessionRecord>;
   appendMessage(sessionId: string, role: 'user' | 'assistant', content: string): Promise<void>;
   touchSession(sessionId: string, at: number): Promise<void>;
-  /** 起動時の未確定セッション検出（状態遷移図の④） */
-  findStaleOpenSessions(now: number, timeoutMs: number): Promise<ChatSessionRecord[]>;
+  /** ホーム画面の「AIによる単語更新待ち」一覧用。確定待ち（status:'open'）のセッション全件 */
+  getOpenSessions(): Promise<ChatSessionRecord[]>;
+  /** ある単語について未確定のまま残っているセッションがあれば返す。無ければundefined */
+  findOpenSessionByTermId(termId: string): Promise<ChatSessionRecord | undefined>;
   /** 冪等。既に committed なら何もしない */
   commitSession(sessionId: string): Promise<void>;
   getMessages(sessionId: string): Promise<ChatMessageRecord[]>;
@@ -49,9 +51,13 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
       await db.chatSessions.update(sessionId, { lastActiveAt: at });
     },
 
-    async findStaleOpenSessions(now, timeoutMs) {
+    async getOpenSessions() {
+      return db.chatSessions.where('status').equals('open').toArray();
+    },
+
+    async findOpenSessionByTermId(termId) {
       const openSessions = await db.chatSessions.where('status').equals('open').toArray();
-      return openSessions.filter((s) => now - s.lastActiveAt >= timeoutMs);
+      return openSessions.find((s) => s.termId === termId);
     },
 
     async commitSession(sessionId) {

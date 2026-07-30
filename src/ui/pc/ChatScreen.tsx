@@ -13,6 +13,8 @@ import TermPicker from './TermPicker';
 export interface ChatScreenProps {
   sessionId: string;
   subject: SubjectContext;
+  /** 単語詳細画面の「この語についてAIに聞く」から来た場合のみ、その単語のtermId。それ以外はnull */
+  returnTermId: string | null;
   chatRepo: ChatRepository;
   termsRepo: TermsRepository;
   claude: AiClient;
@@ -33,11 +35,14 @@ export interface ChatScreenProps {
   /** 「話題を変える」で用語を選んだ。トリガー①相当（自動確定してから新しい話題で続ける）は呼び出し元（App）の責務 */
   onChangeSubject: (termId: string) => void;
   onBack: () => void;
+  /** returnTermIdが非nullの時だけ表示するリンクから呼ばれる。元の単語詳細画面へ戻る */
+  onBackToTerm: (termId: string) => void;
 }
 
 export default function ChatScreen({
   sessionId,
   subject,
+  returnTermId,
   chatRepo,
   termsRepo,
   claude,
@@ -47,21 +52,25 @@ export default function ChatScreen({
   onCommit,
   onChangeSubject,
   onBack,
+  onBackToTerm,
 }: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // クイック質問（概要/詳しく）が送った質問文はチャットに表示しない。表示するのはAIの返答のみ
+  const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     chatRepo.getMessages(sessionId).then(setMessages);
   }, [sessionId, chatRepo]);
 
-  async function handleSend() {
-    if (input.trim() === '') return;
-    const text = input;
-    setInput('');
+  async function handleSend(overrideText?: string, hideQuestion?: boolean) {
+    const text = overrideText ?? input;
+    if (text.trim() === '') return;
+    if (overrideText === undefined) setInput('');
+    const beforeCount = messages.length;
     setSending(true);
     setError(null);
     try {
@@ -74,9 +83,35 @@ export default function ChatScreen({
       // （src/ai/chat.ts: appendMessage→claude.send の順）、成否に関わらず
       // 画面を最新状態に合わせる。ここを try 内だけに限定すると、失敗時に
       // 送信したはずのメッセージが画面から消えて見える（実機検証で発見した実バグ）。
-      setMessages(await chatRepo.getMessages(sessionId));
+      const updated = await chatRepo.getMessages(sessionId);
+      if (hideQuestion) {
+        const userMsg = updated.slice(beforeCount).find((m) => m.role === 'user');
+        if (userMsg) setHiddenMessageIds((prev) => new Set(prev).add(userMsg.id));
+      }
+      setMessages(updated);
       setSending(false);
     }
+  }
+
+  // 「単語の概要を聞く」「さらに詳しく聞く」で送る固定文言。用語モードでは対象が明確だが、
+  // 自由モードには「単語」という単位が無いため、検索語（seedQuery）があればそれを対象にし、
+  // 無ければ「ここまでの話題」を対象にする。「理解のために調べたこと」は用語ごとのAI補足
+  // （notesRepo）であり自由モードには存在しないので、詳しく聞く文言からも外す。
+  function buildOverviewQuestion(): string {
+    if (subject.mode === 'term') {
+      return 'この用語の基本的な情報を、初心者にもわかるように教えてください。';
+    }
+    if (subject.seedQuery) {
+      return `「${subject.seedQuery}」の基本的な情報を、初心者にもわかるように教えてください。`;
+    }
+    return 'ここまでの話題の基本的な情報を、初心者にもわかるように教えてください。';
+  }
+
+  function buildDetailQuestion(): string {
+    if (subject.mode === 'term') {
+      return 'ここまでの会話と「理解のために調べたこと」の内容を踏まえて、さらに詳しく教えてください。';
+    }
+    return 'ここまでの会話を踏まえて、さらに詳しく教えてください。';
   }
 
   function handleCommit() {
@@ -91,11 +126,19 @@ export default function ChatScreen({
     return <ApiKeyPrompt apiKeyStore={apiKeyStore} onSet={onKeyReady} onBack={onBack} />;
   }
 
+  const visibleMessages = messages.filter((m) => !hiddenMessageIds.has(m.id));
+
   return (
     <div className="chat-screen">
       <button type="button" className="term-detail-back" onClick={onBack}>
         ← 検索に戻る
       </button>
+
+      {returnTermId && (
+        <button type="button" className="chat-back-to-term" onClick={() => onBackToTerm(returnTermId)}>
+          ← 「{subject.mode === 'term' ? subject.label : ''}」の詳細に戻る
+        </button>
+      )}
 
       <div className="chat-subject-chip">
         {subject.mode === 'term' ? (
@@ -105,13 +148,27 @@ export default function ChatScreen({
         )}
       </div>
 
+      <div className="chat-quick-asks">
+        <button type="button" onClick={() => handleSend(buildOverviewQuestion(), true)} disabled={sending}>
+          {subject.mode === 'free' && !subject.seedQuery ? '話題の概要を聞く' : '単語の概要を聞く'}
+        </button>
+        <button type="button" onClick={() => handleSend(buildDetailQuestion(), true)} disabled={sending}>
+          さらに詳しく聞く
+        </button>
+      </div>
+
       <div className="chat-messages">
-        {messages.map((m) => (
+        {visibleMessages.map((m) => (
           <div key={m.id} className={`chat-message chat-message-${m.role}`}>
             <p>{m.content}</p>
           </div>
         ))}
-        {messages.length === 0 && <p className="search-status">何でも聞いてください。</p>}
+        {sending && (
+          <div className="chat-message chat-message-assistant chat-loading">
+            <span className="chat-spinner" aria-label="AIが返答を作成中" />
+          </div>
+        )}
+        {visibleMessages.length === 0 && !sending && <p className="search-status">何でも聞いてください。</p>}
       </div>
 
       {error && <p className="chat-error">{error}</p>}
@@ -132,14 +189,24 @@ export default function ChatScreen({
           placeholder="質問を入力（Enterで送信、Shift+Enterで改行）"
           disabled={sending}
         />
-        <button type="button" onClick={handleSend} disabled={sending || input.trim() === ''}>
+        <button type="button" onClick={() => handleSend()} disabled={sending || input.trim() === ''}>
           {sending ? '送信中…' : '送信'}
         </button>
       </div>
 
-      <button type="button" className="chat-subject-change" onClick={() => setPickerOpen(true)}>
-        {subject.mode === 'term' ? '話題を変える' : '用語を選ぶ'}
-      </button>
+      <div className="chat-subject-row">
+        <button type="button" className="chat-subject-change" onClick={() => setPickerOpen(true)}>
+          {subject.mode === 'term' ? '話題を変える' : '用語を選ぶ'}
+        </button>
+        <button
+          type="button"
+          className="chat-subject-change"
+          onClick={() => handleSend(buildDetailQuestion(), true)}
+          disabled={sending}
+        >
+          さらに詳しく聞く
+        </button>
+      </div>
 
       {pickerOpen && (
         <TermPicker
