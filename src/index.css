@@ -715,6 +715,20 @@ body {
   margin: 0 0 8px;
 }
 
+.settings-starter-kit {
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.settings-starter-kit summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.settings-starter-kit .search-status {
+  margin-top: 8px;
+}
+
 .settings-radio {
   display: flex;
   align-items: center;

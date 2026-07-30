@@ -8,6 +8,9 @@ import {
 } from '../../localData/localFolderSync';
 import type { SyncFolderRepository } from '../../repositories/syncFolder';
 
+/** スターターキットzip（public/starter-kit.zip）に同梱している空フォルダの固定名 */
+const STARTER_KIT_FOLDER_NAME = 'local-data';
+
 export interface LocalFolderPanelProps {
   folder: FileSystemDirectoryHandle | null;
   onFolderChange: (dir: FileSystemDirectoryHandle | null) => void;
@@ -25,6 +28,7 @@ export default function LocalFolderPanel({ folder, onFolderChange, syncFolderRep
   const [permission, setPermission] = useState<'granted' | 'prompt' | 'denied' | 'unknown'>('unknown');
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [nameCopied, setNameCopied] = useState(false);
 
   useEffect(() => {
     if (!folder) {
@@ -80,6 +84,12 @@ export default function LocalFolderPanel({ folder, onFolderChange, syncFolderRep
     }
   }
 
+  async function handleCopyFolderName() {
+    await navigator.clipboard.writeText(STARTER_KIT_FOLDER_NAME);
+    setNameCopied(true);
+    setTimeout(() => setNameCopied(false), 2000);
+  }
+
   async function handleForget() {
     await syncFolderRepo.clear();
     onFolderChange(null);
@@ -119,9 +129,26 @@ export default function LocalFolderPanel({ folder, onFolderChange, syncFolderRep
       </p>
 
       {!folder ? (
-        <button type="button" onClick={handlePickFolder} disabled={busy || !deps}>
-          フォルダを選択
-        </button>
+        <>
+          <button type="button" onClick={handlePickFolder} disabled={busy || !deps}>
+            フォルダを選択
+          </button>
+
+          <details className="settings-starter-kit">
+            <summary>フォルダ選択ダイアログの操作が分からない場合</summary>
+            <p className="search-status">
+              <a href="/starter-kit.zip" download>
+                スターターキット（zip）をダウンロード
+              </a>
+              して展開すると、
+              <code>{STARTER_KIT_FOLDER_NAME}</code>
+              という名前の空フォルダが出てきます。上の「フォルダを選択」を押したダイアログで、そのフォルダを探して選んでください（エクスプローラーの検索欄にフォルダ名を貼り付けると探しやすくなります）。
+            </p>
+            <button type="button" onClick={() => void handleCopyFolderName()}>
+              {nameCopied ? 'コピーしました' : `フォルダ名（${STARTER_KIT_FOLDER_NAME}）をコピー`}
+            </button>
+          </details>
+        </>
       ) : (
         <>
           <p className="search-status">
