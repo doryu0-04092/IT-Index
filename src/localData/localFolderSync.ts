@@ -6,6 +6,7 @@ import {
   readTextFile,
   writeTextFile,
 } from '../manualSync/folderTransport';
+import type { ChatRepository } from '../repositories/chat';
 import type { NotesRepository } from '../repositories/notes';
 import type { SettingsRepository } from '../repositories/settings';
 import type { SyncFolderRepository } from '../repositories/syncFolder';
@@ -13,6 +14,7 @@ import type { TermsRepository } from '../repositories/terms';
 import { buildAiEditGuideFile } from './editRules';
 import { buildLocalDataExport } from './exportLocalData';
 import { importLocalData, type ImportLocalDataResult } from './importLocalData';
+import { buildPendingChatFile } from './pendingChatFile';
 
 /**
  * ローカルデータ層（docs/local-data.md）の取り込み・書き出し・初期化。
@@ -29,6 +31,7 @@ const AI_GUIDE_FILE_NAME = 'AI_EDIT_GUIDE.md';
 const DATA_DIR = 'data';
 const NOTES_DIR = 'notes';
 const BACKUPS_DIR = 'backups';
+const PENDING_DIR = 'pending';
 
 export interface LocalFolderDeps {
   termsRepo: TermsRepository;
@@ -173,6 +176,45 @@ export async function runLocalExport(root: FileSystemDirectoryHandle, deps: Loca
 
   const lastModified = await readFileLastModified(dataDir, TERMS_FILE_NAME);
   await deps.settingsRepo.setLocalTermsLastModified(lastModified ?? null);
+}
+
+/**
+ * 未確定（確定ボタンを押す前）のチャットのやり取りを `data/pending/<termId>.md` として書き出す
+ * （docs/local-data.md）。対象はホームの「AIによる単語更新待ち」一覧と同じ条件——`termId` に
+ * 紐づき、メッセージが1件以上あるopenセッション。Claude Code がこのファイルを読んで
+ * `data/terms.json`・`data/notes/<id>.md` を直接編集できるようにする（アプリ自身はこのファイルを
+ * 取り込まない。参照専用）。
+ *
+ * 既に確定済み・削除済みになったセッションの `pending/*.md` は掃除する（毎回、現在のopenセッション
+ * 一覧で全件を作り直す方式。差分更新はしない）。
+ */
+export async function exportPendingChats(
+  root: FileSystemDirectoryHandle,
+  deps: { termsRepo: TermsRepository; chatRepo: ChatRepository },
+): Promise<void> {
+  const dataDir = await getOrCreateSubdirectory(root, DATA_DIR);
+  const pendingDir = await getOrCreateSubdirectory(dataDir, PENDING_DIR);
+
+  const sessions = await deps.chatRepo.getOpenSessions();
+  const keepNames = new Set<string>();
+
+  for (const session of sessions) {
+    if (!session.termId) continue; // 自由な質問はどの単語向けか特定できないため対象外
+    const messages = await deps.chatRepo.getMessages(session.id);
+    if (messages.length === 0) continue;
+    const term = await deps.termsRepo.getById(session.termId);
+    if (!term) continue;
+
+    keepNames.add(term.id);
+    await writeTextFile(pendingDir, `${term.id}.md`, buildPendingChatFile(term, messages));
+  }
+
+  const existing = await readMarkdownFilesFromFolder(pendingDir);
+  for (const file of existing) {
+    if (!keepNames.has(file.name)) {
+      await pendingDir.removeEntry(`${file.name}.md`);
+    }
+  }
 }
 
 /**

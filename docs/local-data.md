@@ -31,8 +31,11 @@
 選んだフォルダ/
 ├ data/
 │   ├ terms.json            … 変更データ層。origin:'ai' の語のみ。シードと同一形式
-│   └ notes/
-│       ├ <termId>.md       … 語ごとの詳しい説明。ファイル名 = normalize(term)
+│   ├ notes/
+│   │   ├ <termId>.md       … 語ごとの詳しい説明。ファイル名 = normalize(term)
+│   │   └ ...
+│   └ pending/
+│       ├ <termId>.md       … 未確定チャットの書き出し（参照専用。アプリは取り込まない）
 │       └ ...
 ├ AI_EDIT_GUIDE.md          … Claude Code 向け編集規約（アプリが自動生成）
 └ backups/
@@ -116,6 +119,16 @@ graph LR
 ①を必ず②より先に行うため、②が上書きし得るのは「そのセッションが触れた語」に限られ、それ以外の Claude Code の編集は失われない。この順序により、旧設計案にあった「書き出し直前に `lastModified` を再確認して不一致なら中止する」という処理は不要になった（先に取り込むので失われるものが無い）。
 
 実装: [App.tsx](../src/App.tsx) の `commitSessionWithLocalSync()`。フォルダが未設定の場合は①③とも何もしない（従来どおりDBのみで完結する）。
+
+### 6.1 未確定チャットの書き出し（`data/pending/`）
+
+上記①〜③は「確定ボタンを押した後」のフローだが、**確定前**のチャットのやり取り（ホームの「AIによる単語更新待ち」一覧に出ているもの）も Claude Code から処理できるよう、`data/pending/<termId>.md` として書き出す。front matter を持つ `data/notes/*.md` と違い、**このファイルはアプリが取り込まない完全な参照専用ファイル**——Claude Code はこの内容を読んで `data/terms.json`・`data/notes/<termId>.md` の方を編集する。
+
+- 書き出しのタイミング: フォルダ接続直後・チャット画面を確定せずに離れた時・確定処理の完了直後（ベストエフォート。失敗してもチャット・確定処理自体は止めない）
+- 毎回、その時点で開いている（未確定の）全セッションから作り直す。確定済み・削除済みになったセッションの `pending/*.md` は次回の書き出し時に自動で消える
+- 対象はホームの一覧と同じ条件（`termId` に紐づき、メッセージ1件以上）。自由な質問（`termId: null`）は対象外
+
+実装: [src/localData/pendingChatFile.ts](../src/localData/pendingChatFile.ts)（変換）、[src/localData/localFolderSync.ts](../src/localData/localFolderSync.ts) の `exportPendingChats()`（フォルダI/O）。
 
 ## 7. `validateSeedFile()` を流用しなかった理由
 
