@@ -8,6 +8,7 @@ import { db } from './db';
 import { createApiKeyStore, getSessionCredential } from './keystore/apiKeyStore';
 import { createBrowserWebAuthnClient } from './keystore/webauthn';
 import {
+  exportPendingChats,
   runLocalExport,
   runLocalImportBeforeCommit,
   runLocalImportIfChanged,
@@ -138,9 +139,18 @@ export default function App() {
         if (outcome.result && !outcome.result.ok) {
           setGlobalError(`ローカルデータの取り込みを中止しました: ${outcome.result.reason}`);
         }
+        syncPendingChats(dir);
       })
       .finally(() => setLocalFolderChecked(true));
   }, [seedSettled, localFolderDeps, syncFolderRepo]);
+
+  // 未確定チャットの `data/pending/<termId>.md` 書き出し（docs/local-data.md）。
+  // ベストエフォート——失敗してもユーザー体験の中心（チャット・確定処理）は止めない。
+  function syncPendingChats(dir: FileSystemDirectoryHandle) {
+    exportPendingChats(dir, { termsRepo, chatRepo }).catch((error: unknown) => {
+      logAiError('localFolderSync.exportPendingChats', error);
+    });
+  }
 
   // 初回セットアップの案内バナー用。「フォルダ選択ダイアログを開く→そこで新規フォルダを
   // 作成・命名→選択する」の3手で完了させる（docs/local-data.md §8。ダイアログ自体を
@@ -152,6 +162,7 @@ export default function App() {
     try {
       const { dir } = await setupLocalFolder(syncFolderRepo, localFolderDeps);
       setLocalFolder(dir);
+      syncPendingChats(dir);
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return; // ダイアログを閉じただけ
       setFirstRunError(err instanceof Error ? err.message : String(err));
@@ -234,6 +245,8 @@ export default function App() {
         logAiError(`localFolderSync.export(session=${sessionId})`, error);
         setGlobalError('ローカルフォルダへの書き出しに失敗しました。');
       }
+      // 確定済みになったセッションの data/pending/<termId>.md は役目を終えたので削除する。
+      syncPendingChats(localFolder);
     }
   }
 
@@ -345,9 +358,11 @@ export default function App() {
               // 「確定する」を押さずに離れた場合、自動確定はしない（2026-07-30改訂）。
               // セッションは open のまま「AIによる単語更新待ち」一覧に残り、
               // 利用者が明示的に確定するまでそのまま残る（docs/local-data.md）。
+              if (localFolder) syncPendingChats(localFolder);
               setScreen({ name: 'search' });
             }}
             onBackToTerm={(termId) => {
+              if (localFolder) syncPendingChats(localFolder);
               setScreen({ name: 'detail', termId });
             }}
           />
