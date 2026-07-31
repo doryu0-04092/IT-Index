@@ -67,7 +67,7 @@ export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack,
             ) : (
               <p className="search-status">まだAIに聞いたことがありません。</p>
             )}
-            <button type="button" onClick={() => onStartChat(termId)}>
+            <button type="button" className="btn-primary" onClick={() => onStartChat(termId)}>
               この語についてAIに聞く
             </button>
           </section>

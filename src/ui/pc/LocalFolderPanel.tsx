@@ -119,7 +119,7 @@ export default function LocalFolderPanel({ folder, onFolderChange, syncFolderRep
       </p>
 
       {!folder ? (
-        <button type="button" onClick={handlePickFolder} disabled={busy || !deps}>
+        <button type="button" className="btn-primary" onClick={handlePickFolder} disabled={busy || !deps}>
           フォルダを選択
         </button>
       ) : (
@@ -133,17 +133,17 @@ export default function LocalFolderPanel({ folder, onFolderChange, syncFolderRep
             </p>
           )}
           <div className="api-key-actions">
-            <button type="button" onClick={handleReadNow} disabled={busy || !deps}>
+            <button type="button" className="btn-secondary" onClick={handleReadNow} disabled={busy || !deps}>
               今すぐ読み込む
             </button>
-            <button type="button" onClick={handlePickFolder} disabled={busy || !deps}>
+            <button type="button" className="btn-secondary" onClick={handlePickFolder} disabled={busy || !deps}>
               フォルダを変更
             </button>
-            <button type="button" onClick={handleForget} disabled={busy}>
+            <button type="button" className="btn-text" onClick={handleForget} disabled={busy}>
               連携を解除
             </button>
           </div>
-          <button type="button" onClick={handleReset} disabled={busy || !deps}>
+          <button type="button" className="btn-secondary" onClick={handleReset} disabled={busy || !deps}>
             初期データに戻す
           </button>
         </>
