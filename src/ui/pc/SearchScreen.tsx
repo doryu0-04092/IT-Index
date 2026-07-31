@@ -29,6 +29,12 @@ export interface SearchScreenProps {
   onOpenHistory: (view: 'weighted' | 'timeline') => void;
   /** シード取り込み・ローカル取り込みが異常終了した場合のみ渡される。通常時は null */
   seedError: string | null;
+  /**
+   * ローカルフォルダ同期がセッションを裏側で自動commitした可能性がある度に増分する
+   * （docs/local-data.md §6.1）。このコンポーネント自身の操作（確定ボタン）では上がらない
+   * ——そちらは `handleCommitPending` が直接 state を更新するので不要。
+   */
+  pendingRefreshTick: number;
 }
 
 export default function SearchScreen({
@@ -40,6 +46,7 @@ export default function SearchScreen({
   onCommitPending,
   onOpenHistory,
   seedError,
+  pendingRefreshTick,
 }: SearchScreenProps) {
   const [terms, setTerms] = useState<TermRecord[]>([]);
   const [query, setQuery] = useState('');
@@ -68,7 +75,7 @@ export default function SearchScreen({
     return () => {
       cancelled = true;
     };
-  }, [chatRepo, termsRepo]);
+  }, [chatRepo, termsRepo, pendingRefreshTick]);
 
   // 確定処理はバックグラウンドで進む（ChatScreenの「この会話を確定する」と同様）。
   // 押した時点でこの一覧からは消してよい——結果を待たせない。

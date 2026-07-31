@@ -121,6 +121,14 @@ export interface ChatSessionRecord {
   startedAt: number;
   lastActiveAt: number;
   status: 'open' | 'committed';
+  /**
+   * ローカルデータ層（docs/local-data.md §6.1）。`data/pending/<termId>.md` を一度でも
+   * 書き出したら、その時刻（epoch ms）を記録する。次回以降、書き出し先にファイルが無ければ
+   * 「Claude Code が処理を終えて削除した」とみなし、このセッションを自動的に commit する。
+   * まだ一度も書き出していない（＝ファイルが無いのは単に新規だから）場合と区別するために必須。
+   * 未書き出しなら null。
+   */
+  pendingExportedAt: number | null;
 }
 
 /** Drive 同期対象外 */

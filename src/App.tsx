@@ -51,6 +51,9 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [localFolder, setLocalFolder] = useState<FileSystemDirectoryHandle | null>(null);
+  // ローカルフォルダ同期がセッションを裏側で自動commitした可能性がある度に増分する
+  // （docs/local-data.md §6.1）。SearchScreen の「AIによる単語更新待ち」一覧の再取得トリガー。
+  const [pendingRefreshTick, setPendingRefreshTick] = useState(0);
   const [localFolderChecked, setLocalFolderChecked] = useState(false);
   const [firstRunDismissed, setFirstRunDismissed] = useState(false);
   const [firstRunBusy, setFirstRunBusy] = useState(false);
@@ -146,10 +149,16 @@ export default function App() {
 
   // 未確定チャットの `data/pending/<termId>.md` 書き出し（docs/local-data.md）。
   // ベストエフォート——失敗してもユーザー体験の中心（チャット・確定処理）は止めない。
+  // Claude Code の処理完了検知（削除→自動commit）はこの中で非同期に起きるため、完了後
+  // 必ず pendingRefreshTick を進める——SearchScreen が「AIによる単語更新待ち」一覧を取得する
+  // タイミングの方が早いと、commit直後の1回だけ古い一覧のまま表示されてしまうため
+  // （実機検証で確認された不具合）。
   function syncPendingChats(dir: FileSystemDirectoryHandle) {
-    exportPendingChats(dir, { termsRepo, chatRepo }).catch((error: unknown) => {
-      logAiError('localFolderSync.exportPendingChats', error);
-    });
+    return exportPendingChats(dir, { termsRepo, chatRepo })
+      .catch((error: unknown) => {
+        logAiError('localFolderSync.exportPendingChats', error);
+      })
+      .finally(() => setPendingRefreshTick((t) => t + 1));
   }
 
   // 初回セットアップの案内バナー用。「フォルダ選択ダイアログを開く→そこで新規フォルダを
@@ -332,6 +341,7 @@ export default function App() {
             onOpenPendingTerm={(termId) => void startChat(termId, null)}
             onCommitPending={commitPendingTerm}
             onOpenHistory={(view) => setScreen({ name: 'history', view })}
+            pendingRefreshTick={pendingRefreshTick}
           />
         ) : screen.name === 'detail' ? (
           <TermDetailScreen

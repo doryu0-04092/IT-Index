@@ -180,13 +180,19 @@ export async function runLocalExport(root: FileSystemDirectoryHandle, deps: Loca
 
 /**
  * 未確定（確定ボタンを押す前）のチャットのやり取りを `data/pending/<termId>.md` として書き出す
- * （docs/local-data.md）。対象はホームの「AIによる単語更新待ち」一覧と同じ条件——`termId` に
+ * （docs/local-data.md §6.1）。対象はホームの「AIによる単語更新待ち」一覧と同じ条件——`termId` に
  * 紐づき、メッセージが1件以上あるopenセッション。Claude Code がこのファイルを読んで
  * `data/terms.json`・`data/notes/<id>.md` を直接編集できるようにする（アプリ自身はこのファイルを
  * 取り込まない。参照専用）。
  *
- * 既に確定済み・削除済みになったセッションの `pending/*.md` は掃除する（毎回、現在のopenセッション
- * 一覧で全件を作り直す方式。差分更新はしない）。
+ * **Claude Code による処理完了の検知**: 一度書き出した（`pendingExportedAt` が設定済みの）
+ * セッションのファイルが、今回見に行ったら無くなっていた場合、「Claude Code が処理を終えて
+ * 自分で削除した」とみなし、書き戻さずにそのセッションを `committed` にする（確定ボタンによる
+ * API再要約が二重に走らないようにする）。初回書き出し前（`pendingExportedAt` が null）は
+ * 単に「まだ書いていないだけ」なので、この判定はしない。
+ *
+ * 上記以外の理由で無効になった（term削除・自由チャット化等の）セッションの `pending/*.md` は
+ * 通常どおり掃除する。
  */
 export async function exportPendingChats(
   root: FileSystemDirectoryHandle,
@@ -195,6 +201,7 @@ export async function exportPendingChats(
   const dataDir = await getOrCreateSubdirectory(root, DATA_DIR);
   const pendingDir = await getOrCreateSubdirectory(dataDir, PENDING_DIR);
 
+  const existingBefore = new Set((await readMarkdownFilesFromFolder(pendingDir)).map((f) => f.name));
   const sessions = await deps.chatRepo.getOpenSessions();
   const keepNames = new Set<string>();
 
@@ -205,12 +212,20 @@ export async function exportPendingChats(
     const term = await deps.termsRepo.getById(session.termId);
     if (!term) continue;
 
+    if (!existingBefore.has(term.id) && session.pendingExportedAt !== null) {
+      await deps.chatRepo.commitSession(session.id);
+      continue;
+    }
+
     keepNames.add(term.id);
     await writeTextFile(pendingDir, `${term.id}.md`, buildPendingChatFile(term, messages));
+    if (session.pendingExportedAt === null) {
+      await deps.chatRepo.markPendingExported(session.id, Date.now());
+    }
   }
 
-  const existing = await readMarkdownFilesFromFolder(pendingDir);
-  for (const file of existing) {
+  const existingAfter = await readMarkdownFilesFromFolder(pendingDir);
+  for (const file of existingAfter) {
     if (!keepNames.has(file.name)) {
       await pendingDir.removeEntry(`${file.name}.md`);
     }
