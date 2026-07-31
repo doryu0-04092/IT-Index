@@ -32,6 +32,7 @@ import OnboardingModal from './ui/pc/OnboardingModal';
 import SearchScreen from './ui/pc/SearchScreen';
 import SettingsModal from './ui/pc/SettingsModal';
 import TermDetailScreen from './ui/pc/TermDetailScreen';
+import Toast from './ui/pc/Toast';
 
 type Screen =
   | { name: 'search' }
@@ -311,30 +312,19 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <button
-          type="button"
-          className="theme-toggle"
-          onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-          aria-label="ライト/ダークモード切り替え"
-        >
-          {theme === 'dark' ? '☀️' : '🌙'}
-        </button>
         <h1>IT-Index</h1>
-        {globalError && (
-          <p className="chat-error">
-            {globalError}{' '}
-            <button type="button" className="dismiss-error" onClick={() => setGlobalError(null)}>
-              ✕
-            </button>
-          </p>
-        )}
         {localFolderChecked && !localFolder && !firstRunDismissed && isFolderSyncAvailable() && (
           <div className="auth-banner">
             <span>Claude Codeなどで編集できるローカルフォルダを作成しますか？</span>
-            <button type="button" onClick={() => void handleSetupLocalFolder()} disabled={firstRunBusy || !localFolderDeps}>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => void handleSetupLocalFolder()}
+              disabled={firstRunBusy || !localFolderDeps}
+            >
               {firstRunBusy ? '作成中…' : 'フォルダを作成'}
             </button>
-            <button type="button" onClick={() => setFirstRunDismissed(true)} disabled={firstRunBusy}>
+            <button type="button" className="btn-text" onClick={() => setFirstRunDismissed(true)} disabled={firstRunBusy}>
               後で設定する
             </button>
             {firstRunError && <span className="chat-error">{firstRunError}</span>}
@@ -343,10 +333,10 @@ export default function App() {
         {hasPersistedKey && !keyReady && (
           <div className="auth-banner">
             <span>保存済みのAPIキーがあります。</span>
-            <button type="button" onClick={handleAuthenticate} disabled={authenticating}>
+            <button type="button" className="btn-primary" onClick={handleAuthenticate} disabled={authenticating}>
               {authenticating ? '認証中…' : 'パスキーで認証'}
             </button>
-            <button type="button" onClick={() => setHasPersistedKey(false)} disabled={authenticating}>
+            <button type="button" className="btn-text" onClick={() => setHasPersistedKey(false)} disabled={authenticating}>
               今は使わない
             </button>
             {authError && <span className="chat-error">{authError}</span>}
@@ -410,9 +400,21 @@ export default function App() {
         )}
       </main>
 
-      <button type="button" className="settings-gear" onClick={() => setSettingsOpen(true)} aria-label="設定">
-        ⚙
-      </button>
+      <div className="app-toolbar">
+        <button
+          type="button"
+          className="toolbar-btn"
+          onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          aria-label="ライト/ダークモード切り替え"
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
+        <button type="button" className="toolbar-btn" onClick={() => setSettingsOpen(true)} aria-label="設定">
+          ⚙
+        </button>
+      </div>
+
+      {globalError && <Toast message={globalError} onDismiss={() => setGlobalError(null)} />}
       {showOnboarding && <OnboardingModal onClose={dismissOnboarding} />}
       {settingsOpen && (
         <SettingsModal

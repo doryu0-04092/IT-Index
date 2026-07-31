@@ -4,6 +4,7 @@ import type { ChatRepository } from '../../repositories/chat';
 import type { TermsRepository } from '../../repositories/terms';
 import type { TermRecord } from '../../types';
 import { useDebouncedValue } from '../shared/useDebouncedValue';
+import FeatureHint from './FeatureHint';
 
 const MAX_RESULTS = 30;
 
@@ -94,10 +95,10 @@ export default function SearchScreen({
   return (
     <div className="search-screen">
       <nav className="search-nav">
-        <button type="button" onClick={() => onOpenHistory('weighted')}>
+        <button type="button" className="btn-text" onClick={() => onOpenHistory('weighted')}>
           重み付けビュー
         </button>
-        <button type="button" onClick={() => onOpenHistory('timeline')}>
+        <button type="button" className="btn-text" onClick={() => onOpenHistory('timeline')}>
           時系列ビュー
         </button>
       </nav>
@@ -123,6 +124,9 @@ export default function SearchScreen({
       {debouncedQuery.trim() === '' && pendingUpdates.length > 0 && (
         <div className="search-pending">
           <h3 className="search-pending-title">AIによる単語更新待ち</h3>
+          <FeatureHint hintKey="search-pending">
+            AIと会話した内容は自動では保存されません。「確定する」を押すと、その内容がAI補足として保存されます。
+          </FeatureHint>
           <ul className="search-pending-list">
             {pendingUpdates.map((p) => (
               <li key={p.sessionId} className="search-result-row">
@@ -132,7 +136,7 @@ export default function SearchScreen({
                 </button>
                 <button
                   type="button"
-                  className="search-pending-commit"
+                  className="search-pending-commit btn-secondary"
                   onClick={() => handleCommitPending(p.sessionId)}
                 >
                   確定する
@@ -151,15 +155,23 @@ export default function SearchScreen({
       */}
       {debouncedQuery.trim() !== '' && terms.length > 0 && (
         <div className="search-ai-hint">
-          <button type="button" onClick={() => onStartChat(null, query.trim() === '' ? null : query.trim())}>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => onStartChat(null, query.trim() === '' ? null : query.trim())}
+          >
             求める語が見つからない場合 → AIに聞く（自由な質問）
           </button>
         </div>
       )}
 
       <ul className="search-results">
-        {results.map(({ term, score: s }) => (
-          <li key={term.id} className="search-result-row">
+        {results.map(({ term, score: s }, index) => (
+          <li
+            key={term.id}
+            className="search-result-row stagger-row"
+            style={{ '--stagger-index': Math.min(index, 12) } as React.CSSProperties}
+          >
             <button type="button" className="search-result" onClick={() => onSelectTerm(term.id)}>
               <span className="search-result-term">{term.term}</span>
               <span className="search-result-reading">{term.readings[0]}</span>
@@ -170,7 +182,7 @@ export default function SearchScreen({
               最上位候補への自動ひも付けはしない（要件定義書§5.3）。この語についてAIに聞きたい
               場合は、利用者が行ごとに明示的に選ぶ。
             */}
-            <button type="button" className="search-result-ask-ai" onClick={() => onStartChat(term.id, null)}>
+            <button type="button" className="search-result-ask-ai btn-text" onClick={() => onStartChat(term.id, null)}>
               この語について聞く
             </button>
           </li>
