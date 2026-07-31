@@ -33,6 +33,7 @@ import SearchScreen from './ui/pc/SearchScreen';
 import SettingsModal from './ui/pc/SettingsModal';
 import TermDetailScreen from './ui/pc/TermDetailScreen';
 import Toast from './ui/pc/Toast';
+import TopNav, { type TopNavCurrent } from './ui/pc/TopNav';
 
 type Screen =
   | { name: 'search' }
@@ -42,6 +43,14 @@ type Screen =
 
 // 画面切替時にフェードインを再生させるためのReact key。screen.nameが変わった時だけでなく、
 // 同じ'chat'のまま別セッションに移った場合（話題変更）にも再生させたいのでsessionId等も含める。
+/** TopNavでどの項目をactive表示するか。詳細画面や用語ひも付きのチャットはナビ項目に対応しないためnull */
+function topNavCurrent(screen: Screen): TopNavCurrent {
+  if (screen.name === 'search') return 'search';
+  if (screen.name === 'history') return 'history';
+  if (screen.name === 'chat' && screen.subject.mode === 'free' && screen.returnTermId === null) return 'chat-free';
+  return null;
+}
+
 function screenKey(screen: Screen): string {
   switch (screen.name) {
     case 'detail':
@@ -343,6 +352,14 @@ export default function App() {
           </div>
         )}
       </header>
+      <TopNav
+        current={topNavCurrent(screen)}
+        settingsOpen={settingsOpen}
+        onGoSearch={() => setScreen({ name: 'search' })}
+        onGoHistory={() => setScreen({ name: 'history', view: 'weighted' })}
+        onGoFreeChat={() => void startChat(null, null)}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
       <main key={screenKey(screen)} className="screen-fade-in">
         {!seedSettled ? null : screen.name === 'search' ? (
           <SearchScreen
@@ -408,9 +425,6 @@ export default function App() {
           aria-label="ライト/ダークモード切り替え"
         >
           {theme === 'dark' ? '☀️' : '🌙'}
-        </button>
-        <button type="button" className="toolbar-btn" onClick={() => setSettingsOpen(true)} aria-label="設定">
-          ⚙
         </button>
       </div>
 
