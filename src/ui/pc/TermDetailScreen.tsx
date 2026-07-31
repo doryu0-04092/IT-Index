@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { NotesRepository } from '../../repositories/notes';
 import type { TermsRepository } from '../../repositories/terms';
 import type { NoteRecord, TermRecord } from '../../types';
+import Skeleton from './Skeleton';
 
 export interface TermDetailScreenProps {
   termId: string;
@@ -30,7 +31,7 @@ export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack,
         ← 検索に戻る
       </button>
 
-      {term === undefined && <p className="search-status">読み込み中…</p>}
+      {term === undefined && <Skeleton lines={4} />}
       {term === null && <p className="search-status">この語は見つかりませんでした。</p>}
 
       {term && (
