@@ -120,15 +120,24 @@ graph LR
 
 実装: [App.tsx](../src/App.tsx) の `commitSessionWithLocalSync()`。フォルダが未設定の場合は①③とも何もしない（従来どおりDBのみで完結する）。
 
-### 6.1 未確定チャットの書き出し（`data/pending/`）
+### 6.1 未確定チャットの書き出し（`data/pending/`）と、Claude Code処理完了の検知
 
 上記①〜③は「確定ボタンを押した後」のフローだが、**確定前**のチャットのやり取り（ホームの「AIによる単語更新待ち」一覧に出ているもの）も Claude Code から処理できるよう、`data/pending/<termId>.md` として書き出す。front matter を持つ `data/notes/*.md` と違い、**このファイルはアプリが取り込まない完全な参照専用ファイル**——Claude Code はこの内容を読んで `data/terms.json`・`data/notes/<termId>.md` の方を編集する。
 
 - 書き出しのタイミング: フォルダ接続直後・チャット画面を確定せずに離れた時・確定処理の完了直後（ベストエフォート。失敗してもチャット・確定処理自体は止めない）
-- 毎回、その時点で開いている（未確定の）全セッションから作り直す。確定済み・削除済みになったセッションの `pending/*.md` は次回の書き出し時に自動で消える
 - 対象はホームの一覧と同じ条件（`termId` に紐づき、メッセージ1件以上）。自由な質問（`termId: null`）は対象外
 
-実装: [src/localData/pendingChatFile.ts](../src/localData/pendingChatFile.ts)（変換）、[src/localData/localFolderSync.ts](../src/localData/localFolderSync.ts) の `exportPendingChats()`（フォルダI/O）。
+**Claude Codeは処理が終わったら `data/pending/<termId>.md` を自分で削除する**（`AI_EDIT_GUIDE.md` の指示）。アプリはこの削除を検知して、対応するチャットセッションを `committed` にする——確定ボタンを押さずに済み、確定ボタン経由のAPI要約が二重に走ることもない。
+
+検知の仕組み: `ChatSessionRecord.pendingExportedAt`（一度でも書き出した時刻。未書き出しは `null`）を使う。書き出し前にファイルの有無を確認し、
+
+- ファイルが**既にあれば**: 内容を最新化して上書き（通常の再書き出し）
+- ファイルが**無く、`pendingExportedAt` も null**（＝まだ一度も書き出していない）: 新規に書き出し、`pendingExportedAt` を記録する
+- ファイルが**無く、`pendingExportedAt` が設定済み**（＝以前は書き出していたのに消えている）: Claude Codeが処理を終えて削除したとみなし、書き戻さずセッションを `commitSession()` する
+
+`pendingExportedAt` が無いと「まだ一度も書いていない（＝正常）」と「以前書いたのに消えている（＝処理完了の合図）」を区別できないため、この追跡フィールドが必須になる。
+
+実装: [src/localData/pendingChatFile.ts](../src/localData/pendingChatFile.ts)（変換）、[src/localData/localFolderSync.ts](../src/localData/localFolderSync.ts) の `exportPendingChats()`（フォルダI/O・検知ロジック）、[src/repositories/chat.ts](../src/repositories/chat.ts) の `markPendingExported()`。
 
 ## 7. `validateSeedFile()` を流用しなかった理由
 
