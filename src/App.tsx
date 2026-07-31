@@ -16,6 +16,7 @@ import {
   type LocalFolderDeps,
 } from './localData/localFolderSync';
 import { isFolderSyncAvailable } from './manualSync/folderTransport';
+import { hasSeenOnboarding, markOnboardingSeen } from './ui/onboarding';
 import { getInitialTheme, persistTheme, readStoredTheme } from './ui/theme';
 import { createAsksRepository } from './repositories/asks';
 import { createChatRepository } from './repositories/chat';
@@ -27,6 +28,7 @@ import { createTermsRepository } from './repositories/terms';
 import { fetchSeedFile, importSeed } from './seedImport';
 import ChatScreen from './ui/pc/ChatScreen';
 import HistoryScreen, { type HistoryView } from './ui/pc/HistoryScreen';
+import OnboardingModal from './ui/pc/OnboardingModal';
 import SearchScreen from './ui/pc/SearchScreen';
 import SettingsModal from './ui/pc/SettingsModal';
 import TermDetailScreen from './ui/pc/TermDetailScreen';
@@ -36,6 +38,21 @@ type Screen =
   | { name: 'detail'; termId: string }
   | { name: 'chat'; sessionId: string; subject: SubjectContext; returnTermId: string | null }
   | { name: 'history'; view: HistoryView };
+
+// 画面切替時にフェードインを再生させるためのReact key。screen.nameが変わった時だけでなく、
+// 同じ'chat'のまま別セッションに移った場合（話題変更）にも再生させたいのでsessionId等も含める。
+function screenKey(screen: Screen): string {
+  switch (screen.name) {
+    case 'detail':
+      return `detail:${screen.termId}`;
+    case 'chat':
+      return `chat:${screen.sessionId}`;
+    case 'history':
+      return `history:${screen.view}`;
+    default:
+      return screen.name;
+  }
+}
 
 export default function App() {
   const [seedError, setSeedError] = useState<string | null>(null);
@@ -61,6 +78,12 @@ export default function App() {
   const [theme, setTheme] = useState(() =>
     getInitialTheme(window.matchMedia('(prefers-color-scheme: dark)').matches, readStoredTheme()),
   );
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
+
+  function dismissOnboarding(dontShowAgain: boolean) {
+    if (dontShowAgain) markOnboardingSeen();
+    setShowOnboarding(false);
+  }
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -330,7 +353,7 @@ export default function App() {
           </div>
         )}
       </header>
-      <main>
+      <main key={screenKey(screen)} className="screen-fade-in">
         {!seedSettled ? null : screen.name === 'search' ? (
           <SearchScreen
             termsRepo={termsRepo}
@@ -390,6 +413,7 @@ export default function App() {
       <button type="button" className="settings-gear" onClick={() => setSettingsOpen(true)} aria-label="設定">
         ⚙
       </button>
+      {showOnboarding && <OnboardingModal onClose={dismissOnboarding} />}
       {settingsOpen && (
         <SettingsModal
           apiKeyStore={apiKeyStore}

@@ -108,7 +108,7 @@ export default function SettingsModal({
           <p className="search-status">
             {credential ? `${getProviderInfo(credential.provider).label}（${credential.model}）を使用中` : '未設定'}
           </p>
-          <button type="button" onClick={() => setEditingKey(true)}>
+          <button type="button" className="btn-secondary" onClick={() => setEditingKey(true)}>
             {credential ? 'APIキーを変更' : 'APIキーを設定'}
           </button>
         </section>
@@ -150,10 +150,10 @@ export default function SettingsModal({
             <h3>この端末への保存</h3>
             <p className="search-status">パスキーで暗号化保存されています。</p>
             <div className="api-key-actions">
-              <button type="button" onClick={handleAuthenticate} disabled={authenticating || credential !== null}>
+              <button type="button" className="btn-secondary" onClick={handleAuthenticate} disabled={authenticating || credential !== null}>
                 {authenticating ? '認証中…' : credential ? '認証済み' : 'パスキーで認証'}
               </button>
-              <button type="button" onClick={handleForget}>
+              <button type="button" className="btn-text" onClick={handleForget}>
                 この端末の保存を削除
               </button>
             </div>
