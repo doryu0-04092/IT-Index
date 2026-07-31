@@ -17,6 +17,23 @@
   }
 }
 
+/* 右上のテーマ切り替えボタンによる明示的な上書き。OSの設定に関わらずこちらを優先する */
+:root[data-theme='light'] {
+  --fg: #1a1a1a;
+  --bg: #ffffff;
+  --muted: #666666;
+  --border: #dddddd;
+  --accent: #2f6feb;
+}
+
+:root[data-theme='dark'] {
+  --fg: #e8e8e8;
+  --bg: #14161a;
+  --muted: #9a9a9a;
+  --border: #333333;
+  --accent: #6ea8fe;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -34,11 +51,30 @@ body {
   padding: 24px 16px 64px;
 }
 
+.app-header {
+  position: relative;
+}
+
 .app-header h1 {
   font-size: 1.4rem;
   /* シード状態表示は検索画面（検索バー直下）へ移した。タイトル〜検索バー間の
      見た目の間隔が変わらないよう、その分の余白をここに残しておく。 */
   margin: 0 0 24px;
+}
+
+.theme-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .seed-status,

@@ -27,8 +27,8 @@ export interface SearchScreenProps {
   /** 「AIによる単語更新待ち」一覧から、チャット画面を開かずその場で確定する */
   onCommitPending: (sessionId: string) => void;
   onOpenHistory: (view: 'weighted' | 'timeline') => void;
-  /** シード取り込み状況（例: 「最新です（3510語）」）。検索欄の直下に表示する */
-  seedStatus: string;
+  /** シード取り込み・ローカル取り込みが異常終了した場合のみ渡される。通常時は null */
+  seedError: string | null;
 }
 
 export default function SearchScreen({
@@ -39,7 +39,7 @@ export default function SearchScreen({
   onOpenPendingTerm,
   onCommitPending,
   onOpenHistory,
-  seedStatus,
+  seedError,
 }: SearchScreenProps) {
   const [terms, setTerms] = useState<TermRecord[]>([]);
   const [query, setQuery] = useState('');
@@ -104,8 +104,10 @@ export default function SearchScreen({
         autoFocus
       />
 
-      <p className="search-status">{seedStatus}</p>
-      {terms.length === 0 && <p className="search-status">辞書を読み込み中です…</p>}
+      <p className="search-status">
+        {terms.length > 0 ? `登録単語数（${terms.length}語）` : '辞書を読み込み中です…'}
+      </p>
+      {seedError && <p className="chat-error">{seedError}</p>}
 
       {/*
         検索していない（ホーム）の間だけ表示する。確定する前にチャット画面を離れた語がここに並ぶ——

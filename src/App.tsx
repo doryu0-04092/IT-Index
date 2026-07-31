@@ -15,6 +15,7 @@ import {
   type LocalFolderDeps,
 } from './localData/localFolderSync';
 import { isFolderSyncAvailable } from './manualSync/folderTransport';
+import { getInitialTheme, persistTheme, readStoredTheme } from './ui/theme';
 import { createAsksRepository } from './repositories/asks';
 import { createChatRepository } from './repositories/chat';
 import { createKeyStoreRepository } from './repositories/keyStore';
@@ -36,7 +37,7 @@ type Screen =
   | { name: 'history'; view: HistoryView };
 
 export default function App() {
-  const [seedStatus, setSeedStatus] = useState('シードを確認中…');
+  const [seedError, setSeedError] = useState<string | null>(null);
   const [seedSettled, setSeedSettled] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [autoUpdateExistingTerms, setAutoUpdateExistingTerms] = useState<AutoUpdateExistingTermsMode>('askedOnly');
@@ -53,6 +54,14 @@ export default function App() {
   const [firstRunDismissed, setFirstRunDismissed] = useState(false);
   const [firstRunBusy, setFirstRunBusy] = useState(false);
   const [firstRunError, setFirstRunError] = useState<string | null>(null);
+  const [theme, setTheme] = useState(() =>
+    getInitialTheme(window.matchMedia('(prefers-color-scheme: dark)').matches, readStoredTheme()),
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    persistTheme(theme);
+  }, [theme]);
 
   const termsRepo = useMemo(() => createTermsRepository(db), []);
   const notesRepo = useMemo(() => createNotesRepository(db), []);
@@ -93,14 +102,15 @@ export default function App() {
 
   useEffect(() => {
     importSeed(fetchSeedFile, termsRepo, settingsRepo)
-      .then(async (result) => {
-        const count = (await termsRepo.getAll()).length;
-        if (result.imported) setSeedStatus(`シードを取り込みました（${count}語）`);
-        else if (result.reason === 'already up to date') setSeedStatus(`最新です（${count}語）`);
-        else setSeedStatus(`取り込みを中止しました: ${result.reason}`);
+      .then((result) => {
+        // 「取り込みました/最新です」は登録単語数の表示（SearchScreen側でterms.lengthから算出）に
+        // 置き換えたため、ここでは異常時のみ状態を持つ。
+        if (!result.imported && result.reason !== 'already up to date') {
+          setSeedError(`取り込みを中止しました: ${result.reason}`);
+        }
       })
       .catch((err: unknown) => {
-        setSeedStatus(`取り込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+        setSeedError(`取り込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
       })
       .finally(() => setSeedSettled(true));
 
@@ -256,6 +266,14 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+          aria-label="ライト/ダークモード切り替え"
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
         <h1>IT-Index</h1>
         {globalError && (
           <p className="chat-error">
@@ -295,7 +313,7 @@ export default function App() {
           <SearchScreen
             termsRepo={termsRepo}
             chatRepo={chatRepo}
-            seedStatus={seedStatus}
+            seedError={seedError}
             onSelectTerm={handleSelectFromSearch}
             onStartChat={(termId, seedQuery) => void startChat(termId, seedQuery)}
             onOpenPendingTerm={(termId) => void startChat(termId, null)}
