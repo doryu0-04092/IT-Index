@@ -234,7 +234,14 @@ export async function exportPendingChats(
 
 /**
  * 初期データへのロールバック（設定画面の「初期データに戻す」）。
- * `origin:'ai'` の語を tombstone し、対応するノートを空にする。`backups/` へ退避してから行う。
+ * `origin:'ai'` の語を tombstone し、**語の origin を問わず**すべてのノート（AI・Claude Code が
+ * 書き足した理解のための補足）を空にする。`backups/` へ退避してから行う。
+ *
+ * ノートを origin で絞らない理由: seed 語（元から入っている語）に対しても、AI・Claude Code は
+ * ノートを書き足せる（summary は不変だがノートは対象外）。これを origin:'ai' の語のノートだけに
+ * 限定すると、「初期化したのにseed語への補足が残る」という状態になり、実機検証で発見された
+ * （2026-07-31）。「初期データに戻す」の意図はAIが書き足した内容を全て消すことなので、
+ * 語の生死とは独立に、ノートは全件クリア対象にする。
  *
  * 既知の制限: `asks`（質問履歴）は削除しない。`AsksRepository` に削除手段が無く、
  * 対象語が消えても重み付け計算に実害が無い（履歴が単に使われなくなるだけ）ため、
@@ -249,7 +256,12 @@ export async function resetToInitialData(root: FileSystemDirectoryHandle, deps: 
   const aiTerms = allTerms.filter((t) => t.origin === 'ai');
   for (const term of aiTerms) {
     await deps.termsRepo.upsertFromAi({ ...term, deletedAt: now, updatedAt: now });
-    await deps.notesRepo.applyCommit(term.id, '', [], deps.deviceId, now);
+  }
+
+  const allNotes = await deps.notesRepo.getAll();
+  for (const note of allNotes) {
+    if (note.body === '' && note.diagrams.length === 0) continue; // 既に空なら何もしない
+    await deps.notesRepo.applyCommit(note.termId, '', [], deps.deviceId, now);
   }
 
   await writeTextFile(
