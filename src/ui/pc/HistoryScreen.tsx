@@ -74,8 +74,8 @@ export default function HistoryScreen({ asksRepo, termsRepo, initialView, onSele
           <p className="search-status">最近も繰り返し聞いている語ほど上位（＝まだ定着していない語）</p>
           {weightedRows.length === 0 && <p className="search-status">まだ記録がありません。</p>}
           <ul className="search-results">
-            {weightedRows.map(({ term, weight }) => (
-              <li key={term.id}>
+            {weightedRows.map(({ term, weight }, index) => (
+              <li key={term.id} className="stagger-row" style={{ '--stagger-index': Math.min(index, 12) } as React.CSSProperties}>
                 <button type="button" className="search-result" onClick={() => onSelectTerm(term.id)}>
                   <span className="search-result-term">{term.term}</span>
                   <span className="search-result-reading">{term.readings[0]}</span>
@@ -89,8 +89,8 @@ export default function HistoryScreen({ asksRepo, termsRepo, initialView, onSele
         <>
           {timelineRows.length === 0 && <p className="search-status">まだ記録がありません。</p>}
           <ul className="search-results">
-            {timelineRows.map(({ ask, term }) => (
-              <li key={ask.id}>
+            {timelineRows.map(({ ask, term }, index) => (
+              <li key={ask.id} className="stagger-row" style={{ '--stagger-index': Math.min(index, 12) } as React.CSSProperties}>
                 <button type="button" className="search-result" onClick={() => onSelectTerm(term.id)}>
                   <span className="search-result-term">{term.term}</span>
                   <span className="search-result-field">{new Date(ask.at).toLocaleString('ja-JP')}</span>

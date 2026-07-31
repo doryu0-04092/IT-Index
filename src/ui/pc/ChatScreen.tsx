@@ -8,6 +8,7 @@ import type { ChatRepository } from '../../repositories/chat';
 import type { TermsRepository } from '../../repositories/terms';
 import type { ChatMessageRecord } from '../../types';
 import ApiKeyPrompt from './ApiKeyPrompt';
+import FeatureHint from './FeatureHint';
 import TermPicker from './TermPicker';
 
 export interface ChatScreenProps {
@@ -148,11 +149,15 @@ export default function ChatScreen({
         )}
       </div>
 
+      <FeatureHint hintKey="chat-quick-asks">
+        「概要を聞く」「さらに詳しく聞く」を押すと、よくある質問を自分で入力せずに送れます。
+      </FeatureHint>
+
       <div className="chat-quick-asks">
-        <button type="button" onClick={() => handleSend(buildOverviewQuestion(), true)} disabled={sending}>
+        <button type="button" className="btn-secondary" onClick={() => handleSend(buildOverviewQuestion(), true)} disabled={sending}>
           {subject.mode === 'free' && !subject.seedQuery ? '話題の概要を聞く' : '単語の概要を聞く'}
         </button>
-        <button type="button" onClick={() => handleSend(buildDetailQuestion(), true)} disabled={sending}>
+        <button type="button" className="btn-secondary" onClick={() => handleSend(buildDetailQuestion(), true)} disabled={sending}>
           さらに詳しく聞く
         </button>
       </div>
@@ -189,18 +194,18 @@ export default function ChatScreen({
           placeholder="質問を入力（Enterで送信、Shift+Enterで改行）"
           disabled={sending}
         />
-        <button type="button" onClick={() => handleSend()} disabled={sending || input.trim() === ''}>
+        <button type="button" className="btn-primary" onClick={() => handleSend()} disabled={sending || input.trim() === ''}>
           {sending ? '送信中…' : '送信'}
         </button>
       </div>
 
       <div className="chat-subject-row">
-        <button type="button" className="chat-subject-change" onClick={() => setPickerOpen(true)}>
+        <button type="button" className="chat-subject-change btn-text" onClick={() => setPickerOpen(true)}>
           {subject.mode === 'term' ? '話題を変える' : '用語を選ぶ'}
         </button>
         <button
           type="button"
-          className="chat-subject-change"
+          className="chat-subject-change btn-text"
           onClick={() => handleSend(buildDetailQuestion(), true)}
           disabled={sending}
         >
@@ -219,7 +224,12 @@ export default function ChatScreen({
         />
       )}
 
-      <button type="button" className="chat-commit-button" onClick={handleCommit} disabled={messages.length === 0}>
+      <button
+        type="button"
+        className="chat-commit-button btn-primary btn-block"
+        onClick={handleCommit}
+        disabled={messages.length === 0}
+      >
         この会話を確定する
       </button>
     </div>

@@ -57,7 +57,7 @@ export default function TermPicker({ termsRepo, onSelect, onCancel }: TermPicker
             </li>
           ))}
         </ul>
-        <button type="button" className="term-picker-cancel" onClick={onCancel}>
+        <button type="button" className="term-picker-cancel btn-secondary btn-block" onClick={onCancel}>
           キャンセル
         </button>
       </div>

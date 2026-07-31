@@ -132,7 +132,7 @@ export default function ApiKeyPrompt({ apiKeyStore, onSet, onBack, backLabel = '
             />
           </label>
 
-          <button type="submit" disabled={connecting || apiKey.trim() === ''}>
+          <button type="submit" className="btn-primary" disabled={connecting || apiKey.trim() === ''}>
             {connecting ? '接続を確認中…' : '接続を確認'}
           </button>
           {connectError && <p className="chat-error">{connectError}</p>}
@@ -181,10 +181,10 @@ export default function ApiKeyPrompt({ apiKeyStore, onSet, onBack, backLabel = '
           )}
 
           <div className="api-key-actions">
-            <button type="button" onClick={() => setStep({ name: 'enterKey' })} disabled={saving}>
+            <button type="button" className="btn-secondary" onClick={() => setStep({ name: 'enterKey' })} disabled={saving}>
               APIキーを入力し直す
             </button>
-            <button type="submit" disabled={saving}>
+            <button type="submit" className="btn-primary" disabled={saving}>
               {saving ? '保存中…' : '設定'}
             </button>
           </div>
