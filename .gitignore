@@ -26,3 +26,6 @@ test-results/
 docs/review/logs/playwright-report/
 docs/review/logs/lhci-report/
 .lighthouseci/
+
+# 検証用に一時ダウンロードしたバイナリ（コミット対象外）
+.tools/
