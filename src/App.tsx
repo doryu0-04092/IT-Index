@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createDynamicAiClient } from './ai/providers';
 import { createCommitOrchestrator } from './ai/commitOrchestrator';
 import type { AutoUpdateExistingTermsMode } from './ai/distribution';
@@ -67,6 +67,10 @@ function screenKey(screen: Screen): string {
 export default function App() {
   const [seedError, setSeedError] = useState<string | null>(null);
   const [seedSettled, setSeedSettled] = useState(false);
+  // シード取り込みに失敗した場合の再試行ボタン（SearchScreen）を押すたびに増分する。
+  // termsRepo自体のインスタンスは変わらないため、SearchScreen側のtermsRepo.getAll()を
+  // 再実行させるトリガーとして使う（#38対応）。
+  const [seedRefreshTick, setSeedRefreshTick] = useState(0);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [autoUpdateExistingTerms, setAutoUpdateExistingTerms] = useState<AutoUpdateExistingTermsMode>('askedOnly');
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -137,8 +141,9 @@ export default function App() {
     });
   }, [chatRepo, termsRepo, notesRepo, claude, asksRepo, deviceId, autoUpdateExistingTerms]);
 
-  useEffect(() => {
-    importSeed(fetchSeedFile, termsRepo, settingsRepo)
+  const runSeedImport = useCallback(() => {
+    setSeedError(null);
+    return importSeed(fetchSeedFile, termsRepo, settingsRepo)
       .then((result) => {
         // 「取り込みました/最新です」は登録単語数の表示（SearchScreen側でterms.lengthから算出）に
         // 置き換えたため、ここでは異常時のみ状態を持つ。
@@ -149,13 +154,20 @@ export default function App() {
       .catch((err: unknown) => {
         setSeedError(`取り込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
       })
-      .finally(() => setSeedSettled(true));
+      .finally(() => {
+        setSeedSettled(true);
+        setSeedRefreshTick((t) => t + 1);
+      });
+  }, [termsRepo, settingsRepo]);
+
+  useEffect(() => {
+    runSeedImport();
 
     settingsRepo.get().then((s) => {
       setDeviceId(s.deviceId);
       setAutoUpdateExistingTerms(s.autoUpdateExistingTerms);
     });
-  }, [termsRepo, settingsRepo]);
+  }, [runSeedImport, settingsRepo]);
 
   useEffect(() => {
     // docs/local-data.md「自動化」。起動時、選択済みフォルダの権限が残っていれば
@@ -366,6 +378,8 @@ export default function App() {
             termsRepo={termsRepo}
             chatRepo={chatRepo}
             seedError={seedError}
+            seedRefreshTick={seedRefreshTick}
+            onRetrySeed={runSeedImport}
             onSelectTerm={handleSelectFromSearch}
             onStartChat={(termId, seedQuery) => void startChat(termId, seedQuery)}
             onOpenPendingTerm={(termId) => void startChat(termId, null)}
