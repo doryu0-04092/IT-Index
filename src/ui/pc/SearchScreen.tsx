@@ -30,6 +30,10 @@ export interface SearchScreenProps {
   onOpenHistory: (view: 'weighted' | 'timeline') => void;
   /** シード取り込み・ローカル取り込みが異常終了した場合のみ渡される。通常時は null */
   seedError: string | null;
+  /** シード取り込み（再試行含む）が完了するたびに増分される。termsの再読み込みトリガー */
+  seedRefreshTick: number;
+  /** シード取り込みを再試行する（App.tsx側のrunSeedImportを呼ぶ） */
+  onRetrySeed: () => void;
   /**
    * ローカルフォルダ同期がセッションを裏側で自動commitした可能性がある度に増分する
    * （docs/local-data.md §6.1）。このコンポーネント自身の操作（確定ボタン）では上がらない
@@ -47,6 +51,8 @@ export default function SearchScreen({
   onCommitPending,
   onOpenHistory,
   seedError,
+  seedRefreshTick,
+  onRetrySeed,
   pendingRefreshTick,
 }: SearchScreenProps) {
   const [terms, setTerms] = useState<TermRecord[]>([]);
@@ -56,7 +62,7 @@ export default function SearchScreen({
 
   useEffect(() => {
     termsRepo.getAll().then(setTerms);
-  }, [termsRepo]);
+  }, [termsRepo, seedRefreshTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,9 +119,16 @@ export default function SearchScreen({
       />
 
       <p className="search-status">
-        {terms.length > 0 ? `登録単語数（${terms.length}語）` : '辞書を読み込み中です…'}
+        {terms.length > 0 ? `登録単語数（${terms.length}語）` : seedError ? '辞書の取り込みに失敗しました' : '辞書を読み込み中です…'}
       </p>
-      {seedError && <p className="chat-error">{seedError}</p>}
+      {seedError && (
+        <p className="chat-error">
+          {seedError}
+          <button type="button" className="btn-text" onClick={onRetrySeed}>
+            再試行
+          </button>
+        </p>
+      )}
 
       {/*
         検索していない（ホーム）の間だけ表示する。確定する前にチャット画面を離れた語がここに並ぶ——
