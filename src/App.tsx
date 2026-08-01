@@ -74,6 +74,11 @@ export default function App() {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [autoUpdateExistingTerms, setAutoUpdateExistingTerms] = useState<AutoUpdateExistingTermsMode>('askedOnly');
   const [globalError, setGlobalError] = useState<string | null>(null);
+  // 確定処理は fire-and-forget のため（#40対応）、実行中であることをトーストで示す。
+  const [commitInProgress, setCommitInProgress] = useState(false);
+  // 確定に失敗したセッションIDの集合。「AIによる単語更新待ち」一覧に失敗マークを表示するため
+  // に使う（#41対応）。次に確定に成功したら該当セッションを取り除く。
+  const [failedCommitSessionIds, setFailedCommitSessionIds] = useState<Set<string>>(new Set());
   const [screen, setScreen] = useState<Screen>({ name: 'search' });
   const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null);
   const [hasPersistedKey, setHasPersistedKey] = useState(false);
@@ -137,6 +142,7 @@ export default function App() {
       onError: (sessionId, error) => {
         logAiError(`commitOrchestrator(session=${sessionId})`, error);
         setGlobalError(`確定処理に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
+        setFailedCommitSessionIds((prev) => new Set(prev).add(sessionId));
       },
     });
   }, [chatRepo, termsRepo, notesRepo, claude, asksRepo, deviceId, autoUpdateExistingTerms]);
@@ -282,25 +288,40 @@ export default function App() {
   // （②がそのセッションが触れた語に限って上書きし得るが、それ以外は①の内容がそのまま残る）。
   // フォルダが未設定の場合は①③とも何もしない（従来どおりDBのみで完結する）。
   async function commitSessionWithLocalSync(sessionId: string): Promise<void> {
-    if (localFolder && localFolderDeps) {
-      try {
-        await runLocalImportBeforeCommit(localFolder, localFolderDeps);
-      } catch (error) {
-        logAiError(`localFolderSync.import(session=${sessionId})`, error);
+    setCommitInProgress(true);
+    try {
+      if (localFolder && localFolderDeps) {
+        try {
+          await runLocalImportBeforeCommit(localFolder, localFolderDeps);
+        } catch (error) {
+          logAiError(`localFolderSync.import(session=${sessionId})`, error);
+        }
       }
-    }
 
-    await commitOrchestrator?.triggerCommit(sessionId);
+      // commitOrchestratorのcommit()は失敗時も例外を投げず、内部でonErrorを呼ぶだけで
+      // resolveする（src/ai/commitOrchestrator.ts:73-76）。そのため「呼び出し前に楽観的に
+      // 失敗マークを消す→失敗すればonErrorが同期的に再セットする」という順序で扱う必要がある
+      // （triggerCommitの成否では判定できない）。
+      setFailedCommitSessionIds((prev) => {
+        if (!prev.has(sessionId)) return prev;
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
+      await commitOrchestrator?.triggerCommit(sessionId);
 
-    if (localFolder && localFolderDeps) {
-      try {
-        await runLocalExport(localFolder, localFolderDeps);
-      } catch (error) {
-        logAiError(`localFolderSync.export(session=${sessionId})`, error);
-        setGlobalError('ローカルフォルダへの書き出しに失敗しました。');
+      if (localFolder && localFolderDeps) {
+        try {
+          await runLocalExport(localFolder, localFolderDeps);
+        } catch (error) {
+          logAiError(`localFolderSync.export(session=${sessionId})`, error);
+          setGlobalError('ローカルフォルダへの書き出しに失敗しました。');
+        }
+        // 確定済みになったセッションの data/pending/<termId>.md は役目を終えたので削除する。
+        syncPendingChats(localFolder);
       }
-      // 確定済みになったセッションの data/pending/<termId>.md は役目を終えたので削除する。
-      syncPendingChats(localFolder);
+    } finally {
+      setCommitInProgress(false);
     }
   }
 
@@ -380,6 +401,7 @@ export default function App() {
             seedError={seedError}
             seedRefreshTick={seedRefreshTick}
             onRetrySeed={runSeedImport}
+            failedCommitSessionIds={failedCommitSessionIds}
             onSelectTerm={handleSelectFromSearch}
             onStartChat={(termId, seedQuery) => void startChat(termId, seedQuery)}
             onOpenPendingTerm={(termId) => void startChat(termId, null)}
@@ -443,6 +465,9 @@ export default function App() {
       </div>
 
       {globalError && <Toast message={globalError} onDismiss={() => setGlobalError(null)} />}
+      {!globalError && commitInProgress && (
+        <Toast message="確定処理を実行しています…" variant="info" durationMs={15_000} onDismiss={() => {}} />
+      )}
       {showOnboarding && <OnboardingModal onClose={dismissOnboarding} />}
       {settingsOpen && (
         <SettingsModal

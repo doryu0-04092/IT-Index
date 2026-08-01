@@ -362,6 +362,10 @@ button:disabled {
   flex: 1;
 }
 
+.search-pending-failed {
+  margin-left: auto;
+}
+
 .search-pending-commit {
   flex: none;
 }
@@ -856,6 +860,11 @@ button:disabled {
 
 .toast-error {
   border-color: #d33;
+}
+
+/* 確定処理中等の進行状況表示に使う（#40対応） */
+.toast-info {
+  border-color: var(--accent);
 }
 
 /* 段階的オンボーディング: 機能を実際に使うタイミングでその場に出す小さな案内 */
