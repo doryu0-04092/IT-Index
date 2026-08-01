@@ -1,0 +1,38 @@
+[
+  {
+    "tag": "BUTTON",
+    "cls": "search-result",
+    "text": "ネットワークネットワークネットワーク",
+    "role": null
+  },
+  {
+    "tag": "BUTTON",
+    "cls": "search-result",
+    "text": "ネットワーク層ネットワークソウネットワーク",
+    "role": null
+  },
+  {
+    "tag": "BUTTON",
+    "cls": "search-result",
+    "text": "ネットワークOSネットワークオーエスネットワーク",
+    "role": null
+  },
+  {
+    "tag": "BUTTON",
+    "cls": "search-result",
+    "text": "ネットワーク制御ネットワークセイギョネットワーク",
+    "role": null
+  },
+  {
+    "tag": "BUTTON",
+    "cls": "search-result",
+    "text": "ネットワーク管理ネットワークカンリネットワーク",
+    "role": null
+  },
+  {
+    "tag": "BUTTON",
+    "cls": "search-result",
+    "text": "ネットワークブートネットワークブートネットワーク",
+    "role": null
+  }
+]
