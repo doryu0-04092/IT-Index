@@ -20,3 +20,9 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+
+# 検証ツールの実行成果物（ログ・レポート自体は docs/review 配下でコミット対象、生成物のみ除外）
+test-results/
+docs/review/logs/playwright-report/
+docs/review/logs/lhci-report/
+.lighthouseci/
