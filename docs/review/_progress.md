@@ -1,7 +1,7 @@
 # 進捗 — it-index 品質検証
 
-最終更新: 2026-08-01（Stage A完了）
-現在地: Stage B 開始前
+最終更新: 2026-08-01（Stage C 1波目完了）
+現在地: Stage C 2波目（エージェント4〜6）開始前
 
 ## 完了
 - [x] 計画作成・承認（C:\Users\tubor\.claude\plans\it-ui-humble-summit.md）
@@ -13,13 +13,26 @@
 - [x] Stage A  PR #26 作成 → 本人承認 → squash merge → master反映済み（ブランチ削除済み）
 - [x] tsc --noEmit / vitest run(171件) 通過確認済み。eslintは14 errors検出（ゲート化せず件数測定のみ、docs/review/logs/eslint.txt）
 
+## 完了（続き）
+- [x] 監査①（Stage A終了時点）— **ずれ無し**
+- [x] Stage B  ゲート一括実行（PR #28 マージ済み）
+  - ✅ tsc / vitest(171) / gitleaks / npm audit signatures
+  - ❌ npm audit --audit-level=high（@lhci/cli起因、upstream未修正）
+  - ❌ semgrep（src/ai/logError.ts unsafe-formatstring x2、Docker経由で実行）
+  - ❌ playwright a11y（TopNav color-contrast違反, serious）
+  - ⚠️ lhci未完走（Windows環境固有のchrome-launcher EPERM。目標分類のためゲートではない）
+  - 記録用Issue #27、詳細: docs/review/logs/stage-b-summary.md
+
+## Stage C 1波目 完了（エージェント1〜3）
+- [x] エージェント1: アクセシビリティ — `docs/review/agents/01-accessibility.md`（ゲート違反2件: TopNavコントラスト4.02, btn-primaryダーク2.41。観点4件: role=dialog無し・フォーカストラップ無し・aria-label不統一・Skeleton読み上げ無し）
+- [x] エージェント2: ビジュアルデザイン — `docs/review/agents/02-visual-design.md`（ゲート違反2件、エージェント1と重複確認。観点5件: モーダル暗転効果無効・トークン迂回多数・ピルバッジ崩れ・デッドCSS2件・spinner色不整合）
+- [x] エージェント3: 操作フロー・使用感 — `docs/review/agents/03-operation-flow.md`（ゲート違反1件: ブラウザバックで白紙化。目標未達3件: リロードで文脈喪失・確定処理の進行不可視・確定失敗の痕跡なし。IME回帰確認は問題なし）
+- [x] 3エージェントともセッション上限で一度中断→再開して完走（SendMessageで再開）
+- [x] 記録用Issue #29 起票、ブランチ docs/29-stage-c-agent-reports で報告をコミット予定
+
 ## 未完了（次にここから）
-- [ ] 監査①（Stage A終了時点のドリフト監査）
-- [ ] Stage B  ゲート一括実行（gitleaks / npm audit / semgrep / playwright / lhci）
-- [ ] Stage C  エージェント1〜3（1波目: a11y / ビジュアル / 操作フロー）
 - [ ] Stage C  エージェント4〜6（2波目: キーボード・レスポンシブ / 機能性 / セキュリティ）
 - [ ] Stage C  エージェント7〜9（3波目: 性能 / 信頼性 / 保守性）
-- [ ] 監査①（Stage A終了時点）
 - [ ] 監査②（Stage C終了時点）
 - [ ] Stage D  統合とIssue起票
 - [ ] 監査③（Stage D終了時点）
