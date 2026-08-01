@@ -1,7 +1,7 @@
 # 進捗 — it-index 品質検証
 
-最終更新: 2026-08-01（Stage C 1波目完了）
-現在地: Stage C 2波目（エージェント4〜6）開始前
+最終更新: 2026-08-01（Stage C 2波目完了）
+現在地: Stage C 3波目（エージェント7〜9）開始前
 
 ## 完了
 - [x] 計画作成・承認（C:\Users\tubor\.claude\plans\it-ui-humble-summit.md）
@@ -30,8 +30,12 @@
 - [x] 3エージェントともセッション上限で一度中断→再開して完走（SendMessageで再開）
 - [x] 記録用Issue #29 起票、ブランチ docs/29-stage-c-agent-reports で報告をコミット予定
 
+## Stage C 2波目 完了（エージェント4〜6）
+- [x] エージェント4: キーボード・レスポンシブ — `docs/review/agents/04-keyboard-responsive.md`（観点8件: 矢印キー未対応・TermPickerもEscape不可(新規)・disabled確定ボタンのTab欠落等。フォーカスリング・レスポンシブ4段階・200%ズームは問題なしと確認）
+- [x] エージェント5: 機能性・エッジケース — `docs/review/agents/05-functionality.md`（ゲート違反2件: 漢数字「三層」が0件検索・非対応ブラウザバナー未実装。ゲート違反1件: シード失敗時に読み込み中とエラーが同時表示されリトライ手段皆無。観点3件）
+- [x] エージェント6: セキュリティ — `docs/review/agents/06-security.md`（ゲート違反1件: CSP皆無。観点1件: GeminiのAPIキーがURLクエリに乗る。XSS経路・APIキー暗号化保存・権限要求は設計通りと確認＝正の結果）
+
 ## 未完了（次にここから）
-- [ ] Stage C  エージェント4〜6（2波目: キーボード・レスポンシブ / 機能性 / セキュリティ）
 - [ ] Stage C  エージェント7〜9（3波目: 性能 / 信頼性 / 保守性）
 - [ ] 監査②（Stage C終了時点）
 - [ ] Stage D  統合とIssue起票
