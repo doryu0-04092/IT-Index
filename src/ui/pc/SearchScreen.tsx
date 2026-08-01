@@ -34,6 +34,8 @@ export interface SearchScreenProps {
   seedRefreshTick: number;
   /** シード取り込みを再試行する（App.tsx側のrunSeedImportを呼ぶ） */
   onRetrySeed: () => void;
+  /** 前回の確定処理に失敗したセッションIDの集合。一覧に失敗マークを表示するために使う（#41対応） */
+  failedCommitSessionIds: Set<string>;
   /**
    * ローカルフォルダ同期がセッションを裏側で自動commitした可能性がある度に増分する
    * （docs/local-data.md §6.1）。このコンポーネント自身の操作（確定ボタン）では上がらない
@@ -53,6 +55,7 @@ export default function SearchScreen({
   seedError,
   seedRefreshTick,
   onRetrySeed,
+  failedCommitSessionIds,
   pendingRefreshTick,
 }: SearchScreenProps) {
   const [terms, setTerms] = useState<TermRecord[]>([]);
@@ -146,6 +149,9 @@ export default function SearchScreen({
                 <button type="button" className="search-pending-item" onClick={() => onOpenPendingTerm(p.term.id)}>
                   <span className="search-result-term">{p.term.term}</span>
                   <span className="search-result-reading">{p.term.readings[0]}</span>
+                  {failedCommitSessionIds.has(p.sessionId) && (
+                    <span className="search-pending-failed chat-error">前回の確定に失敗しました</span>
+                  )}
                 </button>
                 <button
                   type="button"
