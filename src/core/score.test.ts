@@ -23,10 +23,17 @@ describe('score', () => {
   });
 
   it('does not let a single-character query dominate unrelated long terms', () => {
-    const terms = [term('一意', ['イチイ']), term('TCP/IP', ['ティーシーピーアイピー'])];
+    const terms = [term('キャッシュ', ['キャッシュ']), term('TCP/IP', ['ティーシーピーアイピー'])];
     const ranked = score('1', terms);
-    // "1" と "一意" は無関係であるべき（正規化しても字面が異なる）
-    expect(ranked.find((r) => r.term.term === '一意')?.score).toBe(0);
+    // "1" と "キャッシュ" は無関係であるべき
+    expect(ranked.find((r) => r.term.term === 'キャッシュ')?.score).toBe(0);
+  });
+
+  it('漢数字を算用数字に正規化して拾う（三層 ↔ 3層、#36対応）', () => {
+    const terms = [term('3層アーキテクチャ', ['さんそうあーきてくちゃ']), term('TCP/IP', ['ティーシーピーアイピー'])];
+    const ranked = score('三層', terms);
+    expect(ranked[0].term.term).toBe('3層アーキテクチャ');
+    expect(ranked[0].score).toBeGreaterThan(0);
   });
 
   it('reading にヒットする場合も拾う', () => {
