@@ -5,6 +5,15 @@
   --muted: #666666;
   --border: #dddddd;
   --accent: #2f6feb;
+  /* テキスト色として使う場合の濃色版。--accentのまま白背景に使うとAA基準(4.5:1)を僅かに割り込む
+     組み合わせがあるため、文字色用途はこちらを使う（#31/#42対応） */
+  --accent-text: #1e56c9;
+  /* 塗り背景+白文字で使う場合の色。ダークテーマの--accentは白文字とのコントラストが
+     2.41:1しかなくAA基準を大きく割り込むため、塗り背景専用にライト/ダーク共通の濃色を使う（#32対応） */
+  --accent-solid: #2f6feb;
+  /* エラー文字色。#d33 のダーク背景でのコントラストが3.97:1でAA基準未達だったため、
+     ライト/ダークで別々の値にする（#33対応） */
+  --error: #c62828;
   --font-jp: 'BIZ UDPGothic', 'Noto Sans JP', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -30,6 +39,9 @@
     --muted: #9a9a9a;
     --border: #333333;
     --accent: #6ea8fe;
+    --accent-text: #6ea8fe;
+    --accent-solid: #2f6feb;
+    --error: #ff6b6b;
   }
 }
 
@@ -40,6 +52,9 @@
   --muted: #666666;
   --border: #dddddd;
   --accent: #2f6feb;
+  --accent-text: #1e56c9;
+  --accent-solid: #2f6feb;
+  --error: #c62828;
 }
 
 :root[data-theme='dark'] {
@@ -48,6 +63,9 @@
   --muted: #9a9a9a;
   --border: #333333;
   --accent: #6ea8fe;
+  --accent-text: #6ea8fe;
+  --accent-solid: #2f6feb;
+  --error: #ff6b6b;
 }
 
 * {
@@ -106,13 +124,13 @@ button:disabled {
 }
 
 .btn-primary {
-  border: 1px solid var(--accent);
-  background: var(--accent);
+  border: 1px solid var(--accent-solid);
+  background: var(--accent-solid);
   color: white;
 }
 
 .btn-primary:hover {
-  background: color-mix(in srgb, var(--accent) 85%, black);
+  background: color-mix(in srgb, var(--accent-solid) 85%, black);
 }
 
 .btn-secondary {
@@ -223,7 +241,7 @@ button:disabled {
 }
 
 .top-nav-item.active {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 600;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
@@ -309,7 +327,7 @@ button:disabled {
 .search-pending-title {
   margin: 0 0 8px;
   font-size: 0.85rem;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .search-pending-list {
@@ -416,7 +434,7 @@ button:disabled {
 .term-detail-back {
   background: none;
   border: none;
-  color: var(--accent);
+  color: var(--accent-text);
   cursor: pointer;
   padding: 0;
   font-size: 0.9rem;
@@ -538,7 +556,7 @@ button:disabled {
   display: block;
   background: none;
   border: none;
-  color: var(--accent);
+  color: var(--accent-text);
   cursor: pointer;
   padding: 0;
   margin-bottom: 8px;
@@ -620,7 +638,7 @@ button:disabled {
 
 .chat-message-user {
   align-self: flex-end;
-  background: var(--accent);
+  background: var(--accent-solid);
   color: white;
 }
 
@@ -630,7 +648,7 @@ button:disabled {
 }
 
 .chat-error {
-  color: #d33;
+  color: var(--error);
   font-size: 0.85rem;
 }
 
@@ -687,8 +705,8 @@ button:disabled {
 }
 
 .history-tabs button.active {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--accent-solid);
+  background: var(--accent-solid);
   color: white;
 }
 
