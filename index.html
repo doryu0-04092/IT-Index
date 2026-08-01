@@ -3,6 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      CSP。connect-srcは3種のAIプロバイダ・Google Drive/GIS（休眠中機能）・Google Fontsのみ許可する。
+      サーバーレスの静的ホスティングのためHTTPヘッダーでの付与ができず、metaタグで代用する（#34対応）。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+        script-src 'self';
+        style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+        font-src 'self' https://fonts.gstatic.com;
+        img-src 'self' data:;
+        connect-src 'self' https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://www.googleapis.com https://accounts.google.com;
+        frame-src https://accounts.google.com;
+        object-src 'none';
+        base-uri 'self';
+        form-action 'self';"
+    />
     <title>IT-Index</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
