@@ -1,0 +1,15 @@
+# 判定器の決定性確認（Stage A-5）
+実施日時: 2026-08-01 18:11:13
+
+## 目的
+何も変更していない状態で複数回実行し、同じ結果が出るかを確認する（Claude-of-Dutyでは11枚中10枚が不一致だった実測あり）。
+
+## 結果: 3回連続一致（決定性あり）
+
+
+Running 2 tests using 1 worker
+
+  ok 1 [chromium] › e2e\visual\search.visual.spec.ts:6:1 › 検索画面（ライト）@visual (738ms)
+  ok 2 [chromium] › e2e\visual\search.visual.spec.ts:10:1 › 検索画面（ダーク）@visual (755ms)
+
+  2 passed (5.7s)
