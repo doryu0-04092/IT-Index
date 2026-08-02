@@ -15,6 +15,8 @@ export interface AsksRepository {
   getByTermId(termId: string): Promise<AskRecord[]>;
   /** id の和集合。既存 id はスキップ */
   upsertFromSync(asks: AskRecord[]): Promise<void>;
+  /** 全件削除。ローカルデータの初期化（検索履歴のリセット）で使う */
+  clearAll(): Promise<void>;
 }
 
 export function createAsksRepository(db: ItIndexDB): AsksRepository {
@@ -46,6 +48,10 @@ export function createAsksRepository(db: ItIndexDB): AsksRepository {
           if (!existing) await db.asks.add(ask);
         }
       });
+    },
+
+    async clearAll() {
+      await db.asks.clear();
     },
   };
 }

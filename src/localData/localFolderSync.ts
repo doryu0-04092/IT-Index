@@ -6,6 +6,7 @@ import {
   readTextFile,
   writeTextFile,
 } from '../manualSync/folderTransport';
+import type { AsksRepository } from '../repositories/asks';
 import type { ChatRepository } from '../repositories/chat';
 import type { NotesRepository } from '../repositories/notes';
 import type { SettingsRepository } from '../repositories/settings';
@@ -37,6 +38,7 @@ export interface LocalFolderDeps {
   termsRepo: TermsRepository;
   notesRepo: NotesRepository;
   settingsRepo: SettingsRepository;
+  asksRepo: AsksRepository;
   deviceId: string;
 }
 
@@ -243,9 +245,8 @@ export async function exportPendingChats(
  * （2026-07-31）。「初期データに戻す」の意図はAIが書き足した内容を全て消すことなので、
  * 語の生死とは独立に、ノートは全件クリア対象にする。
  *
- * 既知の制限: `asks`（質問履歴）は削除しない。`AsksRepository` に削除手段が無く、
- * 対象語が消えても重み付け計算に実害が無い（履歴が単に使われなくなるだけ）ため、
- * この機能のために削除APIを新設するコストに見合わないと判断した。
+ * `asks`（検索・質問の履歴。重み付けビュー／時系列ビューの元データ）も全件削除する
+ * （2026-08-02追加。以前は削除手段が無く見送っていたが、ユーザーから明示的に要望があった）。
  */
 export async function resetToInitialData(root: FileSystemDirectoryHandle, deps: LocalFolderDeps): Promise<void> {
   const dataDir = await getOrCreateSubdirectory(root, DATA_DIR);
@@ -263,6 +264,8 @@ export async function resetToInitialData(root: FileSystemDirectoryHandle, deps: 
     if (note.body === '' && note.diagrams.length === 0) continue; // 既に空なら何もしない
     await deps.notesRepo.applyCommit(note.termId, '', [], deps.deviceId, now);
   }
+
+  await deps.asksRepo.clearAll();
 
   await writeTextFile(
     dataDir,

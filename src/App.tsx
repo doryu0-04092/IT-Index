@@ -147,8 +147,8 @@ export default function App() {
   // 実在の deviceId を要するため、commitOrchestrator と同じ理由）。
   const localFolderDeps = useMemo<LocalFolderDeps | null>(() => {
     if (deviceId === null) return null;
-    return { termsRepo, notesRepo, settingsRepo, deviceId };
-  }, [termsRepo, notesRepo, settingsRepo, deviceId]);
+    return { termsRepo, notesRepo, settingsRepo, asksRepo, deviceId };
+  }, [termsRepo, notesRepo, settingsRepo, asksRepo, deviceId]);
 
   // deviceId が読み込まれるまでは作らない——commitOrchestrator は書き込みに実在の
   // deviceId を要するため（要件定義書§5.3、2026-07-30改訂で承認画面を廃止し常に自動反映するようにした）。

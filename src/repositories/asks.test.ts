@@ -47,4 +47,16 @@ describe('AsksRepository', () => {
     const all = await repo.getAllOrdered();
     expect(all).toHaveLength(2);
   });
+
+  it('clearAll removes every record', async () => {
+    const repo = createAsksRepository(db);
+    await repo.addMany([
+      { termId: 'tcp', sessionId: 's1', at: 1, deviceId: 'd1', source: 'ai' },
+      { termId: 'udp', sessionId: 's1', at: 1, deviceId: 'd1', source: 'ai' },
+    ]);
+
+    await repo.clearAll();
+
+    expect(await repo.getAllOrdered()).toHaveLength(0);
+  });
 });

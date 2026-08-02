@@ -771,6 +771,22 @@ button:disabled {
   margin: 0 0 8px;
 }
 
+/* オールクリア等、取り消せない操作を含むセクションを視覚的に区別する */
+.settings-section-danger {
+  border-top-color: var(--error);
+}
+
+.settings-section-danger h3 {
+  color: var(--error);
+}
+
+.factory-reset-confirm {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .settings-radio {
   display: flex;
   align-items: center;
