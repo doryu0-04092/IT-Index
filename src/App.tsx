@@ -4,6 +4,7 @@ import { createCommitOrchestrator } from './ai/commitOrchestrator';
 import type { AutoUpdateExistingTermsMode } from './ai/distribution';
 import { logAiError } from './ai/logError';
 import { buildSubjectContext, type SubjectContext } from './ai/subjectContext';
+import { isUnsupportedBrowser } from './browserSupport';
 import { db } from './db';
 import { createApiKeyStore, getSessionCredential } from './keystore/apiKeyStore';
 import { createBrowserWebAuthnClient } from './keystore/webauthn';
@@ -98,6 +99,10 @@ export default function App() {
     getInitialTheme(window.matchMedia('(prefers-color-scheme: dark)').matches, readStoredTheme()),
   );
   const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
+  // 要件定義書§3「非対応環境で開かれた場合は、その旨を明示するバナーを表示する」対応（#37）。
+  // 対応: Android(Chrome) / PC(Chrome・Edge)。非対応: iPhone・iPad・macOS Safari。
+  const [browserWarningDismissed, setBrowserWarningDismissed] = useState(false);
+  const showBrowserWarning = useMemo(() => isUnsupportedBrowser(navigator.userAgent), []);
 
   function dismissOnboarding(dontShowAgain: boolean) {
     if (dontShowAgain) markOnboardingSeen();
@@ -373,6 +378,16 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>IT-Index</h1>
+        {showBrowserWarning && !browserWarningDismissed && (
+          <div className="auth-banner">
+            <span>
+              このブラウザは対応環境（Android Chrome / PC Chrome・Edge）ではないため、一部機能が正しく動作しない場合があります。
+            </span>
+            <button type="button" className="btn-text" onClick={() => setBrowserWarningDismissed(true)}>
+              閉じる
+            </button>
+          </div>
+        )}
         {localFolderChecked && !localFolder && !firstRunDismissed && isFolderSyncAvailable() && (
           <div className="auth-banner">
             <span>Claude Codeなどで編集できるローカルフォルダを作成しますか？</span>
