@@ -1130,3 +1130,19 @@ button:disabled {
 .android-app .chat-subject-row button {
   min-height: 44px;
 }
+
+/* 検索結果・履歴・用語ピッカーの行そのもの。「用語を選ぶ」はこのアプリで最も頻度の高い
+   操作だが、元のpaddingだけでは高さが40px弱にしかならず44pxに届かない。
+   .top-nav-item だけ直してここを見落としていた。 */
+.android-app .search-result,
+.android-app .search-pending-item {
+  min-height: 44px;
+  align-items: center;
+}
+
+/* モーダルの閉じる（✕）。元は padding 0 2px / font-size 0.8rem で実質20px角しかない */
+.android-app .dismiss-error {
+  min-height: 44px;
+  min-width: 44px;
+  font-size: 1rem;
+}

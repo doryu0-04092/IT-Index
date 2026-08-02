@@ -8,7 +8,7 @@ import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
 import { describeSyncStatus } from '../../pairing/syncStatus';
 import { downloadRawFile, readFilesAsRawFiles } from '../../manualSync/fileTransport';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
-import { isCameraAvailable, startQrScan } from '../../manualSync/qrScanner';
+import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
 import { exportOwnSyncFile, importSyncFiles, type ManualSyncDeps } from '../../manualSync/sync';
 
 export interface LinkModalProps {
@@ -52,7 +52,19 @@ type FileState =
 export default function LinkModal({ deps, onClose }: LinkModalProps) {
   const [view, setView] = useState<View>('menu');
   const isDesktop = typeof window !== 'undefined' && !!window.desktop;
-  const cameraAvailable = isCameraAvailable();
+
+  // カメラの有無は非同期にしか分からない（hasCameraDevice の説明を参照）。
+  // 判明するまでは出さない側に倒す。カメラ非搭載のPCでも「QRを表示」だけで連携できる。
+  const [cameraAvailable, setCameraAvailable] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void hasCameraDevice().then((found) => {
+      if (!cancelled) setCameraAvailable(found);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function goMenu() {
     setView('menu');

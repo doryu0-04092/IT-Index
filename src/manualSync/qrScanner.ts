@@ -6,8 +6,26 @@ import { decodeQrFromImageData } from './qrCodec';
  * （src/keystore/webauthn.ts と同じ位置づけ）。デコード自体は qrCodec.ts でテスト済み。
  */
 
+/** getUserMedia が使える環境か（APIの有無だけ。カメラが繋がっているかは分からない） */
 export function isCameraAvailable(): boolean {
   return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
+}
+
+/**
+ * カメラが実際に繋がっているかを見る。
+ *
+ * `isCameraAvailable()` はAPIの存在チェックでしかなく、カメラ非搭載のPCでも true になる。
+ * それだけで「カメラで読み取る」を出すと、押して初めて NotFoundError で失敗することになる。
+ * enumerateDevices() は許可前でもラベルこそ空になるが種別は返すため、有無の判定には足りる。
+ */
+export async function hasCameraDevice(): Promise<boolean> {
+  if (!isCameraAvailable() || !navigator.mediaDevices.enumerateDevices) return false;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.some((d) => d.kind === 'videoinput');
+  } catch {
+    return false;
+  }
 }
 
 /**
