@@ -125,7 +125,14 @@ export default function LocalFolderPanel({ folder, onFolderChange, syncFolderRep
       ) : (
         <>
           <p className="search-status">
+            選択中のフォルダ: <code>{folder.name}</code>
+          </p>
+          <p className="search-status">
             権限: {permission === 'granted' ? '許可済み' : permission === 'denied' ? '拒否されています' : '未確認/期限切れ'}
+          </p>
+          <p className="search-status">
+            ブラウザの仕様上、フォルダの完全な保存先パスはここには表示できません。フォルダ名で検索するか、
+            <code>AI_EDIT_GUIDE.md</code> というファイルで探すと見つかります。
           </p>
           {permission !== 'granted' && (
             <p className="search-status">

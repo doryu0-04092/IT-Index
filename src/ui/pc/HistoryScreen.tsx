@@ -45,14 +45,21 @@ export default function HistoryScreen({ asksRepo, termsRepo, initialView, onSele
     [asks, termsById],
   );
 
-  const timelineRows = useMemo(
-    () =>
-      asks
-        .map((ask) => ({ ask, term: termsById.get(ask.termId) }))
-        .filter((r): r is { ask: AskRecord; term: TermRecord } => r.term !== undefined)
-        .sort((a, b) => b.ask.at - a.ask.at),
-    [asks, termsById],
-  );
+  // 同じ語を複数回聞いた場合、時系列ビューには最新の1件だけを表示する
+  // （履歴の各行が独立した出来事ではなく「その語を最後にいつ聞いたか」を示す一覧のため）。
+  const timelineRows = useMemo(() => {
+    const latestByTerm = new Map<string, AskRecord>();
+    for (const ask of asks) {
+      const existing = latestByTerm.get(ask.termId);
+      if (!existing || ask.at > existing.at) {
+        latestByTerm.set(ask.termId, ask);
+      }
+    }
+    return [...latestByTerm.values()]
+      .map((ask) => ({ ask, term: termsById.get(ask.termId) }))
+      .filter((r): r is { ask: AskRecord; term: TermRecord } => r.term !== undefined)
+      .sort((a, b) => b.ask.at - a.ask.at);
+  }, [asks, termsById]);
 
   return (
     <div className="history-screen">
