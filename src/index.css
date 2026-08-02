@@ -1002,7 +1002,6 @@ button:disabled {
   cursor: pointer;
   margin-top: var(--space-2);
 }
-}
 
 /* ============================================================
    Android版（src/ui/android/）専用のスマホ幅・タップ操作対応。

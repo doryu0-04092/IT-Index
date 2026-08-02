@@ -1,6 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-// window.desktop のグローバル型宣言を取り込むだけ（electron/ 配下は変更しない。型参照のみ）。
-import '../../../electron/desktopApi';
 import type { NoteConflict } from '../../core/mergeSnapshot';
 import { generatePairingKey, importPairingKey } from '../../pairing/crypto';
 import { decodePairingPayload, encodePairingPayload } from '../../pairing/pairingCodec';
