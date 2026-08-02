@@ -382,7 +382,10 @@ button:disabled {
 .search-result {
   width: 100%;
   display: flex;
-  align-items: baseline;
+  /* 長い分野名・読み仮名が2行に折り返ると baseline は1行目の文字位置基準になり
+     行同士の縦位置が不揃いになるため flex-start にする（#43対応） */
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 10px 12px;
   border: none;
@@ -405,6 +408,7 @@ button:disabled {
 .search-result-reading {
   color: var(--muted);
   font-size: 0.85rem;
+  white-space: nowrap;
 }
 
 .search-result-field {
@@ -414,6 +418,10 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 2px 8px;
+  /* 長い分野名でもピル形状を保つため折り返さない（#43対応）。
+     .search-result 側の flex-wrap により、幅が足りなければこのバッジごと次の行へ回る */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .search-result-score {
