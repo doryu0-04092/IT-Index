@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { score } from '../../core/score';
 import type { TermsRepository } from '../../repositories/terms';
+import Sheet from './Sheet';
 import type { TermRecord } from '../../types';
 
 const MAX_RESULTS = 20;
@@ -33,18 +34,16 @@ export default function TermPicker({ termsRepo, onSelect, onCancel }: TermPicker
   }, [query, terms]);
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content term-picker">
-        <div className="modal-header">
-          <h2>話題にする用語を選ぶ</h2>
-        </div>
+    <Sheet title="話題にする用語を選ぶ" onClose={onCancel}>
+      <div className="term-picker">
         <input
           type="text"
           className="search-input"
           placeholder="用語を入力"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          autoFocus
+          /* autoFocus は付けない（SearchScreen と同じ理由）。シートを開いた直後に
+             キーボードが出ると、選ぼうとしている用語の一覧が隠れてしまう。 */
         />
         <ul className="search-results">
           {results.map(({ term }) => (
@@ -61,6 +60,6 @@ export default function TermPicker({ termsRepo, onSelect, onCancel }: TermPicker
           キャンセル
         </button>
       </div>
-    </div>
+    </Sheet>
   );
 }

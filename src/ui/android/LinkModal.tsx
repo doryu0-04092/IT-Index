@@ -5,6 +5,7 @@ import { generatePairingKey, importPairingKey } from '../../pairing/crypto';
 import { decodePairingPayload, encodePairingPayload } from '../../pairing/pairingCodec';
 import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
 import { describeSyncStatus } from '../../pairing/syncStatus';
+import Sheet from './Sheet';
 import { downloadRawFile, readFilesAsRawFiles } from '../../manualSync/fileTransport';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
@@ -70,23 +71,14 @@ export default function LinkModal({ deps, onClose }: LinkModalProps) {
   }
 
   return (
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- SettingsModal.tsx と同じ「背景タップで閉じる」規約
-    <div className="modal-overlay" onClick={onClose}>
-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- 上と同じ理由。オーバーレイへのタップ伝播だけを止める */}
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>連携</h2>
-          <button type="button" className="dismiss-error" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-
+    <Sheet title="連携" onClose={onClose}>
+      <>
         {view === 'menu' && <LinkMenu cameraAvailable={cameraAvailable} onSelect={setView} depsReady={deps !== null} />}
         {view === 'host' && <HostView deps={deps} onBack={goMenu} />}
         {view === 'scan' && <ScanView deps={deps} onBack={goMenu} />}
         {view === 'file' && <FileView deps={deps} onBack={goMenu} />}
-      </div>
-    </div>
+      </>
+    </Sheet>
   );
 }
 

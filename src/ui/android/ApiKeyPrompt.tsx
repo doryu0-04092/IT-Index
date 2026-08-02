@@ -128,7 +128,8 @@ export default function ApiKeyPrompt({ apiKeyStore, onSet, onBack, backLabel = '
               placeholder={getProviderInfo(provider).apiKeyPlaceholder}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              autoFocus
+              /* autoFocus は付けない。APIキーの貼り付けは長押しメニューから行うことが
+                 多く、開いた瞬間にキーボードが出ると案内文と貼り付け先が隠れる。 */
             />
           </label>
 

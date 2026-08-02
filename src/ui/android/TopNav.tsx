@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react';
+
 export type TopNavCurrent = 'search' | 'history' | 'chat-free' | null;
 
 export interface TopNavProps {
@@ -11,11 +13,22 @@ export interface TopNavProps {
   onOpenLink: () => void;
 }
 
+interface DrawerEntry {
+  key: string;
+  label: string;
+  icon: string;
+  active: boolean;
+  run: () => void;
+}
+
 /**
- * 検索/履歴/自由な質問/連携/設定への常設トップナビ（Android版）。
- * PC版と同じ構造・同じCSSクラス名を使う（見た目を大きく変えないため）。
- * 狭幅での折り返し・タップ領域確保は `.android-app .top-nav` 側のCSSで対応する
- * （`src/index.css` 末尾。マークアップ自体はPC版と同一）。
+ * Android版のナビゲーション。左上のボタンから、左端に縦のドロワーをスライドさせる。
+ *
+ * PC版は5項目を画面最上部に横並びにしているが、縦持ちのスマホでは
+ * **画面上部は片手だと親指が届かず**、5項目を横に並べると1項目あたりの幅も足りない。
+ * ドロワーなら項目を縦に積めるので、ラベルを省略せず、1項目あたり十分な高さを取れる。
+ *
+ * propsはPC版と同一に保つ（src/ui/uiSet.ts が型で強制している）。
  */
 export default function TopNav({
   current,
@@ -27,27 +40,96 @@ export default function TopNav({
   onOpenSettings,
   onOpenLink,
 }: TopNavProps) {
-  return (
-    <nav className="top-nav">
-      <button type="button" className={navItemClass(current === 'search')} onClick={onGoSearch}>
-        検索
-      </button>
-      <button type="button" className={navItemClass(current === 'history')} onClick={onGoHistory}>
-        履歴
-      </button>
-      <button type="button" className={navItemClass(current === 'chat-free')} onClick={onGoFreeChat}>
-        自由に質問
-      </button>
-      <button type="button" className={navItemClass(linkOpen)} onClick={onOpenLink}>
-        連携
-      </button>
-      <button type="button" className={navItemClass(settingsOpen)} onClick={onOpenSettings}>
-        設定
-      </button>
-    </nav>
-  );
-}
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const toggleRef = useRef<HTMLButtonElement | null>(null);
 
-function navItemClass(active: boolean): string {
-  return active ? 'top-nav-item active' : 'top-nav-item';
+  // 開いている間だけ、戻る操作（Android の戻るジェスチャー／Escape）でドロワーを閉じる。
+  // 画面遷移より先にドロワーが閉じるのが利用者の期待に沿う。
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [open]);
+
+  // 開いた直後に最初の項目へフォーカスを移す（キーボード／スクリーンリーダー利用時に
+  // ドロワーの外に取り残されないようにする）。
+  useEffect(() => {
+    if (!open) return;
+    panelRef.current?.querySelector<HTMLButtonElement>('.drawer-item')?.focus();
+  }, [open]);
+
+  const entries: DrawerEntry[] = [
+    { key: 'search', label: '検索', icon: '🔍', active: current === 'search', run: onGoSearch },
+    { key: 'history', label: '履歴', icon: '🕒', active: current === 'history', run: onGoHistory },
+    { key: 'chat', label: '自由に質問', icon: '💬', active: current === 'chat-free', run: onGoFreeChat },
+    { key: 'link', label: '連携', icon: '🔗', active: linkOpen, run: onOpenLink },
+    { key: 'settings', label: '設定', icon: '⚙️', active: settingsOpen, run: onOpenSettings },
+  ];
+
+  function select(entry: DrawerEntry) {
+    setOpen(false);
+    // 閉じるアニメーションと画面の切り替えが重ならないよう、閉じてから実行する
+    entry.run();
+  }
+
+  function close() {
+    setOpen(false);
+    toggleRef.current?.focus();
+  }
+
+  const activeLabel = entries.find((e) => e.active)?.label ?? '検索';
+
+  return (
+    <>
+      <div className="drawer-bar">
+        <button
+          ref={toggleRef}
+          type="button"
+          className="drawer-toggle"
+          aria-expanded={open}
+          aria-label="メニューを開く"
+          onClick={() => setOpen(true)}
+        >
+          ☰
+        </button>
+        <span className="drawer-current">{activeLabel}</span>
+      </div>
+
+      {open && (
+        <div className="drawer-root">
+          {/* 背景を押して閉じる。div ではなく button にすることで、キーボードや
+              スクリーンリーダーからも同じ操作ができる。 */}
+          <button type="button" className="drawer-scrim" aria-label="メニューを閉じる" onClick={close} />
+          <div className="drawer-panel" ref={panelRef} role="dialog" aria-modal="true" aria-label="メニュー">
+            <div className="drawer-panel-head">
+              <span>メニュー</span>
+              <button type="button" className="drawer-close" aria-label="メニューを閉じる" onClick={close}>
+                ✕
+              </button>
+            </div>
+            <nav className="drawer-list">
+              {entries.map((entry) => (
+                <button
+                  key={entry.key}
+                  type="button"
+                  className={entry.active ? 'drawer-item active' : 'drawer-item'}
+                  aria-current={entry.active ? 'page' : undefined}
+                  onClick={() => select(entry)}
+                >
+                  <span className="drawer-item-icon" aria-hidden="true">
+                    {entry.icon}
+                  </span>
+                  {entry.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

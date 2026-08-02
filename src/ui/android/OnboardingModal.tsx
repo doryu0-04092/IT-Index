@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Sheet from './Sheet';
 
 export interface OnboardingModalProps {
   /** dontShowAgain: 「次回から表示しない」が checked のまま閉じられたかどうか */
@@ -39,15 +40,9 @@ export default function OnboardingModal({ onClose }: OnboardingModalProps) {
   }
 
   return (
-    <div className="modal-overlay">
-      <div className="modal-content onboarding-content">
-        <div className="modal-header">
-          <h2>{step.title}</h2>
-          <button type="button" className="dismiss-error" onClick={close} aria-label="閉じる">
-            ✕
-          </button>
-        </div>
-
+    // 背景を押しても閉じない。最初に読んでほしい案内なので、誤タップで消えないようにする
+    <Sheet title={step.title} onClose={close} dismissOnScrim={false}>
+      <div className="onboarding-content">
         <p className="onboarding-body">{step.body}</p>
 
         <div className="onboarding-dots" aria-hidden="true">
@@ -75,6 +70,6 @@ export default function OnboardingModal({ onClose }: OnboardingModalProps) {
           </button>
         </div>
       </div>
-    </div>
+    </Sheet>
   );
 }

@@ -123,7 +123,9 @@ export default function SearchScreen({
         placeholder="用語を入力（かな・カタカナ・英字どれでも）"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        autoFocus
+        /* autoFocus は付けない。タッチ端末では画面を開いた瞬間にソフトキーボードが
+           立ち上がって画面の半分以上を覆い、検索結果も「更新待ち」一覧も見えなくなる。
+           入力したい人が検索欄をタップした時点で出れば足りる。 */
       />
 
       <p className="search-status">

@@ -9,6 +9,7 @@ import type { SyncFolderRepository } from '../../repositories/syncFolder';
 import ApiKeyPrompt from './ApiKeyPrompt';
 import FactoryResetSection from './FactoryResetSection';
 import LocalFolderPanel from './LocalFolderPanel';
+import Sheet from './Sheet';
 
 export interface SettingsModalProps {
   apiKeyStore: ApiKeyStore;
@@ -26,9 +27,9 @@ export interface SettingsModalProps {
 }
 
 /**
- * 設定モーダル（Android版）。PC版と同じprops・同じロジック・同じCSSクラス名。
- * `.modal-content` は狭幅では実質全画面になる。高さ・スクロールの挙動は
- * `.android-app .modal-content` 側のCSS（src/index.css 末尾）で調整する。
+ * 設定（Android版）。propsとロジックはPC版と同じだが、見せ方は下から出るシート
+ * （`Sheet.tsx`）にしてある。縦持ちでは中央のダイアログだと閉じる操作も内容も
+ * 親指から遠くなるため。
  */
 export default function SettingsModal({
   apiKeyStore,
@@ -76,33 +77,24 @@ export default function SettingsModal({
 
   if (editingKey) {
     return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-          <ApiKeyPrompt
-            apiKeyStore={apiKeyStore}
-            backLabel="← 設定に戻る"
-            onBack={() => setEditingKey(false)}
-            onSet={() => {
-              setEditingKey(false);
-              onCredentialReady();
-              apiKeyStore.hasPersistedCredential().then(setHasPersisted);
-            }}
-          />
-        </div>
-      </div>
+      <Sheet title="APIキーの設定" onClose={onClose}>
+        <ApiKeyPrompt
+          apiKeyStore={apiKeyStore}
+          backLabel="← 設定に戻る"
+          onBack={() => setEditingKey(false)}
+          onSet={() => {
+            setEditingKey(false);
+            onCredentialReady();
+            apiKeyStore.hasPersistedCredential().then(setHasPersisted);
+          }}
+        />
+      </Sheet>
     );
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>設定</h2>
-          <button type="button" className="dismiss-error" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-
+    <Sheet title="設定" onClose={onClose}>
+      <>
         <section className="settings-section">
           <h3>AIプロバイダ・APIキー</h3>
           <p className="search-status">
@@ -162,7 +154,7 @@ export default function SettingsModal({
         )}
 
         <FactoryResetSection />
-      </div>
-    </div>
+      </>
+    </Sheet>
   );
 }
