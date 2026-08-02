@@ -18,9 +18,12 @@
     "gate:e2e": "playwright test",
     "dev:electron": "node electron/scripts/dev.mjs",
     "build:electron:main": "tsc -p electron/tsconfig.json",
-    "build:electron": "npm run build && npm run build:electron:main && electron-builder"
+    "build:electron": "npm run build && npm run build:electron:main && electron-builder",
+    "build:android": "vite build && npx cap sync android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
     "dexie": "^4.0.10",
     "jsqr": "^1.4.0",
     "qrcode": "^1.5.4",
@@ -29,6 +32,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
+    "@capacitor/cli": "^8.5.0",
     "@lhci/cli": "^0.15.1",
     "@playwright/test": "^1.62.1",
     "@types/qrcode": "^1.5.6",

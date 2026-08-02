@@ -1003,3 +1003,130 @@ button:disabled {
   margin-top: var(--space-2);
 }
 }
+
+/* ============================================================
+   Android版（src/ui/android/）専用のスマホ幅・タップ操作対応。
+   PC版（src/ui/pc/）と同じCSSクラス名を再利用しつつ、すべて
+   `.android-app`（Android版オーケストレータのルート要素）配下に
+   スコープすることで、PC版の見た目には一切影響しない。
+   既存セレクタの本体は書き換えず、ここから下は追記のみ。
+   ============================================================ */
+
+/* .app { max-width: 720px } は中央寄せのPC版前提。Android実機は画面幅そのものが
+   コンテンツ幅なので、中央寄せの余白をやめて画面幅いっぱいに使う。 */
+.android-app.app {
+  max-width: none;
+  padding: var(--space-4) var(--space-3) 96px;
+}
+
+/* 1) .top-nav: 「連携」が加わり5項目になり、狭幅では折り返しが必須になる。
+   flex-wrapで折り返し、タップ領域を最低44pxに拡大する（現状は8px/12pxのpaddingのみで
+   最小サイズの指定が無かった）。 */
+.android-app .top-nav {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.android-app .top-nav-item {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2) var(--space-3);
+}
+
+/* .app-toolbar は position: fixed で右上に貼り付く。狭幅では .app-header の見出しと
+   重なり得るため、見出し側に右余白を確保しておく。 */
+.android-app .app-header {
+  padding-right: 56px;
+}
+
+.android-app .app-toolbar {
+  top: var(--space-3);
+  right: var(--space-3);
+}
+
+/* 2) .search-result-row: 用語ボタンと「この語について聞く」/「確定する」ボタンの
+   横並びが狭幅で潰れる。折り返し、確定・AI呼び出しボタンは折り返した2行目で
+   全幅にしてタップしやすくする。 */
+.android-app .search-result-row {
+  flex-wrap: wrap;
+}
+
+.android-app .search-result-row .search-result {
+  min-width: 0;
+}
+
+.android-app .search-result-ask-ai,
+.android-app .search-pending-commit {
+  flex: 1 1 100%;
+  text-align: right;
+  min-height: 44px;
+}
+
+/* 3) .api-key-actions: ボタン2〜3個の横並びが狭幅で潰れる。折り返し、
+   各ボタンをタップしやすい最小高さにする。 */
+.android-app .api-key-actions {
+  flex-wrap: wrap;
+}
+
+.android-app .api-key-actions button {
+  min-height: 44px;
+  flex: 1 1 auto;
+}
+
+/* 4) .chat-input-row: テキストエリアと送信ボタンの横並びは、狭幅では
+   ソフトウェアキーボード表示時に特に窮屈になる。縦積みに変更する。 */
+.android-app .chat-input-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.android-app .chat-input-row button {
+  min-height: 44px;
+}
+
+/* 5) .history-tabs: タブボタンの横並びが狭幅で潰れる。折り返し、
+   タップ領域を確保する。 */
+.android-app .history-tabs {
+  flex-wrap: wrap;
+}
+
+.android-app .history-tabs button {
+  min-height: 44px;
+}
+
+/* 6) .search-nav: 「重み付けビュー」「時系列ビュー」の横並びが狭幅で潰れる。 */
+.android-app .search-nav {
+  flex-wrap: wrap;
+}
+
+.android-app .search-nav button {
+  min-height: 44px;
+}
+
+/* .modal-content { max-width: 420px } は狭幅では実質全画面になる。明示的に
+   全幅化し、高さはビューポート基準で確保したうえでスクロール可能にする
+   （既存の overflow-y: auto は維持されるため、はみ出しても操作できる）。 */
+.android-app .modal-content {
+  max-width: 100%;
+  width: 100%;
+  max-height: 85vh;
+}
+
+/* Mermaid生テキストは既存ルールで overflow-x: auto 済みのため横スクロールで
+   読める。タッチ端末での慣性スクロールと折り返し時の可読性のみ補強する。 */
+.android-app .term-detail-diagrams pre {
+  -webkit-overflow-scrolling: touch;
+  white-space: pre;
+}
+
+/* auth-banner・feature-hint 等、ボタンを含む横並び要素全般のタップ領域も
+   Android版では最低44pxを満たすようにする。 */
+.android-app .auth-banner button,
+.android-app .feature-hint button,
+.android-app .chat-quick-asks button,
+.android-app .chat-subject-row button {
+  min-height: 44px;
+}

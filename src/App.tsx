@@ -29,15 +29,9 @@ import { createSettingsRepository } from './repositories/settings';
 import { createSyncFolderRepository } from './repositories/syncFolder';
 import { createTermsRepository } from './repositories/terms';
 import { fetchSeedFile, importSeed } from './seedImport';
-import ChatScreen from './ui/pc/ChatScreen';
-import HistoryScreen, { type HistoryView } from './ui/pc/HistoryScreen';
-import LinkModal from './ui/pc/LinkModal';
-import OnboardingModal from './ui/pc/OnboardingModal';
-import SearchScreen from './ui/pc/SearchScreen';
-import SettingsModal from './ui/pc/SettingsModal';
-import TermDetailScreen from './ui/pc/TermDetailScreen';
-import Toast from './ui/pc/Toast';
-import TopNav, { type TopNavCurrent } from './ui/pc/TopNav';
+import type { HistoryView } from './ui/pc/HistoryScreen';
+import type { TopNavCurrent } from './ui/pc/TopNav';
+import type { UiSet } from './ui/uiSet';
 
 type Screen =
   | { name: 'search' }
@@ -82,7 +76,24 @@ function toPersistedScreen(screen: Screen): PersistedScreen {
   }
 }
 
-export default function App() {
+/**
+ * 統括（画面遷移・シード取り込み・確定オーケストレーション・認証）を担う。
+ *
+ * 画面コンポーネントは `ui` で差し替える。PC版とAndroid版は独立した一式だが
+ * （docs/ui-pc.md:8）、統括ロジックそのものは共通で、ここ1箇所にしか無い。
+ */
+export default function App({ ui }: { ui: UiSet }) {
+  const {
+    ChatScreen,
+    HistoryScreen,
+    LinkModal,
+    OnboardingModal,
+    SearchScreen,
+    SettingsModal,
+    TermDetailScreen,
+    Toast,
+    TopNav,
+  } = ui;
   const [seedError, setSeedError] = useState<string | null>(null);
   const [seedSettled, setSeedSettled] = useState(false);
   // シード取り込みに失敗した場合の再試行ボタン（SearchScreen）を押すたびに増分する。
@@ -448,7 +459,7 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className={ui.rootClassName ? `app ${ui.rootClassName}` : 'app'}>
       <header className="app-header">
         <h1>IT-Index</h1>
         {showBrowserWarning && !browserWarningDismissed && (
