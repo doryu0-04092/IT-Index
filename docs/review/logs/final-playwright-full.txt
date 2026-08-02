@@ -1,0 +1,347 @@
+
+Running 72 tests using 1 worker
+
+  ok  1 [chromium] › e2e\a11y\search.a11y.spec.ts:5:1 › 検索画面に critical/serious 違反が無い (4.8s)
+Active element right after opening modal: {"tag":"BUTTON","cls":"top-nav-item active","text":"設定"}
+Modal still present after Escape: 1
+Active element after 15 Tabs: {"tag":"BUTTON","cls":"top-nav-item active","text":"設定","insideModal":false}
+  ok  2 [chromium] › e2e\investigate-a11y\focus-check.spec.ts:3:1 › focus behavior when opening SettingsModal (1.4s)
+Tab 1: {"tag":"BODY","cls":"","text":"\n    IT-IndexClaude Codeな"}
+Tab 2: {"tag":"BUTTON","cls":"btn-primary","text":"フォルダを作成"}
+Tab 3: {"tag":"BUTTON","cls":"btn-text","text":"後で設定する"}
+Tab 4: {"tag":"BUTTON","cls":"top-nav-item active","text":"検索"}
+Tab 5: {"tag":"BUTTON","cls":"top-nav-item","text":"履歴"}
+Tab 6: {"tag":"BUTTON","cls":"top-nav-item","text":"自由に質問"}
+Tab 7: {"tag":"BUTTON","cls":"top-nav-item","text":"設定"}
+Tab 8: {"tag":"BUTTON","cls":"btn-text","text":"重み付けビュー"}
+Tab 9: {"tag":"BUTTON","cls":"btn-text","text":"時系列ビュー"}
+Tab 10: {"tag":"INPUT","cls":"search-input","text":""}
+  ok  3 [chromium] › e2e\investigate-a11y\focus-check2.spec.ts:3:1 › focus step by step (1.4s)
+=== search-light === violations: 0, blocking: 0
+  ok  4 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:86:3 › search screen [light] (1.6s)
+=== detail-light === violations: 0, blocking: 0
+  ok  5 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:93:3 › detail screen [light] (1.7s)
+=== chat-apikeyprompt-light === violations: 0, blocking: 0
+  ok  6 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:106:3 › chat screen (apikeyprompt, full-screen) [light] (1.4s)
+=== chat-ready-light === violations: 0, blocking: 0
+  ok  7 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:115:3 › chat screen (with key ready) [light] (1.3s)
+=== history-light === violations: 0, blocking: 0
+  ok  8 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:129:3 › history screen [light] (1.2s)
+=== settings-modal-light === violations: 0, blocking: 0
+  ok  9 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:138:3 › SettingsModal [light] (1.4s)
+=== settings-apikeyprompt-modal-light === violations: 0, blocking: 0
+  ok 10 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:147:3 › SettingsModal -> ApiKeyPrompt (editingKey) [light] (1.4s)
+=== onboarding-modal-light === violations: 0, blocking: 0
+  ok 11 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:158:3 › OnboardingModal [light] (1.6s)
+=== search-dark === violations: 0, blocking: 0
+  ok 12 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:86:3 › search screen [dark] (1.1s)
+=== detail-dark === violations: 0, blocking: 0
+  ok 13 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:93:3 › detail screen [dark] (1.6s)
+=== chat-apikeyprompt-dark === violations: 0, blocking: 0
+  ok 14 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:106:3 › chat screen (apikeyprompt, full-screen) [dark] (1.4s)
+=== chat-ready-dark === violations: 0, blocking: 0
+  ok 15 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:115:3 › chat screen (with key ready) [dark] (1.4s)
+=== history-dark === violations: 0, blocking: 0
+  ok 16 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:129:3 › history screen [dark] (1.2s)
+=== settings-modal-dark === violations: 0, blocking: 0
+  ok 17 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:138:3 › SettingsModal [dark] (1.5s)
+=== settings-apikeyprompt-modal-dark === violations: 0, blocking: 0
+  ok 18 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:147:3 › SettingsModal -> ApiKeyPrompt (editingKey) [dark] (1.3s)
+=== onboarding-modal-dark === violations: 0, blocking: 0
+  ok 19 [chromium] › e2e\investigate-a11y\full.investigate.spec.ts:158:3 › OnboardingModal [dark] (1.2s)
+  ok 20 [chromium] › e2e\investigate-flow\flow.spec.ts:54:3 › 操作フロー・使用感 調査 › 主要導線: 検索→詳細→AIに聞く→チャット→確定→検索へ戻る (2.5s)
+  ok 21 [chromium] › e2e\investigate-flow\flow.spec.ts:93:3 › 操作フロー・使用感 調査 › 自由モード: 用語を選ばずAIに聞く (2.4s)
+  ok 22 [chromium] › e2e\investigate-flow\flow.spec.ts:111:3 › 操作フロー・使用感 調査 › 話題を変える → TermPicker → 別用語へ (2.6s)
+  ok 23 [chromium] › e2e\investigate-flow\flow.spec.ts:129:3 › 操作フロー・使用感 調査 › 履歴画面: 重み付け/時系列タブ→用語選択 (1.8s)
+  ok 24 [chromium] › e2e\investigate-flow\flow.spec.ts:139:3 › 操作フロー・使用感 調査 › 設定モーダル: 各画面の上から開く (2.4s)
+  ok 25 [chromium] › e2e\investigate-flow\flow.spec.ts:156:3 › 操作フロー・使用感 調査 › URLが変わらないことの実害: 詳細画面でリロード・ブラウザバック (4.7s)
+  ok 26 [chromium] › e2e\investigate-flow\flow.spec.ts:196:3 › 操作フロー・使用感 調査 › globalError の出方と✕での消し方(認証前のstaleセッション回収エラーを誘発) (2.7s)
+  ok 27 [chromium] › e2e\investigate-flow\flow.spec.ts:215:3 › 操作フロー・使用感 調査 › IME変換確定Enterの誤送信 回帰確認 (3.3s)
+  ok 28 [chromium] › e2e\investigate-flow\flow.spec.ts:253:3 › 操作フロー・使用感 調査 › Skeleton/ローディングの出現場面の確認 (2.4s)
+  ok 29 [chromium] › e2e\investigate-flow\flow.spec.ts:265:3 › 操作フロー・使用感 調査 › 確定失敗時のToast: ✕での消し方を実際にクリックして確認 (4.3s)
+=== SEARCH QUALITY RESULTS ===
+api => [API, ATAPI-4, Web API, AP, APT, CAP, CPI, EAP]
+えーぴーあい => [API, Web API, ATAPI-4, CPI, KPI, AI, AP, GPKI]
+さーば => [サーバ, サーバレス, サーバ証明書, サーバライセンス, RASサーバ, 代理サーバ, C&Cサーバ, DNSサーバ]
+さーばー => [サーバ, RASサーバ, サーバレス, 代理サーバ, C&Cサーバ, DNSサーバ, Webサーバ, サーバ証明書]
+tcp/ip => [TCP/IP, TCP/IPプロトコル体系, TCP, IP, BCP, CPI, CPM, CPO]
+tcpip => [CPI, TCP, TCP/IP, IP, TCP/IPプロトコル体系, API, BCP, CPM]
+tcp/pi => [TCP/IP, CPI, TCP, TCP/IPプロトコル体系, API, BCP, CPM, CPO]
+三層 => [3層スキーマ, 3層アーキテクチャ, 3層クライアントサーバシステム]
+3層 => [3層スキーマ, 3層アーキテクチャ, 3層クライアントサーバシステム]
+えすきゅーえる => [SQL, SQL-DML, SQL-DDL, SQLインジェクション, 埋込みSQL, NoSQLデータベース, QoS, LDS]
+しーくえる => [シーク時間, ACL, CLI, PLC, CRL, JCL, LCD, LOC法]
+sql => [SQL, SQL-DDL, SQL-DML, SQLインジェクション, 埋込みSQL, NoSQLデータベース]
+でーたべーす => [データベース, データベース方式, データベース制御機能, データベース定義機能, データベース操作機能, データベース管理機能, データベースアクセス層, データベースの物理設計]
+るーてぃんぐ => [ルーティング, ルーティング機能, ルーティングテーブル, ルーティングプロトコル, IPルーティング, マーケティング, UXライティング, エッジコンピューティング]
+ろーどばらんさ => [ロードバランサ, ロード, バランススコアカード, バランス木, アップロード, オフバランス, ダウンロード, バランスシート]
+どめいん => [ドメイン, ドメイン名, ドメイン駆動設計, サブドメイン, 事業ドメイン, パブリックドメインソフトウェア, メインフレーム, メインルーチン]
+dns => [DNS, DNSSEC, DNSサーバ, DNSキャッシュポイズニング, CDN, NS図, SDN, SNS]
+きゃっしゅ => [キャッシュメモリ, キャッシュレス決済, キャッシュフロー会計, キャッシュフロー計算書, キャッシュマネジメント, 1次キャッシュ, 2次キャッシュ, ディスクキャッシュ]
+ばーじょん => [バージョン管理ツール, コンバージョン率, コリジョン, ダイバーシティ・エクイティ＆インクルージョン, ジョブ, デシジョンテーブル, ヘッダー情報, ホバー]
+あるごりずむ => [アルゴリズム, ページ置換えアルゴリズム, リプレースメントアルゴリズム, サイバーテロリズム, キャズム, 管理図, キャズム理論, シリアルバス]
+あるごりづむ => [アルゴリズム, ページ置換えアルゴリズム, リプレースメントアルゴリズム, シリアルバス, シリアル転送, シリアルATA, デュアルシステム, デュアルチャネル]
+十進数 => [2進数, 8進数, 10進数, 16進数, ゾーン10進数, パック10進数, アンパック10進数]
+二進数 => [2進数, 8進数, 10進数, 16進数, ゾーン10進数, パック10進数, 2進化10進コード, アンパック10進数]
+二分木 => [2分木, 完全2分木, 多分木, 2分探索, 2分探索木]
+ねっとわーく => [ネットワーク, ネットワーク層, ネットワークOS, ネットワーク制御, ネットワーク管理, ネットワークブート, ネットワークアドレス, ネットワークトポロジ]
+ういるす => [ウイルス作成罪, マクロウイルス, 遠隔操作型ウイルス, コンピュータウイルス, 身代金要求型ウイルス, コンピュータウイルス対策基準, マイルストーン, ファイル]
+ふぁいあうぉーる => [ファイアウォール, ファイル, FIFO, IR, VR, Wi-Fi, 5G, FIDO2]
+じょうちょうか => [市場調査, 盗聴, 総勘定元帳, 巡回冗長検査, 市場成長率, 勘定科目, 情報家電, 委譲]
+三層 の結果件数: 3
+  ok 30 [chromium] › e2e\investigate-functionality\functionality.investigate.spec.ts:38:3 › 機能性・エッジケース調査 › Q1: 検索品質の実測（実データ3510語） (15.0s)
+zero-candidate "三層" => 3 件
+zero-candidate "ｚｚｚｚｚ@@@" => 0 件
+zero-candidate "．．．．．" => 0 件
+zero-candidate "qwertyuiopasdfghjklzxcvbnm12345" => 30 件
+zero-candidate "　　" => 0 件
+  ok 31 [chromium] › e2e\investigate-functionality\functionality.investigate.spec.ts:95:3 › 機能性・エッジケース調査 › Q2: 空状態（履歴0件・検索0件） (9.9s)
+[route] system prompt head: あなたはIT-Indexという学習アプリのチャット相手です。相手は未経験のITエ
+[route] system prompt head: あなたはIT-Indexという学習アプリの一部です。ユーザーとの会話を振り返り、
+diagrams block visible: true
+diagrams block text: 図（Mermaid、未描画）:
+
+graph TD;
+  Client-->|リクエスト|API;
+  API-->|レスポンス|Client;
+  ok 32 [chromium] › e2e\investigate-functionality\functionality.investigate.spec.ts:126:3 › 機能性・エッジケース調査 › Q3: Mermaid図の表示（AI補足に図を持たせて確認） (4.9s)
+非対応バナーらしき文言が画面内に存在するか: false
+  ok 33 [chromium] › e2e\investigate-functionality\functionality.investigate.spec.ts:218:3 › 機能性・エッジケース調査 › Q4: 非対応ブラウザ(Safari相当)向けバナーの有無 (3.2s)
+ヘッダーのフォルダ作成バナー表示: false
+設定画面「ローカルデータ」に案内文言があるか: true
+  ok 34 [chromium] › e2e\investigate-functionality\functionality.investigate.spec.ts:242:3 › 機能性・エッジケース調査 › Q5: isFolderSyncAvailable=false 時のフォールバックUI (2.7s)
+シード取得失敗直後のsearch-status文言: 辞書の取り込みに失敗しました
+エラー表示文言: [ '取り込みに失敗しました: Failed to fetch再試行' ]
+画面内の全ボタン文言: [
+  'フォルダを作成',
+  '後で設定する',
+  '検索',
+  '履歴',
+  '自由に質問',
+  '設定',
+  '重み付けビュー',
+  '時系列ビュー',
+  '再試行',
+  '🌙'
+]
+辞書空の状態でAPI検索した結果件数: 0
+  ok 35 [chromium] › e2e\investigate-functionality\functionality.investigate.spec.ts:265:3 › 機能性・エッジケース調査 › Q6: シード取り込み失敗時の挙動とリトライ手段 (1.5s)
+=== search-with-query ===
+Tab 1: {"tag":"BUTTON","cls":"btn-primary","text":"フォルダを作成","role":null}
+Tab 2: {"tag":"BUTTON","cls":"btn-text","text":"後で設定する","role":null}
+Tab 3: {"tag":"BUTTON","cls":"top-nav-item active","text":"検索","role":null}
+Tab 4: {"tag":"BUTTON","cls":"top-nav-item","text":"履歴","role":null}
+Tab 5: {"tag":"BUTTON","cls":"top-nav-item","text":"自由に質問","role":null}
+Tab 6: {"tag":"BUTTON","cls":"top-nav-item","text":"設定","role":null}
+Tab 7: {"tag":"BUTTON","cls":"btn-text","text":"重み付けビュー","role":null}
+Tab 8: {"tag":"BUTTON","cls":"btn-text","text":"時系列ビュー","role":null}
+Tab 9: {"tag":"INPUT","cls":"search-input","text":"","role":null}
+Tab 10: {"tag":"BUTTON","cls":"btn-secondary","text":"求める語が見つからない場合 → AIに聞く（自由な質問）","role":null}
+Tab 11: {"tag":"BUTTON","cls":"search-result","text":"ネットワークネットワークネットワーク","role":null}
+Tab 12: {"tag":"BUTTON","cls":"search-result-ask-ai btn-text","text":"この語について聞く","role":null}
+Tab 13: {"tag":"BUTTON","cls":"search-result","text":"ネットワーク層ネットワークソウネットワーク","role":null}
+Tab 14: {"tag":"BUTTON","cls":"search-result-ask-ai btn-text","text":"この語について聞く","role":null}
+Tab 15: {"tag":"BUTTON","cls":"search-result","text":"ネットワークOSネットワークオーエスネットワーク","role":null}
+  ok 36 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:63:1 › search screen tab order (with query typed) (1.6s)
+arrow-nav before: {"tag":"INPUT","cls":"search-input","text":"","role":null}
+arrow-nav afterDown: {"tag":"INPUT","cls":"search-input","text":"","role":null}
+arrow-nav afterDown2: {"tag":"INPUT","cls":"search-input","text":"","role":null}
+  ok 37 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:72:1 › search screen: arrow key navigation in results (check if supported) (2.0s)
+=== detail-screen ===
+Tab 1: {"tag":"BUTTON","cls":"btn-primary","text":"フォルダを作成","role":null}
+Tab 2: {"tag":"BUTTON","cls":"btn-text","text":"後で設定する","role":null}
+Tab 3: {"tag":"BUTTON","cls":"top-nav-item","text":"検索","role":null}
+Tab 4: {"tag":"BUTTON","cls":"top-nav-item","text":"履歴","role":null}
+Tab 5: {"tag":"BUTTON","cls":"top-nav-item","text":"自由に質問","role":null}
+Tab 6: {"tag":"BUTTON","cls":"top-nav-item","text":"設定","role":null}
+Tab 7: {"tag":"BUTTON","cls":"term-detail-back","text":"← 検索に戻る","role":null}
+Tab 8: {"tag":"BUTTON","cls":"btn-primary","text":"この語についてAIに聞く","role":null}
+Tab 9: {"tag":"BUTTON","cls":"toolbar-btn","text":"🌙","role":null}
+Tab 10: {"tag":"BODY","cls":"","text":"IT-IndexClaude Codeなどで編集できるローカ","role":null}
+  ok 38 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:89:1 › detail screen tab order (2.8s)
+=== chat-free-screen ===
+Tab 1: {"tag":"BUTTON","cls":"btn-primary","text":"フォルダを作成","role":null}
+Tab 2: {"tag":"BUTTON","cls":"btn-text","text":"後で設定する","role":null}
+Tab 3: {"tag":"BUTTON","cls":"top-nav-item","text":"検索","role":null}
+Tab 4: {"tag":"BUTTON","cls":"top-nav-item","text":"履歴","role":null}
+Tab 5: {"tag":"BUTTON","cls":"top-nav-item active","text":"自由に質問","role":null}
+Tab 6: {"tag":"BUTTON","cls":"top-nav-item","text":"設定","role":null}
+Tab 7: {"tag":"BUTTON","cls":"term-detail-back","text":"← 検索に戻る","role":null}
+Tab 8: {"tag":"BUTTON","cls":"btn-text","text":"わかった","role":null}
+Tab 9: {"tag":"BUTTON","cls":"btn-secondary","text":"話題の概要を聞く","role":null}
+Tab 10: {"tag":"BUTTON","cls":"btn-secondary","text":"さらに詳しく聞く","role":null}
+Tab 11: {"tag":"TEXTAREA","cls":"","text":"","role":null}
+Tab 12: {"tag":"BUTTON","cls":"chat-subject-change btn-text","text":"用語を選ぶ","role":null}
+TermPicker activeElement at open: {"tag":"INPUT","cls":"search-input","text":"","role":null}
+TermPicker arrow before: {"tag":"INPUT","cls":"search-input","text":"","role":null}
+TermPicker arrow after: {"tag":"INPUT","cls":"search-input","text":"","role":null}
+=== term-picker-tab ===
+Tab 1: {"tag":"BUTTON","cls":"search-result","text":"ネットワークネットワークネットワーク","role":null}
+Tab 2: {"tag":"BUTTON","cls":"search-result","text":"ネットワーク層ネットワークソウネットワーク","role":null}
+Tab 3: {"tag":"BUTTON","cls":"search-result","text":"ネットワークOSネットワークオーエスネットワーク","role":null}
+Tab 4: {"tag":"BUTTON","cls":"search-result","text":"ネットワーク制御ネットワークセイギョネットワーク","role":null}
+Tab 5: {"tag":"BUTTON","cls":"search-result","text":"ネットワーク管理ネットワークカンリネットワーク","role":null}
+Tab 6: {"tag":"BUTTON","cls":"search-result","text":"ネットワークブートネットワークブートネットワーク","role":null}
+TermPicker closed by Enter on result button: true
+  ok 39 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:111:1 › chat screen (free) tab order + quick asks + subject row + commit + TermPicker (2.8s)
+=== chat-free-full ===
+Tab 1: {"tag":"BUTTON","cls":"btn-primary","text":"フォルダを作成","role":null}
+Tab 2: {"tag":"BUTTON","cls":"btn-text","text":"後で設定する","role":null}
+Tab 3: {"tag":"BUTTON","cls":"top-nav-item","text":"検索","role":null}
+Tab 4: {"tag":"BUTTON","cls":"top-nav-item","text":"履歴","role":null}
+Tab 5: {"tag":"BUTTON","cls":"top-nav-item active","text":"自由に質問","role":null}
+Tab 6: {"tag":"BUTTON","cls":"top-nav-item","text":"設定","role":null}
+Tab 7: {"tag":"BUTTON","cls":"term-detail-back","text":"← 検索に戻る","role":null}
+Tab 8: {"tag":"BUTTON","cls":"btn-text","text":"わかった","role":null}
+Tab 9: {"tag":"BUTTON","cls":"btn-secondary","text":"話題の概要を聞く","role":null}
+Tab 10: {"tag":"BUTTON","cls":"btn-secondary","text":"さらに詳しく聞く","role":null}
+Tab 11: {"tag":"TEXTAREA","cls":"","text":"","role":null}
+Tab 12: {"tag":"BUTTON","cls":"chat-subject-change btn-text","text":"用語を選ぶ","role":null}
+Tab 13: {"tag":"BUTTON","cls":"chat-subject-change btn-text","text":"さらに詳しく聞く","role":null}
+Tab 14: {"tag":"BUTTON","cls":"toolbar-btn","text":"🌙","role":null}
+Tab 15: {"tag":"BODY","cls":"","text":"IT-IndexClaude Codeなどで編集できるローカ","role":null}
+  ok 40 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:155:1 › chat screen: full tab order through commit button + subject-row second button (2.0s)
+=== chat-free-with-message ===
+Tab 1: {"tag":"BUTTON","cls":"btn-primary","text":"フォルダを作成","role":null}
+Tab 2: {"tag":"BUTTON","cls":"btn-text","text":"後で設定する","role":null}
+Tab 3: {"tag":"BUTTON","cls":"top-nav-item","text":"検索","role":null}
+Tab 4: {"tag":"BUTTON","cls":"top-nav-item","text":"履歴","role":null}
+Tab 5: {"tag":"BUTTON","cls":"top-nav-item active","text":"自由に質問","role":null}
+Tab 6: {"tag":"BUTTON","cls":"top-nav-item","text":"設定","role":null}
+Tab 7: {"tag":"BUTTON","cls":"term-detail-back","text":"← 検索に戻る","role":null}
+Tab 8: {"tag":"BUTTON","cls":"btn-text","text":"わかった","role":null}
+Tab 9: {"tag":"BUTTON","cls":"btn-secondary","text":"話題の概要を聞く","role":null}
+Tab 10: {"tag":"BUTTON","cls":"btn-secondary","text":"さらに詳しく聞く","role":null}
+Tab 11: {"tag":"TEXTAREA","cls":"","text":"","role":null}
+Tab 12: {"tag":"BUTTON","cls":"chat-subject-change btn-text","text":"用語を選ぶ","role":null}
+Tab 13: {"tag":"BUTTON","cls":"chat-subject-change btn-text","text":"さらに詳しく聞く","role":null}
+Tab 14: {"tag":"BUTTON","cls":"chat-commit-button btn-primary btn-block","text":"この会話を確定する","role":null}
+Tab 15: {"tag":"BUTTON","cls":"toolbar-btn","text":"🌙","role":null}
+Tab 16: {"tag":"BODY","cls":"","text":"IT-IndexClaude Codeなどで編集できるローカ","role":null}
+  ok 41 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:165:1 › chat screen: tab order after sending a message (commit button becomes enabled) (1.4s)
+TermPicker still open after Escape: true
+  ok 42 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:178:1 › TermPicker: Escape key behavior (2.0s)
+TermPicker result count for query "ネ": 20
+TermPicker: reached cancel button after 21 Tabs (resultCount=20), reached=true
+  ok 43 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:192:1 › TermPicker: reaching cancel button requires tabbing through all matched results (2.6s)
+=== history-screen ===
+Tab 1: {"tag":"BUTTON","cls":"btn-primary","text":"フォルダを作成","role":null}
+Tab 2: {"tag":"BUTTON","cls":"btn-text","text":"後で設定する","role":null}
+Tab 3: {"tag":"BUTTON","cls":"top-nav-item","text":"検索","role":null}
+Tab 4: {"tag":"BUTTON","cls":"top-nav-item active","text":"履歴","role":null}
+Tab 5: {"tag":"BUTTON","cls":"top-nav-item","text":"自由に質問","role":null}
+Tab 6: {"tag":"BUTTON","cls":"top-nav-item","text":"設定","role":null}
+Tab 7: {"tag":"BUTTON","cls":"term-detail-back","text":"← 検索に戻る","role":null}
+Tab 8: {"tag":"BUTTON","cls":"active","text":"重み付けビュー","role":null}
+  ok 44 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:219:1 › history screen tab order + keyboard tab switching (2.1s)
+focusring light Tab1 (expect btn-primary): {"tag":"BUTTON","cls":"btn-primary","text":"フォルダを作成","role":null}
+focusring light Tab3 (expect top-nav-item active): {"tag":"BUTTON","cls":"top-nav-item active","text":"検索","role":null}
+focusring dark Tab1 (expect btn-primary): {"tag":"BUTTON","cls":"btn-primary","text":"フォルダを作成","role":null}
+focusring dark Tab3 (expect top-nav-item active): {"tag":"BUTTON","cls":"top-nav-item active","text":"検索","role":null}
+  ok 45 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:228:1 › focus ring visibility: btn-primary and top-nav-item.active (light+dark), via real Tab key (2.0s)
+outlineStyle when focused via script .focus(): solid
+  ok 46 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:251:1 › focus ring: compare .focus() (script) vs real Tab keypress on same button (2.1s)
+viewport 1440 search scrollInfo: {"scrollWidth":1440,"clientWidth":1440}
+viewport 1440 detail scrollInfo: {"scrollWidth":1440,"clientWidth":1440}
+viewport 1440 chat scrollInfo: {"scrollWidth":1440,"clientWidth":1440}
+viewport 1024 search scrollInfo: {"scrollWidth":1024,"clientWidth":1024}
+viewport 1024 detail scrollInfo: {"scrollWidth":1024,"clientWidth":1024}
+viewport 1024 chat scrollInfo: {"scrollWidth":1024,"clientWidth":1024}
+viewport 768 search scrollInfo: {"scrollWidth":768,"clientWidth":768}
+viewport 768 detail scrollInfo: {"scrollWidth":768,"clientWidth":768}
+viewport 768 chat scrollInfo: {"scrollWidth":768,"clientWidth":768}
+viewport 375 search scrollInfo: {"scrollWidth":375,"clientWidth":375}
+viewport 375 detail scrollInfo: {"scrollWidth":375,"clientWidth":375}
+viewport 375 chat scrollInfo: {"scrollWidth":375,"clientWidth":375}
+  ok 47 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:263:1 › viewport sweep: 1440/1024/768/375 on search/detail/chat (9.7s)
+zoom-equivalent(640x512) search scrollInfo: {"scrollWidth":640,"clientWidth":640,"bodyScrollWidth":640}
+zoom-equivalent(640x512) detail scrollInfo: {"scrollWidth":640,"clientWidth":640}
+  ok 48 [chromium] › e2e\investigate-keyboard\keyboard.investigate.spec.ts:315:1 › 200% zoom equivalent reflow check (WCAG 1.4.10) (3.9s)
+v1相当DB作成結果: {"ok":true,"storeNames":["asks","chatMessages","chatSessions","notes","settings","terms"]}
+マイグレーション後のDB状態: {"version":30,"storeNames":["asks","chatMessages","chatSessions","keyStore","notes","settings","syncFolder","terms"]}
+マイグレーション後の"API"検索結果件数: 27
+マイグレーション後に設定モーダルが開けるか: true
+  ok 49 [chromium] › e2e\investigate-reliability\reliability.investigate.spec.ts:58:3 › 信頼性・データ整合性 調査 › Q1: v1相当のIndexedDBからv3への実マイグレーション (4.3s)
+  x  50 [chromium] › e2e\investigate-reliability\reliability.investigate.spec.ts:161:3 › 信頼性・データ整合性 調査 › Q2: settings.get()の同時呼び出し（StrictMode二重effect相当） (2.5s)
+タブA検索結果件数: 30
+タブB書き込み中/後のタブA検索結果件数: 30
+2タブ操作後のDB状態: {"settingsCount":1,"sessions":[{"status":"open"}]}
+  ok 51 [chromium] › e2e\investigate-reliability\reliability.investigate.spec.ts:208:3 › 信頼性・データ整合性 調査 › Q3: 複数タブ同時操作でのデータ整合性 (11.3s)
+離脱時点でAI呼び出しが発生したか: false
+離脱後、画面内に「更新待ち」関連の文言があるか: false
+空セッション再訪時、確定ボタンがdisabledか: true
+一連の操作を通じてAI呼び出しが一度も発生しなかったか: true
+  ok 52 [chromium] › e2e\investigate-reliability\reliability.investigate.spec.ts:291:3 › 信頼性・データ整合性 調査 › Q4: 空セッション（メッセージ0件）でのAI呼び出しスキップ回帰確認 (3.6s)
+api-key-prompt: 接続確認reject時の表示文言: ← 検索に戻る
+
+AIを使うにはAPIキーが必要です。
+
+プロバイダ
+Anthropic Claude
+OpenAI
+Google Gemini
+APIキー
+接続を確認
+
+AIサービスに接続できませんでした（ネットワークの問題、またはブラウザ・拡張機能による通信制限の可能性があります）。時間をおいて再度お試しください。
+未翻訳の生英語エラーが含まれるか（api-key-prompt）: false
+  ok 53 [chromium] › e2e\investigate-reliability\reliability.investigate.spec.ts:352:3 › 信頼性・データ整合性 調査 › Q5: fetch自体がreject（オフライン/CORS模擬）した場合のエラー日本語化 (3.9s)
+Q6: 確定処理失敗後にtoast-error（globalError）が表示されたか: true
+Q6: toast-errorの文言: 確定処理に失敗しました: AIサービスに接続できませんでした（ネットワークの問題、またはブラウザ・拡張機能による通信制限の可能性があります）。時間をおいて再度お試しください。
+
+✕
+Q6: Xボタン押下後もtoast-errorが残っているか: false
+  ok 54 [chromium] › e2e\investigate-reliability\reliability.investigate.spec.ts:394:3 › 信頼性・データ整合性 調査 › Q6: globalErrorのXボタンでの消去確認 (4.3s)
+  ok 55 [chromium] › e2e\investigate-visual\capture.spec.ts:31:3 › search画面（light） (1.7s)
+  ok 56 [chromium] › e2e\investigate-visual\capture.spec.ts:37:3 › search画面・入力あり（light） (2.0s)
+  ok 57 [chromium] › e2e\investigate-visual\capture.spec.ts:44:3 › detail画面（light） (3.6s)
+  ok 58 [chromium] › e2e\investigate-visual\capture.spec.ts:54:3 › chat画面（light） (3.4s)
+  ok 59 [chromium] › e2e\investigate-visual\capture.spec.ts:84:3 › history画面（light） (1.4s)
+  ok 60 [chromium] › e2e\investigate-visual\capture.spec.ts:92:3 › SettingsModal（light） (1.7s)
+  ok 61 [chromium] › e2e\investigate-visual\capture.spec.ts:100:3 › OnboardingModal（light） (2.9s)
+  ok 62 [chromium] › e2e\investigate-visual\capture.spec.ts:108:3 › ApiKeyPrompt（light） (2.6s)
+  ok 63 [chromium] › e2e\investigate-visual\capture.spec.ts:31:3 › search画面（dark） (1.9s)
+  ok 64 [chromium] › e2e\investigate-visual\capture.spec.ts:37:3 › search画面・入力あり（dark） (2.4s)
+  ok 65 [chromium] › e2e\investigate-visual\capture.spec.ts:44:3 › detail画面（dark） (3.4s)
+  ok 66 [chromium] › e2e\investigate-visual\capture.spec.ts:54:3 › chat画面（dark） (8.4s)
+  ok 67 [chromium] › e2e\investigate-visual\capture.spec.ts:84:3 › history画面（dark） (2.1s)
+  ok 68 [chromium] › e2e\investigate-visual\capture.spec.ts:92:3 › SettingsModal（dark） (1.4s)
+  ok 69 [chromium] › e2e\investigate-visual\capture.spec.ts:100:3 › OnboardingModal（dark） (1.4s)
+  ok 70 [chromium] › e2e\investigate-visual\capture.spec.ts:108:3 › ApiKeyPrompt（dark） (3.4s)
+  ok 71 [chromium] › e2e\visual\search.visual.spec.ts:6:1 › 検索画面（ライト）@visual (5.2s)
+  ok 72 [chromium] › e2e\visual\search.visual.spec.ts:10:1 › 検索画面（ダーク）@visual (5.3s)
+
+
+  1) [chromium] › e2e\investigate-reliability\reliability.investigate.spec.ts:161:3 › 信頼性・データ整合性 調査 › Q2: settings.get()の同時呼び出し（StrictMode二重effect相当） 
+
+    Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:4178/
+    Call log:
+      - navigating to "http://localhost:4178/", waiting until "load"
+
+
+      170 |     await resetIndexedDb(page);
+      171 |     await mockAiProviders(page);
+    > 172 |     await page.goto('http://localhost:4178/');
+          |                ^
+      173 |     await waitForSeedSettled(page);
+      174 |     await dismissOnboardingIfPresent(page);
+      175 |     await page.waitForTimeout(1000); // StrictModeの二重effectは起動直後に発生する
+        at C:\Project\study\it-index\e2e\investigate-reliability\reliability.investigate.spec.ts:172:16
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results\investigate-reliability-re-07f9b-時呼び出し（StrictMode二重effect相当）-chromium\test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results\investigate-reliability-re-07f9b-時呼び出し（StrictMode二重effect相当）-chromium\error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\investigate-reliability-re-07f9b-時呼び出し（StrictMode二重effect相当）-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\investigate-reliability-re-07f9b-時呼び出し（StrictMode二重effect相当）-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [chromium] › e2e\investigate-reliability\reliability.investigate.spec.ts:161:3 › 信頼性・データ整合性 調査 › Q2: settings.get()の同時呼び出し（StrictMode二重effect相当） 
+  71 passed (3.8m)

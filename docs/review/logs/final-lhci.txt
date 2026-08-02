@@ -1,0 +1,23 @@
+✅  .lighthouseci/ directory writable
+✅  Configuration file found
+✅  Chrome installation found
+⚠️   GitHub token not set
+Healthcheck passed!
+
+Started a web server with "npm run preview -- --port 4173"...
+WARNING: Timed out waiting for the server to start listening.
+         Ensure the server prints a pattern that matches /listen|ready/i when it is ready.
+Running Lighthouse 3 time(s) on http://localhost:4173/
+Run #1...done.
+Run #2...done.
+Run #3...done.
+Done running Lighthouse!
+
+Checking assertions against 1 URL(s), 3 total run(s)
+
+All results processed!
+
+Dumping 3 reports to disk at C:\Project\study\it-index\docs\review\logs\lhci-report...
+Done writing reports to disk.
+
+Done running autorun.

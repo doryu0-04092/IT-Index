@@ -1,0 +1,77 @@
+               
+               
+┌─────────────┐
+│ Scan Status │
+└─────────────┘
+  Scanning 264 files tracked by git with 1074 Code rules:
+                                                                                                                        
+  Language      Rules   Files          Origin      Rules                                                                
+ ─────────────────────────────        ───────────────────                                                               
+  <multilang>      60     264          Community    1074                                                                
+  ts              163     130                                                                                           
+  json              4      49                                                                                           
+  js              153       3                                                                                           
+  html              1       1                                                                                           
+                                                                                                                        
+                   
+                   
+┌─────────────────┐
+│ 9 Code Findings │
+└─────────────────┘
+                                                  
+    /src/e2e/investigate-a11y/focus-check2.spec.ts
+     ❱ javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
+          ❰❰ Blocking ❱❱
+          Detected string concatenation with a non-literal variable in a util.format / console.log function.
+          If an attacker injects a format specifier in the string, it will forge the log message. Try to use
+          constant values for the format string.                                                            
+          Details: https://sg.run/7Y5R                                                                      
+                                                                                                            
+           18┆ console.log(`Tab ${i+1}:`, JSON.stringify(active));
+                                                              
+    /src/e2e/investigate-keyboard/keyboard.investigate.spec.ts
+     ❱ javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
+          ❰❰ Blocking ❱❱
+          Detected string concatenation with a non-literal variable in a util.format / console.log function.
+          If an attacker injects a format specifier in the string, it will forge the log message. Try to use
+          constant values for the format string.                                                            
+          Details: https://sg.run/7Y5R                                                                      
+                                                                                                            
+           59┆ for (const [i, s] of seq.entries()) console.log(`Tab ${i + 1}:`, JSON.stringify(s));
+            ⋮┆----------------------------------------
+          239┆ console.log(`focusring ${theme} Tab1 (expect btn-primary):`, JSON.stringify(onPrimary));
+            ⋮┆----------------------------------------
+          246┆ console.log(`focusring ${theme} Tab3 (expect top-nav-item active):`,
+               JSON.stringify(onTopNavActive));                                    
+            ⋮┆----------------------------------------
+          282┆ console.log(`viewport ${vp.label} search scrollInfo:`, JSON.stringify(scrollInfoSearch));
+            ⋮┆----------------------------------------
+          296┆ console.log(`viewport ${vp.label} detail scrollInfo:`, JSON.stringify(scrollInfoDetail));
+            ⋮┆----------------------------------------
+          310┆ console.log(`viewport ${vp.label} chat scrollInfo:`, JSON.stringify(scrollInfoChat));
+                           
+    /src/src/ai/logError.ts
+     ❱ javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring
+          ❰❰ Blocking ❱❱
+          Detected string concatenation with a non-literal variable in a util.format / console.log function.
+          If an attacker injects a format specifier in the string, it will forge the log message. Try to use
+          constant values for the format string.                                                            
+          Details: https://sg.run/7Y5R                                                                      
+                                                                                                            
+           10┆ console.error(`[${context}] AiApiError`, {
+            ⋮┆----------------------------------------
+           17┆ console.error(`[${context}]`, err);
+
+                
+                
+┌──────────────┐
+│ Scan Summary │
+└──────────────┘
+✅ Scan completed successfully.
+ • Findings: 9 (9 blocking)
+ • Rules run: 227
+ • Targets scanned: 264
+ • Parsed lines: ~100.0%
+ • Scan was limited to files tracked by git
+ • For a detailed list of skipped files and lines, run semgrep with the --verbose flag
+Ran 227 rules on 264 files: 9 findings.
