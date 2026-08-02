@@ -7,6 +7,7 @@ import { getSessionCredential } from '../../keystore/apiKeyStore';
 import type { LocalFolderDeps } from '../../localData/localFolderSync';
 import type { SyncFolderRepository } from '../../repositories/syncFolder';
 import ApiKeyPrompt from './ApiKeyPrompt';
+import FactoryResetSection from './FactoryResetSection';
 import LocalFolderPanel from './LocalFolderPanel';
 
 export interface SettingsModalProps {
@@ -160,6 +161,8 @@ export default function SettingsModal({
             {authError && <p className="chat-error">{authError}</p>}
           </section>
         )}
+
+        <FactoryResetSection />
       </div>
     </div>
   );
