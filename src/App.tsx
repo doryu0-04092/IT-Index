@@ -17,6 +17,7 @@ import {
   type LocalFolderDeps,
 } from './localData/localFolderSync';
 import { isFolderSyncAvailable } from './manualSync/folderTransport';
+import type { ManualSyncDeps } from './manualSync/sync';
 import { persistScreen, readPersistedScreen, type PersistedScreen } from './screenPersistence';
 import { hasSeenOnboarding, markOnboardingSeen } from './ui/onboarding';
 import { getInitialTheme, persistTheme, readStoredTheme } from './ui/theme';
@@ -30,6 +31,7 @@ import { createTermsRepository } from './repositories/terms';
 import { fetchSeedFile, importSeed } from './seedImport';
 import ChatScreen from './ui/pc/ChatScreen';
 import HistoryScreen, { type HistoryView } from './ui/pc/HistoryScreen';
+import LinkModal from './ui/pc/LinkModal';
 import OnboardingModal from './ui/pc/OnboardingModal';
 import SearchScreen from './ui/pc/SearchScreen';
 import SettingsModal from './ui/pc/SettingsModal';
@@ -104,6 +106,7 @@ export default function App() {
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
   const [localFolder, setLocalFolder] = useState<FileSystemDirectoryHandle | null>(null);
   // ローカルフォルダ同期がセッションを裏側で自動commitした可能性がある度に増分する
   // （docs/local-data.md §6.1）。SearchScreen の「AIによる単語更新待ち」一覧の再取得トリガー。
@@ -176,6 +179,13 @@ export default function App() {
     if (deviceId === null) return null;
     return { termsRepo, notesRepo, settingsRepo, asksRepo, deviceId };
   }, [termsRepo, notesRepo, settingsRepo, asksRepo, deviceId]);
+
+  // 「連携」（LinkModal）用。deviceId が読み込まれるまでは作らない——localFolderDepsと同じ理由
+  // （manualSync/sync.ts の各関数が書き込みに実在の deviceId を要するため）。
+  const manualSyncDeps = useMemo<ManualSyncDeps | null>(() => {
+    if (deviceId === null) return null;
+    return { termsRepo, notesRepo, asksRepo, deviceId };
+  }, [termsRepo, notesRepo, asksRepo, deviceId]);
 
   // deviceId が読み込まれるまでは作らない——commitOrchestrator は書き込みに実在の
   // deviceId を要するため（要件定義書§5.3、2026-07-30改訂で承認画面を廃止し常に自動反映するようにした）。
@@ -484,10 +494,12 @@ export default function App() {
       <TopNav
         current={topNavCurrent(screen)}
         settingsOpen={settingsOpen}
+        linkOpen={linkOpen}
         onGoSearch={() => setScreen({ name: 'search' })}
         onGoHistory={() => setScreen({ name: 'history', view: 'weighted' })}
         onGoFreeChat={() => void startChat(null, null)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenLink={() => setLinkOpen(true)}
       />
       <main key={screenKey(screen)} className="screen-fade-in">
         {!seedSettled ? null : screen.name === 'search' ? (
@@ -581,6 +593,7 @@ export default function App() {
           localFolderDeps={localFolderDeps}
         />
       )}
+      {linkOpen && <LinkModal deps={manualSyncDeps} onClose={() => setLinkOpen(false)} />}
     </div>
   );
 }

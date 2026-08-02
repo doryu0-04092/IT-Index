@@ -945,3 +945,61 @@ button:disabled {
 .skeleton-line:nth-child(3) {
   width: 70%;
 }
+
+/* Link modal（連携。docs/manual-sync.md のLAN直結ペアリング・ファイル方式のUI） */
+.link-menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.link-menu-item {
+  text-align: left;
+  width: 100%;
+}
+
+.link-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.link-qr {
+  align-self: center;
+  width: 100%;
+  max-width: 260px;
+  background: white;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+}
+
+.link-qr svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.link-camera {
+  width: 100%;
+  max-width: 320px;
+  align-self: center;
+  border-radius: var(--radius-md);
+  background: black;
+}
+
+.link-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.link-file-input {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+  cursor: pointer;
+  margin-top: var(--space-2);
+}
+}
