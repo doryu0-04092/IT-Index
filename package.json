@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -14,7 +15,10 @@
     "lhci": "lhci autorun",
     "gate:type": "tsc --noEmit",
     "gate:test": "vitest run",
-    "gate:e2e": "playwright test"
+    "gate:e2e": "playwright test",
+    "dev:electron": "node electron/scripts/dev.mjs",
+    "build:electron:main": "tsc -p electron/tsconfig.json",
+    "build:electron": "npm run build && npm run build:electron:main && electron-builder"
   },
   "dependencies": {
     "dexie": "^4.0.10",
@@ -31,6 +35,8 @@
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^6.0.4",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.39.5",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.1.1",
