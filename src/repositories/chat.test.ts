@@ -39,4 +39,12 @@ describe('ChatRepository', () => {
     const [reloaded] = await repo.getOpenSessions();
     expect(reloaded.pendingExportedAt).toBe(12345);
   });
+
+  it('getSession returns the session by id, or undefined if missing', async () => {
+    const repo = createChatRepository(db);
+    const session = await repo.createSession('cors');
+
+    expect(await repo.getSession(session.id)).toMatchObject({ id: session.id, termId: 'cors' });
+    expect(await repo.getSession('does-not-exist')).toBeUndefined();
+  });
 });

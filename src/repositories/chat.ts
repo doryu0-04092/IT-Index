@@ -9,6 +9,8 @@ export interface ChatRepository {
   getOpenSessions(): Promise<ChatSessionRecord[]>;
   /** ある単語について未確定のまま残っているセッションがあれば返す。無ければundefined */
   findOpenSessionByTermId(termId: string): Promise<ChatSessionRecord | undefined>;
+  /** id指定での単体取得。リロード時の画面復元（#39）等、既知のsessionIdから状態を再構築する用途 */
+  getSession(sessionId: string): Promise<ChatSessionRecord | undefined>;
   /** 冪等。既に committed なら何もしない */
   commitSession(sessionId: string): Promise<void>;
   getMessages(sessionId: string): Promise<ChatMessageRecord[]>;
@@ -61,6 +63,10 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
     async findOpenSessionByTermId(termId) {
       const openSessions = await db.chatSessions.where('status').equals('open').toArray();
       return openSessions.find((s) => s.termId === termId);
+    },
+
+    async getSession(sessionId) {
+      return db.chatSessions.get(sessionId);
     },
 
     async commitSession(sessionId) {

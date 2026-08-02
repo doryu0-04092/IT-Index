@@ -17,6 +17,7 @@ import {
   type LocalFolderDeps,
 } from './localData/localFolderSync';
 import { isFolderSyncAvailable } from './manualSync/folderTransport';
+import { persistScreen, readPersistedScreen, type PersistedScreen } from './screenPersistence';
 import { hasSeenOnboarding, markOnboardingSeen } from './ui/onboarding';
 import { getInitialTheme, persistTheme, readStoredTheme } from './ui/theme';
 import { createAsksRepository } from './repositories/asks';
@@ -65,6 +66,20 @@ function screenKey(screen: Screen): string {
   }
 }
 
+/** リロード時の文脈復元（#39）用に、subject（AIへ渡す文脈）を除いた軽量な形に落とす */
+function toPersistedScreen(screen: Screen): PersistedScreen {
+  switch (screen.name) {
+    case 'search':
+      return { name: 'search' };
+    case 'detail':
+      return { name: 'detail', termId: screen.termId };
+    case 'chat':
+      return { name: 'chat', sessionId: screen.sessionId, returnTermId: screen.returnTermId };
+    case 'history':
+      return { name: 'history', view: screen.view };
+  }
+}
+
 export default function App() {
   const [seedError, setSeedError] = useState<string | null>(null);
   const [seedSettled, setSeedSettled] = useState(false);
@@ -72,6 +87,8 @@ export default function App() {
   // termsRepo自体のインスタンスは変わらないため、SearchScreen側のtermsRepo.getAll()を
   // 再実行させるトリガーとして使う（#38対応）。
   const [seedRefreshTick, setSeedRefreshTick] = useState(0);
+  // リロード時の文脈復元（#39）を一度だけ試みるためのガード。seedSettled後に1回だけ実行する。
+  const [screenRestoreAttempted, setScreenRestoreAttempted] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [autoUpdateExistingTerms, setAutoUpdateExistingTerms] = useState<AutoUpdateExistingTermsMode>('askedOnly');
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -117,11 +134,21 @@ export default function App() {
   // URLルーティングを持たないため、画面遷移してもhistoryエントリが増えず、ブラウザの
   // 戻るボタンを押すとアプリの前画面ではなく「流入前のページ」へ即座に離脱し白紙化して
   // いた（#35）。画面が変わるたびにダミーのhistoryエントリを積み、popstateで検索画面へ
-  // 戻すことで、少なくとも白紙化は防ぐ（#39が求める「元の画面・文脈への厳密な復元」は
-  // URLへ状態を埋め込む本格的なルーティング実装が要るため対象外。本人確認済み）。
+  // 戻すことで、少なくとも白紙化は防ぐ。
   useEffect(() => {
     window.history.pushState({ appScreen: true }, '');
   }, [screen]);
+
+  // リロード時の文脈復元（#39）。URLは変えず、sessionStorageに「どの画面にいたか」の
+  // 軽量な識別子だけを保存する（本格的なルーティング導入は見送り、本人確認済み）。
+  // 保存はscreenが変わるたびに行う。復元は下のuseEffect（seedSettled後に一度だけ）で行う。
+  useEffect(() => {
+    // 復元処理（下のuseEffect）が完了する前に保存すると、初期値{name:'search'}で
+    // 上書きしてしまい、リロード直後にsessionStorageの内容を消してしまう。
+    // 復元試行が済むまでは保存しない。
+    if (!screenRestoreAttempted) return;
+    persistScreen(toPersistedScreen(screen));
+  }, [screen, screenRestoreAttempted]);
 
   useEffect(() => {
     function handlePopState() {
@@ -197,6 +224,42 @@ export default function App() {
       setAutoUpdateExistingTerms(s.autoUpdateExistingTerms);
     });
   }, [runSeedImport, settingsRepo]);
+
+  // リロード時の文脈復元（#39）。seedSettled後（＝termsRepo等が使える状態）に一度だけ試みる。
+  // 保存されていたtermId・sessionIdが（削除等で）既に存在しない場合は検索画面のまま何もしない
+  // ——復元を試みて失敗した痕跡を利用者に見せる必要はなく、静かに諦めれば十分なため。
+  useEffect(() => {
+    if (!seedSettled || screenRestoreAttempted) return;
+    setScreenRestoreAttempted(true);
+
+    const persisted = readPersistedScreen();
+    if (!persisted) return;
+
+    (async () => {
+      switch (persisted.name) {
+        case 'detail': {
+          const term = await termsRepo.getById(persisted.termId);
+          if (term) setScreen({ name: 'detail', termId: persisted.termId });
+          break;
+        }
+        case 'chat': {
+          const session = await chatRepo.getSession(persisted.sessionId);
+          if (session) {
+            const subject = await buildSubjectContext(session.termId, null, { termsRepo, notesRepo });
+            setActiveChatSessionId(session.id);
+            setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: persisted.returnTermId });
+          }
+          break;
+        }
+        case 'history':
+          setScreen({ name: 'history', view: persisted.view });
+          break;
+        default:
+          // 'search' は初期値のまま何もしない
+          break;
+      }
+    })();
+  }, [seedSettled, screenRestoreAttempted, termsRepo, notesRepo, chatRepo]);
 
   useEffect(() => {
     // docs/local-data.md「自動化」。起動時、選択済みフォルダの権限が残っていれば
