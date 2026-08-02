@@ -109,6 +109,24 @@ export default function App() {
     persistTheme(theme);
   }, [theme]);
 
+  // URLルーティングを持たないため、画面遷移してもhistoryエントリが増えず、ブラウザの
+  // 戻るボタンを押すとアプリの前画面ではなく「流入前のページ」へ即座に離脱し白紙化して
+  // いた（#35）。画面が変わるたびにダミーのhistoryエントリを積み、popstateで検索画面へ
+  // 戻すことで、少なくとも白紙化は防ぐ（#39が求める「元の画面・文脈への厳密な復元」は
+  // URLへ状態を埋め込む本格的なルーティング実装が要るため対象外。本人確認済み）。
+  useEffect(() => {
+    window.history.pushState({ appScreen: true }, '');
+  }, [screen]);
+
+  useEffect(() => {
+    function handlePopState() {
+      setActiveChatSessionId(null);
+      setScreen({ name: 'search' });
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const termsRepo = useMemo(() => createTermsRepository(db), []);
   const notesRepo = useMemo(() => createNotesRepository(db), []);
   const asksRepo = useMemo(() => createAsksRepository(db), []);
