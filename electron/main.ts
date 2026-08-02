@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { postPairing } from './pairingClient.js';
 import { PairingServer } from './pairingServer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -54,6 +55,7 @@ function setupPairingIpc(): void {
   ipcMain.handle('pairing:respond', (_event, requestId: string, body: string | null) =>
     pairingServer.respond(requestId, body)
   );
+  ipcMain.handle('pairing:post', (_event, url: string, body: string) => postPairing(url, body));
 }
 
 void app.whenReady().then(() => {

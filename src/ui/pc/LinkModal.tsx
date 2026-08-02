@@ -5,6 +5,7 @@ import type { NoteConflict } from '../../core/mergeSnapshot';
 import { generatePairingKey, importPairingKey } from '../../pairing/crypto';
 import { decodePairingPayload, encodePairingPayload } from '../../pairing/pairingCodec';
 import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
+import { describeSyncStatus } from '../../pairing/syncStatus';
 import { downloadRawFile, readFilesAsRawFiles } from '../../manualSync/fileTransport';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { isCameraAvailable, startQrScan } from '../../manualSync/qrScanner';
@@ -258,9 +259,24 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
               const key = await importPairingKey(payload.k);
               if (!key) throw new Error('このQRコードの鍵を読み取れませんでした。');
               const envelope = await sealSnapshot(key, deps);
-              const res = await fetch(`${payload.url}/sync`, { method: 'POST', body: envelope });
-              const responseBody = await res.text();
-              const result = await openAndMerge(key, responseBody, deps);
+
+              // レンダラーから直接 fetch すると index.html の CSP `connect-src 'self'` に
+              // 阻まれてLAN内へ出られない。メインプロセス経由で送る（electron/pairingClient.ts）。
+              // 送信側でHTTPステータスも判定するため、409/413/504 を「鍵が合いません」と
+              // 誤って案内することがない。
+              const desktop = window.desktop;
+              if (!desktop) throw new Error('この機能はデスクトップ版でのみ使えます。');
+              const posted = await desktop.postPairing(payload.url, envelope);
+              if (cancelled) return;
+              if (!posted.ok) {
+                const message =
+                  posted.kind === 'status' ? describeSyncStatus(posted.status) : posted.reason;
+                setState({ phase: 'error', message });
+                stop?.();
+                return;
+              }
+
+              const result = await openAndMerge(key, posted.body, deps);
               if (cancelled) return;
               setState({ phase: 'done', outcome: result });
               stop?.();
@@ -268,7 +284,7 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
               if (cancelled) return;
               setState({
                 phase: 'error',
-                message: `接続できませんでした。相手の端末が同じネットワークにあるか確認してください（${err instanceof Error ? err.message : String(err)}）。`,
+                message: `接続できませんでした。相手の端末が同じWi-Fiに繋がっているか確認してください（${err instanceof Error ? err.message : String(err)}）。`,
               });
               stop?.();
             } finally {

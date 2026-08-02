@@ -67,7 +67,16 @@ export class PairingServer {
     server.on('connection', (socket) => {
       this.sockets.add(socket);
       socket.on('close', () => this.sockets.delete(socket));
+      // 相手が応答を受け取る前に切断する（機内モード・アプリ強制終了など）と ECONNRESET が
+      // 飛ぶ。リスナーが無いソケットの 'error' は未捕捉例外になりうるので必ず受ける。
+      // Android側（PairingServerPlugin.java）は同種の切断を try/catch で吸収済みで、
+      // ここが無いとPC側だけが落ちる非対称になる。
+      socket.on('error', () => {
+        this.sockets.delete(socket);
+        socket.destroy();
+      });
     });
+    server.on('clientError', (_err, socket) => socket.destroy());
 
     const port = await listenWithFallback(server, PREFERRED_PORT, PORT_FALLBACK_ATTEMPTS);
     if (port === null) {

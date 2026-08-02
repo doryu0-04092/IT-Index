@@ -4,6 +4,7 @@ import type { NoteConflict } from '../../core/mergeSnapshot';
 import { generatePairingKey, importPairingKey } from '../../pairing/crypto';
 import { decodePairingPayload, encodePairingPayload } from '../../pairing/pairingCodec';
 import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
+import { describeSyncStatus } from '../../pairing/syncStatus';
 import { downloadRawFile, readFilesAsRawFiles } from '../../manualSync/fileTransport';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { isCameraAvailable, startQrScan } from '../../manualSync/qrScanner';
@@ -267,7 +268,17 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
               const key = await importPairingKey(payload.k);
               if (!key) throw new Error('このQRコードの鍵を読み取れませんでした。');
               const envelope = await sealSnapshot(key, deps);
+              // CapacitorHttp が有効なので fetch はネイティブ側で実行され、
+              // WebViewの混在コンテンツ制限とCSPを回避してLAN内へ出られる（capacitor.config.ts）。
               const res = await fetch(`${payload.url}/sync`, { method: 'POST', body: envelope });
+              if (cancelled) return;
+              // ステータスを必ず見る。見ないと 409/413/504 の本文をそのまま復号にかけて
+              // 「鍵が合いません」と案内してしまい、QRを読み直しても直らない。
+              if (!res.ok) {
+                setState({ phase: 'error', message: describeSyncStatus(res.status) });
+                stop?.();
+                return;
+              }
               const responseBody = await res.text();
               const result = await openAndMerge(key, responseBody, deps);
               if (cancelled) return;
@@ -277,7 +288,7 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
               if (cancelled) return;
               setState({
                 phase: 'error',
-                message: `接続できませんでした。相手の端末が同じネットワークにあるか確認してください（${err instanceof Error ? err.message : String(err)}）。`,
+                message: `接続できませんでした。相手の端末が同じWi-Fiに繋がっているか確認してください（${err instanceof Error ? err.message : String(err)}）。`,
               });
               stop?.();
             } finally {
@@ -299,8 +310,24 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
       }
     })();
 
+    // アプリがバックグラウンドへ回ってもモーダルはアンマウントされないため、effectの
+    // cleanupだけではカメラが点いたまま残る（インジケータ点灯・電池消費）。
+    // 待ち受けサーバー側は PairingServerPlugin.handleOnStop() で既に対策済みで、
+    // カメラだけが抜けていた。
+    const handleVisibility = () => {
+      if (!document.hidden || cancelled || busy) return;
+      stop?.();
+      stop = null;
+      setState({
+        phase: 'error',
+        message: 'アプリが他の画面に移ったため、カメラを止めました。もう一度「カメラで読み取る」を選んでください。',
+      });
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
       cancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibility);
       stop?.();
     };
   }, [deps]);

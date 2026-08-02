@@ -22,6 +22,26 @@ export interface DesktopApi {
 
   /** onPairingRequest への応答。body が null ならエラー応答（HTTP 400）を返す。 */
   respondPairing(requestId: string, body: string | null): Promise<void>;
+
+  /**
+   * 相手の待ち受けサーバーへ封筒をPOSTし、応答の本文を受け取る（読み取り役として使う）。
+   *
+   * レンダラーから直接 fetch しないのは、index.html の CSP `connect-src 'self'` が
+   * LAN内アドレスへの接続を遮断するため。CSPを緩めるとPC版全体の防御が下がるので、
+   * 代わりにメインプロセスから送る（Android側が CapacitorHttp でネイティブ送信して
+   * 同じ制約を回避しているのと同じ考え方）。
+   *
+   * 接続先は呼び出し側が検証済みのプライベートアドレスに限る（src/pairing/pairingCodec.ts）。
+   * メインプロセス側でも同じ検証を行い、二重に防ぐ。
+   */
+  postPairing(
+    url: string,
+    body: string
+  ): Promise<
+    | { ok: true; body: string }
+    | { ok: false; kind: 'transport'; reason: string }
+    | { ok: false; kind: 'status'; status: number }
+  >;
 }
 
 declare global {

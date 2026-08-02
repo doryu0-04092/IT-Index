@@ -23,6 +23,8 @@ const desktopApi: DesktopApi = {
   },
 
   respondPairing: (requestId, body) => ipcRenderer.invoke('pairing:respond', requestId, body),
+
+  postPairing: (url, body) => ipcRenderer.invoke('pairing:post', url, body),
 };
 
 contextBridge.exposeInMainWorld('desktop', desktopApi);
