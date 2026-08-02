@@ -1,0 +1,90 @@
+
+C:\Project\study\it-index\e2e\fixtures\base.ts
+  51:11  error  React Hook "use" is called in function "preparedPage" that is neither a React function component nor a custom React Hook function. React component names must start with an uppercase letter. React Hook names must start with the word "use"  react-hooks/rules-of-hooks
+
+C:\Project\study\it-index\e2e\investigate-functionality\functionality.investigate.spec.ts
+  16:16  error  'mockAiProviders' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Project\study\it-index\e2e\investigate-performance\measure.cjs
+   4:22  error  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+   5:12  error  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+   6:14  error  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+  62:46  error  'iterations' is defined but never used   @typescript-eslint/no-unused-vars
+  92:45  error  'keyTsInner' is defined but never used   @typescript-eslint/no-unused-vars
+
+C:\Project\study\it-index\src\App.tsx
+  193:5  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Project\study\it-index\src\App.tsx:193:5
+  191 |
+  192 |   useEffect(() => {
+> 193 |     runSeedImport();
+      |     ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  194 |
+  195 |     settingsRepo.get().then((s) => {
+  196 |       setDeviceId(s.deviceId);  react-hooks/set-state-in-effect
+  222:6  warning  React Hook useEffect has a missing dependency: 'syncPendingChats'. Either include it or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       react-hooks/exhaustive-deps
+
+C:\Project\study\it-index\src\ui\pc\ApiKeyPrompt.tsx
+  131:15  error  The autoFocus prop should not be used, as it can reduce usability and accessibility for users  jsx-a11y/no-autofocus
+
+C:\Project\study\it-index\src\ui\pc\LocalFolderPanel.tsx
+  31:7  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Project\study\it-index\src\ui\pc\LocalFolderPanel.tsx:31:7
+  29 |   useEffect(() => {
+  30 |     if (!folder) {
+> 31 |       setPermission('unknown');
+     |       ^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  32 |       return;
+  33 |     }
+  34 |     folder.queryPermission({ mode: 'readwrite' }).then(setPermission);  react-hooks/set-state-in-effect
+
+C:\Project\study\it-index\src\ui\pc\SearchScreen.tsx
+  121:9  error  The autoFocus prop should not be used, as it can reduce usability and accessibility for users  jsx-a11y/no-autofocus
+
+C:\Project\study\it-index\src\ui\pc\SettingsModal.tsx
+  79:7  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  79:7  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  80:9  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  80:9  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  97:5  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  97:5  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  98:7  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  98:7  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+C:\Project\study\it-index\src\ui\pc\TermDetailScreen.tsx
+  20:5  error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+C:\Project\study\it-index\src\ui\pc\TermDetailScreen.tsx:20:5
+  18 |
+  19 |   useEffect(() => {
+> 20 |     setTerm(undefined);
+     |     ^^^^^^^ Avoid calling setState() directly within an effect
+  21 |     setNote(undefined);
+  22 |     Promise.all([termsRepo.getById(termId), notesRepo.getByTermId(termId)]).then(([t, n]) => {
+  23 |       setTerm(t ?? null);  react-hooks/set-state-in-effect
+
+C:\Project\study\it-index\src\ui\pc\TermPicker.tsx
+  47:11  error  The autoFocus prop should not be used, as it can reduce usability and accessibility for users  jsx-a11y/no-autofocus
+
+✖ 22 problems (21 errors, 1 warning)
+

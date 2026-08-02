@@ -1,0 +1,9 @@
+
+ RUN  v4.1.10 C:/Project/study/it-index
+
+
+ Test Files  36 passed (36)
+      Tests  181 passed (181)
+   Start at  13:05:37
+   Duration  1.30s (transform 4.40s, setup 2.77s, import 5.94s, tests 988ms, environment 5ms)
+
