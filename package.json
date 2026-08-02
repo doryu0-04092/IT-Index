@@ -16,8 +16,8 @@
     "gate:type": "tsc --noEmit",
     "gate:test": "vitest run",
     "gate:e2e": "playwright test",
-    "dev:electron": "node electron/scripts/dev.mjs",
-    "build:electron:main": "tsc -p electron/tsconfig.json",
+    "dev:electron": "npm run build:electron:main && node electron/scripts/dev.mjs",
+    "build:electron:main": "tsc -p electron/tsconfig.json && node electron/scripts/post-build.mjs",
     "build:electron": "npm run build && npm run build:electron:main && electron-builder",
     "build:android": "vite build && npx cap sync android"
   },
