@@ -204,13 +204,6 @@ export default function SearchScreen({
               <span className="search-result-field">{term.field}</span>
               {import.meta.env.DEV && <span className="search-result-score">{s.toFixed(2)}</span>}
             </button>
-            {/*
-              最上位候補への自動ひも付けはしない（要件定義書§5.3）。この語についてAIに聞きたい
-              場合は、利用者が行ごとに明示的に選ぶ。
-            */}
-            <button type="button" className="search-result-ask-ai btn-text" onClick={() => onStartChat(term.id, null)}>
-              この語について聞く
-            </button>
           </li>
         ))}
       </ul>

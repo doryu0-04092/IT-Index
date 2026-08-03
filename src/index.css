@@ -1207,18 +1207,25 @@ button:disabled {
   right: var(--space-3);
 }
 
-/* 2) .search-result-row: 用語ボタンと「この語について聞く」/「確定する」ボタンの
-   横並びが狭幅で潰れる。折り返し、確定・AI呼び出しボタンは折り返した2行目で
-   全幅にしてタップしやすくする。 */
+/* 2) .search-result-row: 「確定する」ボタンとの横並びが狭幅で潰れる。折り返し、
+   確定ボタンは折り返した2行目で全幅にしてタップしやすくする。
+   （検索結果一覧の「この語について聞く」はAndroid版では出していない——ソフトキーボード表示中に
+   1画面に入る件数が2〜3件まで減ってしまうため。AIに聞く導線は用語詳細画面に集約する） */
 .android-app .search-result-row {
   flex-wrap: wrap;
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+  padding-bottom: var(--space-2);
 }
 
 .android-app .search-result-row .search-result {
   min-width: 0;
 }
 
-.android-app .search-result-ask-ai,
+/* 検索結果の用語名だけをやや小さくする（一覧の密度を上げるため） */
+.android-app .search-result {
+  font-size: 0.92rem;
+}
+
 .android-app .search-pending-commit {
   flex: 1 1 100%;
   text-align: right;
