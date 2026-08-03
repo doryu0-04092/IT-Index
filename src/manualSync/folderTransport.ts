@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import type { RawFile } from './sync';
 
 /**
@@ -38,7 +39,13 @@ declare global {
   }
 }
 
+/**
+ * `showDirectoryPicker` の存在チェックだけでは不十分——AndroidのWebView実装によっては
+ * 関数自体は生えているが呼び出しても解決も失敗もしない（＝ボタンを押しても無反応に見える）
+ * ケースがあるため、Capacitorのネイティブプラットフォーム判定で明示的に除外する。
+ */
 export function isFolderSyncAvailable(): boolean {
+  if (Capacitor.isNativePlatform()) return false;
   return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
 }
 

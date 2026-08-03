@@ -4,11 +4,8 @@ import type { AutoUpdateExistingTermsMode } from '../../ai/distribution';
 import { logAiError } from '../../ai/logError';
 import type { ApiKeyStore } from '../../keystore/apiKeyStore';
 import { getSessionCredential } from '../../keystore/apiKeyStore';
-import type { LocalFolderDeps } from '../../localData/localFolderSync';
-import type { SyncFolderRepository } from '../../repositories/syncFolder';
 import ApiKeyPrompt from './ApiKeyPrompt';
 import FactoryResetSection from './FactoryResetSection';
-import LocalFolderPanel from './LocalFolderPanel';
 import Sheet from './Sheet';
 
 export interface SettingsModalProps {
@@ -19,17 +16,17 @@ export interface SettingsModalProps {
   /** 要件定義書§5.3「既存語の自動更新」。現在の設定値 */
   autoUpdateExistingTerms: AutoUpdateExistingTermsMode;
   onChangeAutoUpdateExistingTerms: (mode: AutoUpdateExistingTermsMode) => void;
-  /** docs/local-data.md。フォルダ連携の状態はApp（オーケストレータ）が単一の真実源として持つ */
-  localFolder: FileSystemDirectoryHandle | null;
-  onLocalFolderChange: (dir: FileSystemDirectoryHandle | null) => void;
-  syncFolderRepo: SyncFolderRepository;
-  localFolderDeps: LocalFolderDeps | null;
 }
 
 /**
  * 設定（Android版）。propsとロジックはPC版と同じだが、見せ方は下から出るシート
  * （`Sheet.tsx`）にしてある。縦持ちでは中央のダイアログだと閉じる操作も内容も
  * 親指から遠くなるため。
+ *
+ * ローカルフォルダ連携（File System Access API、`LocalFolderPanel`）はPC専用機能のため
+ * ここには置かない——Androidでは常に`isFolderSyncAvailable()`がfalseになり
+ * 「この環境では使えません」の案内しか出せず、設定項目として意味を持たないため
+ * （データをAndroidからPCへ渡す導線は「連携」のQR/ファイルで別途提供している）。
  */
 export default function SettingsModal({
   apiKeyStore,
@@ -37,10 +34,6 @@ export default function SettingsModal({
   onCredentialReady,
   autoUpdateExistingTerms,
   onChangeAutoUpdateExistingTerms,
-  localFolder,
-  onLocalFolderChange,
-  syncFolderRepo,
-  localFolderDeps,
 }: SettingsModalProps) {
   const [editingKey, setEditingKey] = useState(false);
   const [hasPersisted, setHasPersisted] = useState(false);
@@ -129,13 +122,6 @@ export default function SettingsModal({
             他の語について調べた際に出てきた情報も自動更新する
           </label>
         </section>
-
-        <LocalFolderPanel
-          folder={localFolder}
-          onFolderChange={onLocalFolderChange}
-          syncFolderRepo={syncFolderRepo}
-          deps={localFolderDeps}
-        />
 
         {hasPersisted && (
           <section className="settings-section">
