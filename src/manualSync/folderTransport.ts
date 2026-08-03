@@ -1,10 +1,11 @@
 import { Capacitor } from '@capacitor/core';
-import type { RawFile } from './sync';
 
 /**
- * File System Access API を使った「共有フォルダ方式」（案3）。既にDropbox/OneDrive等の
- * 同期フォルダを持っている利用者が、そのフォルダをこのアプリの同期先として指定できるように
- * する。このAPIはPC版Chrome/Edgeのみ対応（Android Chromeは非対応。要件定義書§5.5参照）。
+ * File System Access API を使った、ローカルフォルダ連携（Claude Code編集用）の輸送層。
+ * このAPIはPC版Chrome/Edgeのみ対応（Android Chromeは非対応。要件定義書§5.5参照）。
+ * 「共有フォルダ方式」による端末間連携（案3）は構想のみでUIとして実装されたことはなく、
+ * この輸送層を使っていた2関数（readAllSyncFilesFromFolder/writeSyncFileToFolder）は
+ * 呼び出し元がないまま残っていたため削除した（ユーザー指摘での連携機能整理の一環）。
  *
  * ブラウザAPIを直接叩く層のためテスト対象外（src/keystore/webauthn.ts と同じ位置づけ）。
  *
@@ -73,23 +74,6 @@ export async function ensureFolderPermission(dir: FileSystemDirectoryHandle): Pr
   if (query === 'granted') return true;
   const request = await dir.requestPermission({ mode: 'readwrite' });
   return request === 'granted';
-}
-
-export async function readAllSyncFilesFromFolder(dir: FileSystemDirectoryHandle): Promise<RawFile[]> {
-  const files: RawFile[] = [];
-  for await (const [name, handle] of dir.entries()) {
-    if (handle.kind !== 'file' || !name.startsWith('device-') || !name.endsWith('.json')) continue;
-    const file = await handle.getFile();
-    files.push({ name, content: await file.text() });
-  }
-  return files;
-}
-
-export async function writeSyncFileToFolder(dir: FileSystemDirectoryHandle, file: RawFile): Promise<void> {
-  const handle = await dir.getFileHandle(file.name, { create: true });
-  const writable = await handle.createWritable();
-  await writable.write(file.content);
-  await writable.close();
 }
 
 /**

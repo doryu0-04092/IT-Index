@@ -6,11 +6,9 @@ import { decodePairingPayload, encodePairingPayload } from '../../pairing/pairin
 import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
 import { describeSyncStatus } from '../../pairing/syncStatus';
 import Sheet from './Sheet';
-import { readFilesAsRawFiles } from '../../manualSync/fileTransport';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
-import { exportOwnSyncFile, importSyncFiles, type ManualSyncDeps } from '../../manualSync/sync';
-import { shareRawFile } from '../../native/shareFile';
+import type { ManualSyncDeps } from '../../manualSync/sync';
 
 export interface LinkModalProps {
   /** deviceId が読み込まれるまでは null（Android版Appのlocalの理由はPC版と同じ） */
@@ -20,7 +18,7 @@ export interface LinkModalProps {
 
 type Outcome = { ok: true; mergedNoteCount: number; conflicts: NoteConflict[]; skippedFiles: string[] } | { ok: false; reason: string };
 
-type View = 'menu' | 'host' | 'scan' | 'file';
+type View = 'menu' | 'host' | 'scan';
 
 type HostState =
   | { phase: 'starting' }
@@ -36,11 +34,6 @@ type ScanState =
   | { phase: 'done'; outcome: Outcome }
   | { phase: 'error'; message: string };
 
-type FileState =
-  | { phase: 'idle' }
-  | { phase: 'busy' }
-  | { phase: 'done'; outcome: Outcome };
-
 /**
  * 「連携」モーダル（Android版）。同期のコアロジック（src/pairing/、src/manualSync/）は
  * プラットフォーム非依存で、PC版とAndroid版で共有する。ここではその配線とUIだけを行う
@@ -48,8 +41,9 @@ type FileState =
  *
  * PC版との唯一の違いは、待ち受け役（HostView）の実装が Electron の window.desktop ではなく
  * Capacitorプラグイン `PairingServer`（src/native/pairingServer.ts）になる点。
- * 3経路（QR表示・カメラ読み取り・ファイル）はどれも「後始末を必ず呼ぶ」点が最重要
+ * 2経路（QR表示・カメラ読み取り）はどちらも「後始末を必ず呼ぶ」点が最重要
  * （docs/ui-pc.md §3のカメラ・タイマー・サーバー停止漏れの実バグ記録を踏まえる）。
+ * 「ファイルでやり取りする」経路は廃止した（ユーザー指摘）。
  */
 export default function LinkModal({ deps, onClose }: LinkModalProps) {
   const [view, setView] = useState<View>('menu');
@@ -77,7 +71,6 @@ export default function LinkModal({ deps, onClose }: LinkModalProps) {
         {view === 'menu' && <LinkMenu cameraAvailable={cameraAvailable} onSelect={setView} depsReady={deps !== null} />}
         {view === 'host' && <HostView deps={deps} onBack={goMenu} />}
         {view === 'scan' && <ScanView deps={deps} onBack={goMenu} />}
-        {view === 'file' && <FileView deps={deps} onBack={goMenu} />}
       </>
     </Sheet>
   );
@@ -105,9 +98,6 @@ function LinkMenu({
           カメラで読み取る（相手のQRに接続する）
         </button>
       )}
-      <button type="button" className="btn-secondary link-menu-item" onClick={() => onSelect('file')} disabled={!depsReady}>
-        ファイルでやり取りする
-      </button>
     </div>
   );
 }
@@ -372,96 +362,3 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
   );
 }
 
-/** 「ファイルでやり取りする」。ネットワーク不要のフォールバック */
-function FileView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () => void }) {
-  const [state, setState] = useState<FileState>({ phase: 'idle' });
-  const [exportState, setExportState] = useState<
-    { phase: 'idle' } | { phase: 'busy' } | { phase: 'done' } | { phase: 'error'; message: string }
-  >({ phase: 'idle' });
-  const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-    },
-    [],
-  );
-
-  // PC版のdownloadRawFile（ブラウザの<a download>）はCapacitorのWebViewでは機能しないため、
-  // Android版はFilesystem/Shareプラグイン経由でOSの共有シートを開く（src/native/shareFile.ts）。
-  async function handleExport() {
-    if (!deps) return;
-    setExportState({ phase: 'busy' });
-    try {
-      const file = await exportOwnSyncFile(deps);
-      await shareRawFile(file);
-      if (!mountedRef.current) return;
-      setExportState({ phase: 'done' });
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setExportState({
-        phase: 'error',
-        message: `書き出しに失敗しました（${err instanceof Error ? err.message : String(err)}）。`,
-      });
-    }
-  }
-
-  async function handleImport(fileList: FileList | null) {
-    if (!fileList || fileList.length === 0 || !deps) return;
-    setState({ phase: 'busy' });
-    try {
-      const rawFiles = await readFilesAsRawFiles(fileList);
-      const result = await importSyncFiles(rawFiles, deps);
-      if (!mountedRef.current) return;
-      setState({ phase: 'done', outcome: { ok: true, ...result } });
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setState({
-        phase: 'done',
-        outcome: {
-          ok: false,
-          reason: `ファイルを読み込めませんでした。他の端末から書き出したファイルか確認してください（${err instanceof Error ? err.message : String(err)}）。`,
-        },
-      });
-    }
-  }
-
-  return (
-    <div className="link-view">
-      <button type="button" className="term-detail-back" onClick={onBack}>
-        ← 連携の選択に戻る
-      </button>
-
-      <section className="settings-section">
-        <h3>送る</h3>
-        <button
-          type="button"
-          className="btn-secondary"
-          onClick={() => void handleExport()}
-          disabled={!deps || exportState.phase === 'busy'}
-        >
-          この端末のデータをファイルに書き出す
-        </button>
-        {exportState.phase === 'busy' && <p className="search-status">書き出しています…</p>}
-        {exportState.phase === 'done' && <p className="search-status">共有シートを開きました。送り先を選んでください。</p>}
-        {exportState.phase === 'error' && <p className="chat-error">{exportState.message}</p>}
-      </section>
-
-      <section className="settings-section">
-        <h3>受け取る</h3>
-        <label className="link-file-input">
-          <span>連携ファイルを選択（複数可）</span>
-          <input
-            type="file"
-            multiple
-            accept="application/json"
-            disabled={!deps || state.phase === 'busy'}
-            onChange={(e) => void handleImport(e.target.files)}
-          />
-        </label>
-        {state.phase === 'busy' && <p className="search-status">取り込んでいます…</p>}
-      </section>
-
-      {state.phase === 'done' && <ResultView outcome={state.outcome} />}
-    </div>
-  );
-}

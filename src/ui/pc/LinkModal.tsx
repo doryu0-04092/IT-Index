@@ -4,10 +4,9 @@ import { generatePairingKey, importPairingKey } from '../../pairing/crypto';
 import { decodePairingPayload, encodePairingPayload } from '../../pairing/pairingCodec';
 import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
 import { describeSyncStatus } from '../../pairing/syncStatus';
-import { downloadRawFile, readFilesAsRawFiles } from '../../manualSync/fileTransport';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
-import { exportOwnSyncFile, importSyncFiles, type ManualSyncDeps } from '../../manualSync/sync';
+import type { ManualSyncDeps } from '../../manualSync/sync';
 
 export interface LinkModalProps {
   /** deviceId が読み込まれるまでは null（App.tsx の localFolderDeps と同じ理由） */
@@ -17,7 +16,7 @@ export interface LinkModalProps {
 
 type Outcome = { ok: true; mergedNoteCount: number; conflicts: NoteConflict[]; skippedFiles: string[] } | { ok: false; reason: string };
 
-type View = 'menu' | 'host' | 'scan' | 'file';
+type View = 'menu' | 'host' | 'scan';
 
 type HostState =
   | { phase: 'starting' }
@@ -33,19 +32,15 @@ type ScanState =
   | { phase: 'done'; outcome: Outcome }
   | { phase: 'error'; message: string };
 
-type FileState =
-  | { phase: 'idle' }
-  | { phase: 'busy' }
-  | { phase: 'done'; outcome: Outcome };
-
 /**
  * 「連携」モーダル。同期のコアロジック（src/pairing/、src/manualSync/）は実装済みで、
  * ここではその配線とUIだけを行う。モーダルの書き方は SettingsModal.tsx に揃える
  * （共通の<Modal>コンポーネントが無く、.modal-overlay/.modal-content/.modal-header を
  * 各所で手書きする規約のため）。
  *
- * 3経路（QR表示・カメラ読み取り・ファイル）はどれも「後始末を必ず呼ぶ」点が最重要
+ * 2経路（QR表示・カメラ読み取り）はどちらも「後始末を必ず呼ぶ」点が最重要
  * （docs/ui-pc.md §3のカメラ・タイマー・サーバー停止漏れの実バグ record を踏まえる）。
+ * 「ファイルでやり取りする」経路は廃止した（ユーザー指摘）。
  */
 export default function LinkModal({ deps, onClose }: LinkModalProps) {
   const [view, setView] = useState<View>('menu');
@@ -85,7 +80,6 @@ export default function LinkModal({ deps, onClose }: LinkModalProps) {
         )}
         {view === 'host' && <HostView deps={deps} onBack={goMenu} />}
         {view === 'scan' && <ScanView deps={deps} onBack={goMenu} />}
-        {view === 'file' && <FileView deps={deps} onBack={goMenu} />}
       </div>
     </div>
   );
@@ -116,9 +110,6 @@ function LinkMenu({
           カメラで読み取る（相手のQRに接続する）
         </button>
       )}
-      <button type="button" className="btn-secondary link-menu-item" onClick={() => onSelect('file')} disabled={!depsReady}>
-        ファイルでやり取りする
-      </button>
     </div>
   );
 }
@@ -342,71 +333,3 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
   );
 }
 
-/** 「ファイルでやり取りする」。ネットワーク不要のフォールバック */
-function FileView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () => void }) {
-  const [state, setState] = useState<FileState>({ phase: 'idle' });
-  const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-    },
-    [],
-  );
-
-  function handleExport() {
-    if (!deps) return;
-    void exportOwnSyncFile(deps).then(downloadRawFile);
-  }
-
-  async function handleImport(fileList: FileList | null) {
-    if (!fileList || fileList.length === 0 || !deps) return;
-    setState({ phase: 'busy' });
-    try {
-      const rawFiles = await readFilesAsRawFiles(fileList);
-      const result = await importSyncFiles(rawFiles, deps);
-      if (!mountedRef.current) return;
-      setState({ phase: 'done', outcome: { ok: true, ...result } });
-    } catch (err) {
-      if (!mountedRef.current) return;
-      setState({
-        phase: 'done',
-        outcome: {
-          ok: false,
-          reason: `ファイルを読み込めませんでした。他の端末から書き出したファイルか確認してください（${err instanceof Error ? err.message : String(err)}）。`,
-        },
-      });
-    }
-  }
-
-  return (
-    <div className="link-view">
-      <button type="button" className="term-detail-back" onClick={onBack}>
-        ← 連携の選択に戻る
-      </button>
-
-      <section className="settings-section">
-        <h3>送る</h3>
-        <button type="button" className="btn-secondary" onClick={handleExport} disabled={!deps}>
-          この端末のデータをファイルに書き出す
-        </button>
-      </section>
-
-      <section className="settings-section">
-        <h3>受け取る</h3>
-        <label className="link-file-input">
-          <span>連携ファイルを選択（複数可）</span>
-          <input
-            type="file"
-            multiple
-            accept="application/json"
-            disabled={!deps || state.phase === 'busy'}
-            onChange={(e) => void handleImport(e.target.files)}
-          />
-        </label>
-        {state.phase === 'busy' && <p className="search-status">取り込んでいます…</p>}
-      </section>
-
-      {state.phase === 'done' && <ResultView outcome={state.outcome} />}
-    </div>
-  );
-}
