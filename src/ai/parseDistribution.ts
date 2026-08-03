@@ -23,6 +23,13 @@ export type DistributionItem =
 export type ParseDistributionResult = { ok: true; items: DistributionItem[] } | { ok: false; reason: string };
 
 /**
+ * termは見出し語・熟語であることが前提（プロンプト側の指示。src/ai/prompts.ts）。
+ * この長さを超える場合、ユーザーの質問文をそのまま複写した誤りである可能性が高いため拒否する
+ * （実際に報告された不具合: 自由な質問の検索語がそのまま新規用語のタイトルになっていた）。
+ */
+const MAX_TERM_LENGTH = 40;
+
+/**
  * docs/requirements.md §5.3「用語でないものを登録しないための2段の絞り込み」の1段目。
  * ここでAI出力の形式を検証する（2段目はUIでの承認）。
  */
@@ -48,6 +55,9 @@ export function parseDistributionResponse(raw: string): ParseDistributionResult 
 
     if (typeof e.term !== 'string' || e.term === '') {
       return { ok: false, reason: `items[${i}].term がありません` };
+    }
+    if (e.term.length > MAX_TERM_LENGTH) {
+      return { ok: false, reason: `items[${i}].term が長すぎます（見出し語ではなく質問文になっている可能性があります）: ${e.term}` };
     }
     if (typeof e.isTerm !== 'boolean') {
       return { ok: false, reason: `${e.term}: isTerm が boolean ではありません` };

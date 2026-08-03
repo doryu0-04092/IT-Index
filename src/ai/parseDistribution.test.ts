@@ -84,6 +84,13 @@ describe('parseDistributionResponse', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('rejects a term that is actually a full question (likely a raw seedQuery echo, not a term)', () => {
+    const items = JSON.parse(validJson());
+    items[0].term = 'Kubernetesのオートスケーリングは具体的にどういう仕組みで動作するのか教えてください？';
+    const result = parseDistributionResponse(JSON.stringify(items));
+    expect(result.ok).toBe(false);
+  });
+
   it('rejects malformed JSON', () => {
     const result = parseDistributionResponse('not json at all');
     expect(result.ok).toBe(false);
