@@ -32,6 +32,18 @@ describe('sendChatTurn', () => {
     expect(claude.calls[0].messages).toEqual([{ role: 'user', content: 'TCP/IPって何？' }]);
   });
 
+  it('persists hidden:true on the user message when hideQuestion is passed (#44 対応)', async () => {
+    const chatRepo = createChatRepository(db);
+    const session = await chatRepo.createSession('tcp');
+    const claude = createScriptedAiClient(['TCP/IPとは...']);
+
+    await sendChatTurn(session.id, 'この用語の基本的な情報を教えてください。', { chatRepo, claude }, true);
+
+    const messages = await chatRepo.getMessages(session.id);
+    expect(messages[0]).toMatchObject({ role: 'user', hidden: true });
+    expect(messages[1]).toMatchObject({ role: 'assistant', hidden: false });
+  });
+
   it('sends the full conversation history on the next turn', async () => {
     const chatRepo = createChatRepository(db);
     const session = await chatRepo.createSession('tcp');

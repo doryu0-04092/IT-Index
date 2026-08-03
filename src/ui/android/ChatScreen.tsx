@@ -58,9 +58,6 @@ export default function ChatScreen({
   const [error, setError] = useState<string | null>(null);
   // 送信ボタンと確定ボタンの間にある「さらに詳しく聞く」は誤タップしやすいため2段階確認にする
   const [confirmingDetailAsk, setConfirmingDetailAsk] = useState(false);
-  // クイック質問（概要/詳しく）が送った質問文はチャットに表示しない。表示するのはAIの返答のみ
-  const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
-
   useEffect(() => {
     chatRepo.getMessages(sessionId).then(setMessages);
   }, [sessionId, chatRepo]);
@@ -69,11 +66,10 @@ export default function ChatScreen({
     const text = overrideText ?? input;
     if (text.trim() === '') return;
     if (overrideText === undefined) setInput('');
-    const beforeCount = messages.length;
     setSending(true);
     setError(null);
     try {
-      await sendChatTurn(sessionId, text, { chatRepo, claude, subject });
+      await sendChatTurn(sessionId, text, { chatRepo, claude, subject }, hideQuestion);
     } catch (err) {
       logAiError('ChatScreen.handleSend', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -83,10 +79,6 @@ export default function ChatScreen({
       // 画面を最新状態に合わせる。ここを try 内だけに限定すると、失敗時に
       // 送信したはずのメッセージが画面から消えて見える（実機検証で発見した実バグ）。
       const updated = await chatRepo.getMessages(sessionId);
-      if (hideQuestion) {
-        const userMsg = updated.slice(beforeCount).find((m) => m.role === 'user');
-        if (userMsg) setHiddenMessageIds((prev) => new Set(prev).add(userMsg.id));
-      }
       setMessages(updated);
       setSending(false);
     }
@@ -124,7 +116,7 @@ export default function ChatScreen({
     return <ApiKeyPrompt apiKeyStore={apiKeyStore} onSet={onKeyReady} onBack={onBack} />;
   }
 
-  const visibleMessages = messages.filter((m) => !hiddenMessageIds.has(m.id));
+  const visibleMessages = messages.filter((m) => !m.hidden);
 
   return (
     <div className="chat-screen">

@@ -3,7 +3,7 @@ import type { ChatMessageRecord, ChatSessionRecord } from '../types';
 
 export interface ChatRepository {
   createSession(termId: string | null): Promise<ChatSessionRecord>;
-  appendMessage(sessionId: string, role: 'user' | 'assistant', content: string): Promise<void>;
+  appendMessage(sessionId: string, role: 'user' | 'assistant', content: string, options?: { hidden?: boolean }): Promise<void>;
   touchSession(sessionId: string, at: number): Promise<void>;
   /** ホーム画面の「AIによる単語更新待ち」一覧用。確定待ち（status:'open'）のセッション全件 */
   getOpenSessions(): Promise<ChatSessionRecord[]>;
@@ -34,7 +34,7 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
       return session;
     },
 
-    async appendMessage(sessionId, role, content) {
+    async appendMessage(sessionId, role, content, options) {
       // Date.now() はミリ秒精度なので、短時間に連続送信すると同一値になり得る。
       // sortBy('at') の順序が会話順と一致しなくなる（idはUUIDで時系列と無関係なため
       // タイブレークに使えない）ので、同一セッション内では単調増加を保証する。
@@ -48,6 +48,7 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
         role,
         content,
         at,
+        hidden: options?.hidden ?? false,
       };
       await db.chatMessages.add(message);
     },

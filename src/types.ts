@@ -138,6 +138,13 @@ export interface ChatMessageRecord {
   role: 'user' | 'assistant';
   content: string;
   at: number;
+  /**
+   * クイック質問（「単語の概要を聞く」「さらに詳しく聞く」）で自動送信した定型文かどうか。
+   * true の場合はチャット画面に表示しない。省略時（既存レコード含む）はfalse相当（表示する）。
+   * 以前はコンポーネントのローカルstateだけで非表示管理していたため、チャット履歴を
+   * 再度開き直す（セッション再開・リロード復元）と定型文が見えてしまう不具合があった。
+   */
+  hidden?: boolean;
 }
 
 /** Drive 同期対象外。APIキーは含めない */
