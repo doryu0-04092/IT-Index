@@ -6,10 +6,11 @@ import { decodePairingPayload, encodePairingPayload } from '../../pairing/pairin
 import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
 import { describeSyncStatus } from '../../pairing/syncStatus';
 import Sheet from './Sheet';
-import { downloadRawFile, readFilesAsRawFiles } from '../../manualSync/fileTransport';
+import { readFilesAsRawFiles } from '../../manualSync/fileTransport';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
 import { exportOwnSyncFile, importSyncFiles, type ManualSyncDeps } from '../../manualSync/sync';
+import { shareRawFile } from '../../native/shareFile';
 
 export interface LinkModalProps {
   /** deviceId が読み込まれるまでは null（Android版Appのlocalの理由はPC版と同じ） */
@@ -359,6 +360,9 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
 /** 「ファイルでやり取りする」。ネットワーク不要のフォールバック */
 function FileView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () => void }) {
   const [state, setState] = useState<FileState>({ phase: 'idle' });
+  const [exportState, setExportState] = useState<
+    { phase: 'idle' } | { phase: 'busy' } | { phase: 'done' } | { phase: 'error'; message: string }
+  >({ phase: 'idle' });
   const mountedRef = useRef(true);
   useEffect(
     () => () => {
@@ -367,9 +371,23 @@ function FileView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
     [],
   );
 
-  function handleExport() {
+  // PC版のdownloadRawFile（ブラウザの<a download>）はCapacitorのWebViewでは機能しないため、
+  // Android版はFilesystem/Shareプラグイン経由でOSの共有シートを開く（src/native/shareFile.ts）。
+  async function handleExport() {
     if (!deps) return;
-    void exportOwnSyncFile(deps).then(downloadRawFile);
+    setExportState({ phase: 'busy' });
+    try {
+      const file = await exportOwnSyncFile(deps);
+      await shareRawFile(file);
+      if (!mountedRef.current) return;
+      setExportState({ phase: 'done' });
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setExportState({
+        phase: 'error',
+        message: `書き出しに失敗しました（${err instanceof Error ? err.message : String(err)}）。`,
+      });
+    }
   }
 
   async function handleImport(fileList: FileList | null) {
@@ -400,9 +418,17 @@ function FileView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
 
       <section className="settings-section">
         <h3>送る</h3>
-        <button type="button" className="btn-secondary" onClick={handleExport} disabled={!deps}>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => void handleExport()}
+          disabled={!deps || exportState.phase === 'busy'}
+        >
           この端末のデータをファイルに書き出す
         </button>
+        {exportState.phase === 'busy' && <p className="search-status">書き出しています…</p>}
+        {exportState.phase === 'done' && <p className="search-status">共有シートを開きました。送り先を選んでください。</p>}
+        {exportState.phase === 'error' && <p className="chat-error">{exportState.message}</p>}
       </section>
 
       <section className="settings-section">
