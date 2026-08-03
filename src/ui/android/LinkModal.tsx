@@ -231,11 +231,20 @@ function HostView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
       </button>
 
       {state.phase === 'starting' && <p className="search-status">QRコードを準備しています…</p>}
-      {(state.phase === 'showing' || state.phase === 'processing') && (
-        <div className="link-qr" dangerouslySetInnerHTML={{ __html: state.svg }} />
+      {state.phase === 'showing' && (
+        <>
+          <div className="link-qr" dangerouslySetInnerHTML={{ __html: state.svg }} />
+          <p className="search-status">相手の端末でこのQRコードを読み取ってください。</p>
+        </>
       )}
-      {state.phase === 'processing' && <p className="search-status">受信したデータを取り込んでいます…</p>}
-      {state.phase === 'showing' && <p className="search-status">相手の端末でこのQRコードを読み取ってください。</p>}
+      {/* 接続できたらQRコードは消し、スキャン側と同じ丸い回転（.chat-spinner）で
+          「つながっている」ことが視覚的にわかるようにする */}
+      {state.phase === 'processing' && (
+        <div className="link-connecting">
+          <span className="chat-spinner" aria-label="接続中" />
+          <p className="search-status">受信したデータを取り込んでいます…</p>
+        </div>
+      )}
       {state.phase === 'error' && <p className="chat-error">{state.message}</p>}
       {state.phase === 'done' && <ResultView outcome={state.outcome} />}
     </div>
@@ -337,7 +346,8 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
     };
   }, [deps]);
 
-  const showVideo = state.phase === 'scanning' || state.phase === 'invalidQr' || state.phase === 'processing';
+  // 接続できたらカメラは閉じ、ホスト側（HostView）と同じ丸い回転（.chat-spinner）に切り替える
+  const showVideo = state.phase === 'scanning' || state.phase === 'invalidQr';
 
   return (
     <div className="link-view">
@@ -350,7 +360,12 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
 
       {state.phase === 'scanning' && <p className="search-status">相手の端末に表示されたQRコードにカメラを向けてください。</p>}
       {state.phase === 'invalidQr' && <p className="chat-error">このQRコードは連携用ではありません。読み取りを続けます。</p>}
-      {state.phase === 'processing' && <p className="search-status">接続して取り込んでいます…</p>}
+      {state.phase === 'processing' && (
+        <div className="link-connecting">
+          <span className="chat-spinner" aria-label="接続中" />
+          <p className="search-status">接続して取り込んでいます…</p>
+        </div>
+      )}
       {state.phase === 'error' && <p className="chat-error">{state.message}</p>}
       {state.phase === 'done' && <ResultView outcome={state.outcome} />}
     </div>

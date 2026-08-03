@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { NotesRepository } from '../../repositories/notes';
 import type { TermsRepository } from '../../repositories/terms';
 import type { NoteRecord, TermRecord } from '../../types';
+import MermaidDiagram from '../shared/MermaidDiagram';
 import Skeleton from './Skeleton';
 
 export interface TermDetailScreenProps {
@@ -58,9 +59,8 @@ export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack,
                 <p className="term-detail-body">{note.body}</p>
                 {note.diagrams.length > 0 && (
                   <div className="term-detail-diagrams">
-                    <p className="search-status">図（Mermaid、未描画）:</p>
                     {note.diagrams.map((d, i) => (
-                      <pre key={i}>{d}</pre>
+                      <MermaidDiagram key={i} code={d} />
                     ))}
                   </div>
                 )}

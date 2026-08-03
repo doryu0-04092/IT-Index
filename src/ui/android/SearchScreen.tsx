@@ -8,9 +8,15 @@ import FeatureHint from './FeatureHint';
 
 const MAX_RESULTS = 30;
 
-interface PendingUpdate {
-  sessionId: string;
-  term: TermRecord;
+type PendingUpdate =
+  | { sessionId: string; kind: 'term'; term: TermRecord }
+  | { sessionId: string; kind: 'free'; label: string };
+
+const FREE_LABEL_MAX_LENGTH = 30;
+
+function truncateLabel(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length > FREE_LABEL_MAX_LENGTH ? `${trimmed.slice(0, FREE_LABEL_MAX_LENGTH)}…` : trimmed;
 }
 
 export interface SearchScreenProps {
@@ -23,8 +29,8 @@ export interface SearchScreenProps {
    * 最上位検索候補への自動ひも付けはしない（要件定義書§5.3）。
    */
   onStartChat: (termId: string | null, seedQuery: string | null) => void;
-  /** 「AIによる単語更新待ち」一覧から再開する。既存の未確定セッションがあればそれを再開する（App.tsx側の責務） */
-  onOpenPendingTerm: (termId: string) => void;
+  /** 「AIによる単語更新待ち」一覧から、そのセッションのチャット画面を開いて再開する（自由な質問も含む） */
+  onResumeChatSession: (sessionId: string) => void;
   /** 「AIによる単語更新待ち」一覧から、チャット画面を開かずその場で確定する */
   onCommitPending: (sessionId: string) => void;
   onOpenHistory: (view: 'weighted' | 'timeline') => void;
@@ -54,7 +60,7 @@ export default function SearchScreen({
   chatRepo,
   onSelectTerm,
   onStartChat,
-  onOpenPendingTerm,
+  onResumeChatSession,
   onCommitPending,
   onOpenHistory,
   seedError,
@@ -78,11 +84,17 @@ export default function SearchScreen({
       const sessions = await chatRepo.getOpenSessions();
       const items: PendingUpdate[] = [];
       for (const session of sessions) {
-        if (!session.termId) continue; // 自由な質問はどの単語の更新待ちか特定できないため対象外
         const messages = await chatRepo.getMessages(session.id);
         if (messages.length === 0) continue; // まだ何もやり取りしていないセッションは表示不要
-        const term = await termsRepo.getById(session.termId);
-        if (term) items.push({ sessionId: session.id, term });
+        if (session.termId) {
+          const term = await termsRepo.getById(session.termId);
+          if (term) items.push({ sessionId: session.id, kind: 'term', term });
+          continue;
+        }
+        // 自由な質問（新規用語の可能性を含む）も、確定するまで消えずに一覧から再開できるようにする。
+        // 単語の単位が無いため、最初の発言を短く切って見出しにする。
+        const firstUserMessage = messages.find((m) => m.role === 'user');
+        items.push({ sessionId: session.id, kind: 'free', label: firstUserMessage ? truncateLabel(firstUserMessage.content) : '自由な質問' });
       }
       if (!cancelled) setPendingUpdates(items);
     }
@@ -153,9 +165,18 @@ export default function SearchScreen({
           <ul className="search-pending-list">
             {pendingUpdates.map((p) => (
               <li key={p.sessionId} className="search-result-row">
-                <button type="button" className="search-pending-item" onClick={() => onOpenPendingTerm(p.term.id)}>
-                  <span className="search-result-term">{p.term.term}</span>
-                  <span className="search-result-reading">{p.term.readings[0]}</span>
+                <button type="button" className="search-pending-item" onClick={() => onResumeChatSession(p.sessionId)}>
+                  {p.kind === 'term' ? (
+                    <>
+                      <span className="search-result-term">{p.term.term}</span>
+                      <span className="search-result-reading">{p.term.readings[0]}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="search-result-term">{p.label}</span>
+                      <span className="search-result-reading">新規（自由な質問）</span>
+                    </>
+                  )}
                   {failedCommitSessionIds.has(p.sessionId) && (
                     <span className="search-pending-failed chat-error">前回の確定に失敗しました</span>
                   )}

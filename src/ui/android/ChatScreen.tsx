@@ -5,11 +5,9 @@ import { logAiError } from '../../ai/logError';
 import type { SubjectContext } from '../../ai/subjectContext';
 import type { ApiKeyStore } from '../../keystore/apiKeyStore';
 import type { ChatRepository } from '../../repositories/chat';
-import type { TermsRepository } from '../../repositories/terms';
 import type { ChatMessageRecord } from '../../types';
 import ApiKeyPrompt from './ApiKeyPrompt';
 import FeatureHint from './FeatureHint';
-import TermPicker from './TermPicker';
 
 export interface ChatScreenProps {
   sessionId: string;
@@ -17,7 +15,6 @@ export interface ChatScreenProps {
   /** 単語詳細画面の「この語についてAIに聞く」から来た場合のみ、その単語のtermId。それ以外はnull */
   returnTermId: string | null;
   chatRepo: ChatRepository;
-  termsRepo: TermsRepository;
   claude: AiClient;
   apiKeyStore: ApiKeyStore;
   /**
@@ -30,15 +27,14 @@ export interface ChatScreenProps {
   onKeyReady: () => void;
   /** 確定処理（バックグラウンド起動）と、ローカル検索画面への遷移の両方を行う。呼び出し元の責務 */
   onCommit: (sessionId: string) => void;
-  /** 「話題を変える」で用語を選んだ。トリガー①相当は呼び出し元の責務 */
-  onChangeSubject: (termId: string) => void;
   onBack: () => void;
   /** returnTermIdが非nullの時だけ表示するリンクから呼ばれる。元の単語詳細画面へ戻る */
   onBackToTerm: (termId: string) => void;
 }
 
 /**
- * チャット画面（Android版）。PC版と同じprops・同じロジック・同じCSSクラス名。
+ * チャット画面（Android版）。PC版と異なり「話題を変える／用語を選ぶ」（TermPicker経由での
+ * 途中切り替え）は置いていない——誤操作の原因になりやすいため削除した（ユーザー指摘）。
  * IME変換確定Enterの誤爆対策（isComposing判定）はPC版で発見された実バグの修正のため、
  * そのまま維持する（docs/ui-pc.md §3バグ4）。狭幅での入力欄・送信ボタンの縦積みは
  * `.android-app .chat-input-row` 側のCSS（src/index.css 末尾）で対応する。
@@ -48,13 +44,11 @@ export default function ChatScreen({
   subject,
   returnTermId,
   chatRepo,
-  termsRepo,
   claude,
   apiKeyStore,
   keyReady,
   onKeyReady,
   onCommit,
-  onChangeSubject,
   onBack,
   onBackToTerm,
 }: ChatScreenProps) {
@@ -62,7 +56,8 @@ export default function ChatScreen({
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  // 送信ボタンと確定ボタンの間にある「さらに詳しく聞く」は誤タップしやすいため2段階確認にする
+  const [confirmingDetailAsk, setConfirmingDetailAsk] = useState(false);
   // クイック質問（概要/詳しく）が送った質問文はチャットに表示しない。表示するのはAIの返答のみ
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
 
@@ -203,29 +198,39 @@ export default function ChatScreen({
       </div>
 
       <div className="chat-subject-row">
-        <button type="button" className="chat-subject-change btn-text" onClick={() => setPickerOpen(true)}>
-          {subject.mode === 'term' ? '話題を変える' : '用語を選ぶ'}
-        </button>
-        <button
-          type="button"
-          className="chat-subject-change btn-text"
-          onClick={() => handleSend(buildDetailQuestion(), true)}
-          disabled={sending}
-        >
-          さらに詳しく聞く
-        </button>
+        {/*
+          送信ボタン・確定ボタンの間に挟まっているため誤タップしやすい。
+          1回目のタップでは実行せず、確認の一言と共に「送信する」を出す2段階方式にする。
+        */}
+        {confirmingDetailAsk ? (
+          <>
+            <span className="search-status">さらに詳しく聞きますか？</span>
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => {
+                setConfirmingDetailAsk(false);
+                handleSend(buildDetailQuestion(), true);
+              }}
+              disabled={sending}
+            >
+              送信する
+            </button>
+            <button type="button" className="btn-text" onClick={() => setConfirmingDetailAsk(false)}>
+              キャンセル
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            className="chat-subject-change btn-text"
+            onClick={() => setConfirmingDetailAsk(true)}
+            disabled={sending}
+          >
+            さらに詳しく聞く
+          </button>
+        )}
       </div>
-
-      {pickerOpen && (
-        <TermPicker
-          termsRepo={termsRepo}
-          onSelect={(termId) => {
-            setPickerOpen(false);
-            onChangeSubject(termId);
-          }}
-          onCancel={() => setPickerOpen(false)}
-        />
-      )}
 
       <button
         type="button"

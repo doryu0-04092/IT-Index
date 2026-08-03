@@ -499,7 +499,27 @@ button:disabled {
   line-height: 1.7;
 }
 
-.term-detail-diagrams pre {
+.term-detail-diagrams {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.mermaid-diagram {
+  background: white;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 構文エラー等でMermaidとして描画できなかった場合のフォールバック */
+.mermaid-fallback {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
   padding: 12px;
   border-radius: 6px;
@@ -998,6 +1018,21 @@ button:disabled {
   background: black;
 }
 
+/* 接続中: QR表示・カメラ映像のどちらの側もこの形に切り替え、
+   「つながっている」ことを同じ見た目で伝える（.chat-spinnerを流用、色は青で統一済み） */
+.link-connecting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5) 0;
+}
+
+.link-connecting .chat-spinner {
+  width: 36px;
+  height: 36px;
+}
+
 .link-result {
   display: flex;
   flex-direction: column;
@@ -1202,8 +1237,11 @@ button:disabled {
   padding-right: 56px;
 }
 
+/* 素のtop: 12pxのままだとセーフエリア（ノッチ・通知バーのスライド操作領域）に
+   食い込んでしまうため、セーフエリア分を足したうえで、上部のメニュー・検索欄の
+   行と高さが揃う位置まで下げる */
 .android-app .app-toolbar {
-  top: var(--space-3);
+  top: calc(env(safe-area-inset-top) + var(--space-3));
   right: var(--space-3);
 }
 
@@ -1387,11 +1425,11 @@ button:disabled {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Mermaid生テキストは既存ルールで overflow-x: auto 済みのため横スクロールで
-   読める。タッチ端末での慣性スクロールと折り返し時の可読性のみ補強する。 */
-.android-app .term-detail-diagrams pre {
+/* Mermaid描画・フォールバックの生テキスト、どちらも横スクロールで読める。
+   タッチ端末での慣性スクロールのみ補強する。 */
+.android-app .mermaid-diagram,
+.android-app .mermaid-fallback {
   -webkit-overflow-scrolling: touch;
-  white-space: pre;
 }
 
 /* auth-banner・feature-hint 等、ボタンを含む横並び要素全般のタップ領域も

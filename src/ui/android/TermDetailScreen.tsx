@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { NotesRepository } from '../../repositories/notes';
 import type { TermsRepository } from '../../repositories/terms';
 import type { NoteRecord, TermRecord } from '../../types';
+import MermaidDiagram from '../shared/MermaidDiagram';
 import Skeleton from './Skeleton';
 
 export interface TermDetailScreenProps {
@@ -14,9 +15,8 @@ export interface TermDetailScreenProps {
 
 /**
  * 用語詳細画面（Android版）。PC版と同じprops・同じロジック・同じCSSクラス名。
- * Mermaidの生テキスト（`.term-detail-diagrams pre`）は既存CSSで既に `overflow-x: auto`
- * のため横スクロールで見える。狭幅での触感向上分は `.android-app` スコープで追記する
- * （src/index.css 末尾）。
+ * Mermaid図は`MermaidDiagram`（src/ui/shared/）でPC版と共通描画する。狭幅での
+ * 触感向上分は `.android-app` スコープで追記する（src/index.css 末尾）。
  */
 export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack, onStartChat }: TermDetailScreenProps) {
   const [term, setTerm] = useState<TermRecord | null | undefined>(undefined); // undefined = 読み込み中
@@ -64,9 +64,8 @@ export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack,
                 <p className="term-detail-body">{note.body}</p>
                 {note.diagrams.length > 0 && (
                   <div className="term-detail-diagrams">
-                    <p className="search-status">図（Mermaid、未描画）:</p>
                     {note.diagrams.map((d, i) => (
-                      <pre key={i}>{d}</pre>
+                      <MermaidDiagram key={i} code={d} />
                     ))}
                   </div>
                 )}

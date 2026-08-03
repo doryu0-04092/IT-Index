@@ -264,6 +264,8 @@ export default function App({ ui }: { ui: UiSet }) {
           break;
         }
         case 'chat': {
+          // resumeChatSession()はreturnTermIdを常にnullにする（一覧からの再開はnullで問題ないため）。
+          // ここはリロード前の状態（returnTermIdの有無）をそのまま復元する必要があるため使わない。
           const session = await chatRepo.getSession(persisted.sessionId);
           if (session) {
             const subject = await buildSubjectContext(session.termId, null, { termsRepo, notesRepo });
@@ -387,6 +389,17 @@ export default function App({ ui }: { ui: UiSet }) {
     const subject = await buildSubjectContext(termId, seedQuery, { termsRepo, notesRepo });
     setActiveChatSessionId(session.id);
     setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId });
+  }
+
+  // ホームの「AIによる単語更新待ち」一覧から、既知のsessionIdでそのまま再開する。
+  // startChat()と異なり新規セッションは作らない——用語モードだけでなく自由な質問
+  // （termId:null）のセッションも同じ経路で開けるようにするための専用関数。
+  async function resumeChatSession(sessionId: string) {
+    const session = await chatRepo.getSession(sessionId);
+    if (!session) return;
+    const subject = await buildSubjectContext(session.termId, null, { termsRepo, notesRepo });
+    setActiveChatSessionId(session.id);
+    setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: null });
   }
 
   // docs/local-data.md「確定処理の順序」。① Claude Code の編集を先に取り込む
@@ -523,7 +536,7 @@ export default function App({ ui }: { ui: UiSet }) {
             failedCommitSessionIds={failedCommitSessionIds}
             onSelectTerm={handleSelectFromSearch}
             onStartChat={(termId, seedQuery) => void startChat(termId, seedQuery)}
-            onOpenPendingTerm={(termId) => void startChat(termId, null)}
+            onResumeChatSession={(sessionId) => void resumeChatSession(sessionId)}
             onCommitPending={commitPendingTerm}
             onOpenHistory={(view) => setScreen({ name: 'history', view })}
             pendingRefreshTick={pendingRefreshTick}
