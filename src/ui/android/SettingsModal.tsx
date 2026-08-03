@@ -22,11 +22,6 @@ export interface SettingsModalProps {
  * 設定（Android版）。propsとロジックはPC版と同じだが、見せ方は下から出るシート
  * （`Sheet.tsx`）にしてある。縦持ちでは中央のダイアログだと閉じる操作も内容も
  * 親指から遠くなるため。
- *
- * ローカルフォルダ連携（File System Access API、`LocalFolderPanel`）はPC専用機能のため
- * ここには置かない——Androidでは常に`isFolderSyncAvailable()`がfalseになり
- * 「この環境では使えません」の案内しか出せず、設定項目として意味を持たないため
- * （データをAndroidからPCへ渡す導線は「連携」のQR/ファイルで別途提供している）。
  */
 export default function SettingsModal({
   apiKeyStore,

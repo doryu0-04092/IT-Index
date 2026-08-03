@@ -33,7 +33,6 @@ export interface SearchScreenProps {
   onResumeChatSession: (sessionId: string) => void;
   /** 「AIによる単語更新待ち」一覧から、チャット画面を開かずその場で確定する */
   onCommitPending: (sessionId: string) => void;
-  onOpenHistory: (view: 'weighted' | 'timeline') => void;
   /** シード取り込み・ローカル取り込みが異常終了した場合のみ渡される。通常時は null */
   seedError: string | null;
   /** シード取り込み（再試行含む）が完了するたびに増分される。termsの再読み込みトリガー */
@@ -57,7 +56,6 @@ export default function SearchScreen({
   onStartChat,
   onResumeChatSession,
   onCommitPending,
-  onOpenHistory,
   seedError,
   seedRefreshTick,
   onRetrySeed,
@@ -115,15 +113,6 @@ export default function SearchScreen({
 
   return (
     <div className="search-screen">
-      <nav className="search-nav">
-        <button type="button" className="btn-text" onClick={() => onOpenHistory('weighted')}>
-          重み付けビュー
-        </button>
-        <button type="button" className="btn-text" onClick={() => onOpenHistory('timeline')}>
-          時系列ビュー
-        </button>
-      </nav>
-
       <input
         type="text"
         className="search-input"

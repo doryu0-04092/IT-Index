@@ -41,6 +41,8 @@ export interface TermsRepository {
   bulkPutFromSeed(terms: TermRecord[]): Promise<void>;
   upsertFromAi(term: TermRecord): Promise<void>;
   upsertFromSync(term: TermRecord): Promise<void>;
+  /** 利用者による明示的な削除（単語詳細画面）。tombstoneするだけで物理削除はしない */
+  softDelete(id: string, now: number): Promise<void>;
 }
 
 export function createTermsRepository(db: ItIndexDB): TermsRepository {
@@ -50,7 +52,8 @@ export function createTermsRepository(db: ItIndexDB): TermsRepository {
     },
 
     async getById(id) {
-      return db.terms.get(id);
+      const term = await db.terms.get(id);
+      return term && term.deletedAt === null ? term : undefined;
     },
 
     async bulkPutFromSeed(terms) {
@@ -65,6 +68,12 @@ export function createTermsRepository(db: ItIndexDB): TermsRepository {
 
     async upsertFromSync(term) {
       await db.terms.put(term);
+    },
+
+    async softDelete(id, now) {
+      const term = await db.terms.get(id);
+      if (!term) return;
+      await db.terms.put({ ...term, deletedAt: now, updatedAt: now });
     },
   };
 }

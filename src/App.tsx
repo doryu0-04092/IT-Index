@@ -10,15 +10,6 @@ import { db } from './db';
 import { createApiKeyStore, getSessionCredential } from './keystore/apiKeyStore';
 import { createAndroidSecureApiKeyStore } from './keystore/androidSecureApiKeyStore';
 import { createBrowserWebAuthnClient } from './keystore/webauthn';
-import {
-  exportPendingChats,
-  runLocalExport,
-  runLocalImportBeforeCommit,
-  runLocalImportIfChanged,
-  setupLocalFolder,
-  type LocalFolderDeps,
-} from './localData/localFolderSync';
-import { isFolderSyncAvailable } from './manualSync/folderTransport';
 import type { ManualSyncDeps } from './manualSync/sync';
 import { persistScreen, readPersistedScreen, type PersistedScreen } from './screenPersistence';
 import { hasSeenOnboarding, markOnboardingSeen } from './ui/onboarding';
@@ -28,7 +19,6 @@ import { createChatRepository } from './repositories/chat';
 import { createKeyStoreRepository } from './repositories/keyStore';
 import { createNotesRepository } from './repositories/notes';
 import { createSettingsRepository } from './repositories/settings';
-import { createSyncFolderRepository } from './repositories/syncFolder';
 import { createTermsRepository } from './repositories/terms';
 import { fetchSeedFile, importSeed } from './seedImport';
 import type { HistoryView } from './ui/pc/HistoryScreen';
@@ -39,7 +29,8 @@ type Screen =
   | { name: 'search' }
   | { name: 'detail'; termId: string }
   | { name: 'chat'; sessionId: string; subject: SubjectContext; returnTermId: string | null }
-  | { name: 'history'; view: HistoryView };
+  | { name: 'history'; view: HistoryView }
+  | { name: 'index' };
 
 // 画面切替時にフェードインを再生させるためのReact key。screen.nameが変わった時だけでなく、
 // 同じ'chat'のまま別セッションに移った場合（話題変更）にも再生させたいのでsessionId等も含める。
@@ -47,7 +38,7 @@ type Screen =
 function topNavCurrent(screen: Screen): TopNavCurrent {
   if (screen.name === 'search') return 'search';
   if (screen.name === 'history') return 'history';
-  if (screen.name === 'chat' && screen.subject.mode === 'free' && screen.returnTermId === null) return 'chat-free';
+  if (screen.name === 'index') return 'index';
   return null;
 }
 
@@ -75,6 +66,8 @@ function toPersistedScreen(screen: Screen): PersistedScreen {
       return { name: 'chat', sessionId: screen.sessionId, returnTermId: screen.returnTermId };
     case 'history':
       return { name: 'history', view: screen.view };
+    case 'index':
+      return { name: 'index' };
   }
 }
 
@@ -122,14 +115,9 @@ export default function App({ ui }: { ui: UiSet }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
-  const [localFolder, setLocalFolder] = useState<FileSystemDirectoryHandle | null>(null);
-  // ローカルフォルダ同期がセッションを裏側で自動commitした可能性がある度に増分する
-  // （docs/local-data.md §6.1）。SearchScreen の「AIによる単語更新待ち」一覧の再取得トリガー。
+  // 確定処理（commitSession）が完了するたびに増分する。
+  // SearchScreen の「AIによる単語更新待ち」一覧の再取得トリガー。
   const [pendingRefreshTick, setPendingRefreshTick] = useState(0);
-  const [localFolderChecked, setLocalFolderChecked] = useState(false);
-  const [firstRunDismissed, setFirstRunDismissed] = useState(false);
-  const [firstRunBusy, setFirstRunBusy] = useState(false);
-  const [firstRunError, setFirstRunError] = useState<string | null>(null);
   const [theme, setTheme] = useState(() =>
     getInitialTheme(window.matchMedia('(prefers-color-scheme: dark)').matches, readStoredTheme()),
   );
@@ -182,7 +170,6 @@ export default function App({ ui }: { ui: UiSet }) {
   const asksRepo = useMemo(() => createAsksRepository(db), []);
   const chatRepo = useMemo(() => createChatRepository(db), []);
   const settingsRepo = useMemo(() => createSettingsRepository(db), []);
-  const syncFolderRepo = useMemo(() => createSyncFolderRepository(db), []);
   const keyStoreRepo = useMemo(() => createKeyStoreRepository(db), []);
   const webauthn = useMemo(() => createBrowserWebAuthnClient(), []);
   // Android実機はWebAuthnのパスキーが未設定のことが多く保存機能が使えないため、
@@ -195,14 +182,7 @@ export default function App({ ui }: { ui: UiSet }) {
   );
   const claude = useMemo(() => createDynamicAiClient(getSessionCredential), []);
 
-  // docs/local-data.md。deviceId が読み込まれるまでは作らない（notesRepo.applyCommit に
-  // 実在の deviceId を要するため、commitOrchestrator と同じ理由）。
-  const localFolderDeps = useMemo<LocalFolderDeps | null>(() => {
-    if (deviceId === null) return null;
-    return { termsRepo, notesRepo, settingsRepo, asksRepo, deviceId };
-  }, [termsRepo, notesRepo, settingsRepo, asksRepo, deviceId]);
-
-  // 「連携」（LinkModal）用。deviceId が読み込まれるまでは作らない——localFolderDepsと同じ理由
+  // 「連携」（LinkModal）用。deviceId が読み込まれるまでは作らない
   // （manualSync/sync.ts の各関数が書き込みに実在の deviceId を要するため）。
   const manualSyncDeps = useMemo<ManualSyncDeps | null>(() => {
     if (deviceId === null) return null;
@@ -288,6 +268,9 @@ export default function App({ ui }: { ui: UiSet }) {
         case 'history':
           setScreen({ name: 'history', view: persisted.view });
           break;
+        case 'index':
+          setScreen({ name: 'index' });
+          break;
         default:
           // 'search' は初期値のまま何もしない
           break;
@@ -295,12 +278,9 @@ export default function App({ ui }: { ui: UiSet }) {
     })();
   }, [seedSettled, screenRestoreAttempted, termsRepo, notesRepo, chatRepo]);
 
-  // 起動時の自動確定（2026-08-03改訂、ユーザー指摘での一部復活）。2026-07-30改訂で
-  // 自動確定トリガーを全廃した理由（Claude Codeのファイル編集との衝突リスク）は今回も
-  // 変わらないため、既存の commitSessionWithLocalSync をそのまま再利用する
-  // （Claude Codeの編集を先に取り込んでから確定する安全策を含む）。ただし対象は
-  // termId が非nullの「用語モード」セッションのみに限定する——自由な質問セッションは
-  // 対象外のまま（利用者は将来的に自由な質問機能自体を廃止する予定のため、今回は対象を広げない）。
+  // 起動時の自動確定。開いたままの用語モードセッション（termId が非null）を、ユーザーの
+  // 操作を待たずに確定する。自由な質問セッションは対象外のまま（利用者は将来的に自由な質問
+  // 機能自体を廃止する予定のため、今回は対象を広げない）。
   useEffect(() => {
     if (!seedSettled || !commitOrchestrator || startupAutoCommitAttempted) return;
     setStartupAutoCommitAttempted(true);
@@ -311,68 +291,11 @@ export default function App({ ui }: { ui: UiSet }) {
       for (const session of termModeSessions) {
         const messages = await chatRepo.getMessages(session.id);
         if (messages.length === 0) continue; // 何もやり取りしていないセッションは確定する内容が無い
-        await commitSessionWithLocalSync(session.id);
+        await commitSession(session.id);
       }
     })();
-    // commitSessionWithLocalSync はレンダーのたびに再生成される関数のため依存配列に含めない
-    // （既存の syncPendingChats 呼び出し箇所と同じ扱い。334行目付近）。
+    // commitSession はレンダーのたびに再生成される関数のため依存配列に含めない。
   }, [seedSettled, commitOrchestrator, startupAutoCommitAttempted, chatRepo]);
-
-  useEffect(() => {
-    // docs/local-data.md「自動化」。起動時、選択済みフォルダの権限が残っていれば
-    // （queryPermission は権限を求めず確認するだけなのでユーザー操作なしで呼べる）
-    // 無操作で取り込む。切れていた場合は何もしない——requestPermission はユーザー操作を
-    // 伴わない自動呼び出しをブラウザに拒否されるため（keyReady の復元と同じ理由）、
-    // 設定画面の「今すぐ読み込む」ボタン（LocalFolderPanel）で復旧する。
-    if (!seedSettled || !localFolderDeps) return;
-    syncFolderRepo
-      .get()
-      .then(async (dir) => {
-        if (!dir) return;
-        setLocalFolder(dir);
-        const granted = (await dir.queryPermission({ mode: 'readwrite' })) === 'granted';
-        if (!granted) return;
-        const outcome = await runLocalImportIfChanged(dir, localFolderDeps);
-        if (outcome.result && !outcome.result.ok) {
-          setGlobalError(`ローカルデータの取り込みを中止しました: ${outcome.result.reason}`);
-        }
-        syncPendingChats(dir);
-      })
-      .finally(() => setLocalFolderChecked(true));
-  }, [seedSettled, localFolderDeps, syncFolderRepo]);
-
-  // 未確定チャットの `data/pending/<termId>.md` 書き出し（docs/local-data.md）。
-  // ベストエフォート——失敗してもユーザー体験の中心（チャット・確定処理）は止めない。
-  // Claude Code の処理完了検知（削除→自動commit）はこの中で非同期に起きるため、完了後
-  // 必ず pendingRefreshTick を進める——SearchScreen が「AIによる単語更新待ち」一覧を取得する
-  // タイミングの方が早いと、commit直後の1回だけ古い一覧のまま表示されてしまうため
-  // （実機検証で確認された不具合）。
-  function syncPendingChats(dir: FileSystemDirectoryHandle) {
-    return exportPendingChats(dir, { termsRepo, chatRepo })
-      .catch((error: unknown) => {
-        logAiError('localFolderSync.exportPendingChats', error);
-      })
-      .finally(() => setPendingRefreshTick((t) => t + 1));
-  }
-
-  // 初回セットアップの案内バナー用。「フォルダ選択ダイアログを開く→そこで新規フォルダを
-  // 作成・命名→選択する」の3手で完了させる（docs/local-data.md §8。ダイアログ自体を
-  // 省略することはブラウザの仕様上できない）。設定画面に潜らせず、ここで直接促す。
-  async function handleSetupLocalFolder() {
-    if (!localFolderDeps) return;
-    setFirstRunBusy(true);
-    setFirstRunError(null);
-    try {
-      const { dir } = await setupLocalFolder(syncFolderRepo, localFolderDeps);
-      setLocalFolder(dir);
-      syncPendingChats(dir);
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return; // ダイアログを閉じただけ
-      setFirstRunError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setFirstRunBusy(false);
-    }
-  }
 
   useEffect(() => {
     // サイトに入った時点で「保存済みのAPIキーがあるか」だけ確認する（復号はしない）。
@@ -436,22 +359,11 @@ export default function App({ ui }: { ui: UiSet }) {
     setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: null });
   }
 
-  // docs/local-data.md「確定処理の順序」。① Claude Code の編集を先に取り込む
-  // → ② AI要約処理・DB書き込み（commitOrchestrator） → ③ 最新状態をファイルへ書き戻す。
-  // ①を先に行うことで、Claude Code のファイル編集が既定で優先される
-  // （②がそのセッションが触れた語に限って上書きし得るが、それ以外は①の内容がそのまま残る）。
-  // フォルダが未設定の場合は①③とも何もしない（従来どおりDBのみで完結する）。
-  async function commitSessionWithLocalSync(sessionId: string): Promise<void> {
+  // 確定＝AI要約処理・DB書き込み（commitOrchestrator）。完了後、SearchScreenの
+  // 「AIによる単語更新待ち」一覧を再取得させるため pendingRefreshTick を進める。
+  async function commitSession(sessionId: string): Promise<void> {
     setCommitInProgress(true);
     try {
-      if (localFolder && localFolderDeps) {
-        try {
-          await runLocalImportBeforeCommit(localFolder, localFolderDeps);
-        } catch (error) {
-          logAiError(`localFolderSync.import(session=${sessionId})`, error);
-        }
-      }
-
       // commitOrchestratorのcommit()は失敗時も例外を投げず、内部でonErrorを呼ぶだけで
       // resolveする（src/ai/commitOrchestrator.ts:73-76）。そのため「呼び出し前に楽観的に
       // 失敗マークを消す→失敗すればonErrorが同期的に再セットする」という順序で扱う必要がある
@@ -463,19 +375,9 @@ export default function App({ ui }: { ui: UiSet }) {
         return next;
       });
       await commitOrchestrator?.triggerCommit(sessionId);
-
-      if (localFolder && localFolderDeps) {
-        try {
-          await runLocalExport(localFolder, localFolderDeps);
-        } catch (error) {
-          logAiError(`localFolderSync.export(session=${sessionId})`, error);
-          setGlobalError('ローカルフォルダへの書き出しに失敗しました。');
-        }
-        // 確定済みになったセッションの data/pending/<termId>.md は役目を終えたので削除する。
-        syncPendingChats(localFolder);
-      }
     } finally {
       setCommitInProgress(false);
+      setPendingRefreshTick((t) => t + 1);
     }
   }
 
@@ -483,7 +385,7 @@ export default function App({ ui }: { ui: UiSet }) {
   // ローカル検索画面へ戻す——確定結果を待たせない（2026-07-29）。
   // 2026-07-30: 承認画面を廃止したため、確定＝そのままDBへの自動反映になる。
   function commitAndReturnToSearch(sessionId: string) {
-    void commitSessionWithLocalSync(sessionId);
+    void commitSession(sessionId);
     setActiveChatSessionId(null);
     setScreen({ name: 'search' });
   }
@@ -491,7 +393,7 @@ export default function App({ ui }: { ui: UiSet }) {
   // ホームの「AIによる単語更新待ち」一覧から、チャット画面を開かずその場で確定する。
   // 画面遷移はしない点だけがcommitAndReturnToSearchと異なる（既にsearch画面にいるため）。
   function commitPendingTerm(sessionId: string) {
-    void commitSessionWithLocalSync(sessionId);
+    void commitSession(sessionId);
     if (activeChatSessionId === sessionId) setActiveChatSessionId(null);
   }
 
@@ -519,23 +421,6 @@ export default function App({ ui }: { ui: UiSet }) {
             </button>
           </div>
         )}
-        {localFolderChecked && !localFolder && !firstRunDismissed && isFolderSyncAvailable() && (
-          <div className="auth-banner">
-            <span>Claude Codeなどで編集できるローカルフォルダを作成しますか？</span>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => void handleSetupLocalFolder()}
-              disabled={firstRunBusy || !localFolderDeps}
-            >
-              {firstRunBusy ? '作成中…' : 'フォルダを作成'}
-            </button>
-            <button type="button" className="btn-text" onClick={() => setFirstRunDismissed(true)} disabled={firstRunBusy}>
-              後で設定する
-            </button>
-            {firstRunError && <span className="chat-error">{firstRunError}</span>}
-          </div>
-        )}
         {hasPersistedKey && !keyReady && (
           <div className="auth-banner">
             <span>保存済みのAPIキーがあります。</span>
@@ -555,7 +440,7 @@ export default function App({ ui }: { ui: UiSet }) {
         linkOpen={linkOpen}
         onGoSearch={() => setScreen({ name: 'search' })}
         onGoHistory={() => setScreen({ name: 'history', view: 'weighted' })}
-        onGoFreeChat={() => void startChat(null, null)}
+        onGoIndex={() => setScreen({ name: 'index' })}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenLink={() => setLinkOpen(true)}
       />
@@ -572,7 +457,6 @@ export default function App({ ui }: { ui: UiSet }) {
             onStartChat={(termId, seedQuery) => void startChat(termId, seedQuery)}
             onResumeChatSession={(sessionId) => void resumeChatSession(sessionId)}
             onCommitPending={commitPendingTerm}
-            onOpenHistory={(view) => setScreen({ name: 'history', view })}
             pendingRefreshTick={pendingRefreshTick}
           />
         ) : screen.name === 'detail' ? (
@@ -582,6 +466,7 @@ export default function App({ ui }: { ui: UiSet }) {
             notesRepo={notesRepo}
             onBack={() => setScreen({ name: 'search' })}
             onStartChat={(termId) => void startChat(termId, null, termId)}
+            onDeleted={() => setScreen({ name: 'search' })}
           />
         ) : screen.name === 'chat' ? (
           <ChatScreen
@@ -597,18 +482,15 @@ export default function App({ ui }: { ui: UiSet }) {
             onCommit={commitAndReturnToSearch}
             onChangeSubject={(termId) => void startChat(termId, null)}
             onBack={() => {
-              // 「確定する」を押さずに離れた場合、自動確定はしない（2026-07-30改訂）。
-              // セッションは open のまま「AIによる単語更新待ち」一覧に残り、
-              // 利用者が明示的に確定するまでそのまま残る（docs/local-data.md）。
-              if (localFolder) syncPendingChats(localFolder);
+              // 「確定する」を押さずに離れた場合、自動確定はしない。セッションは open のまま
+              // 「AIによる単語更新待ち」一覧に残り、利用者が明示的に確定するまでそのまま残る。
               setScreen({ name: 'search' });
             }}
             onBackToTerm={(termId) => {
-              if (localFolder) syncPendingChats(localFolder);
               setScreen({ name: 'detail', termId });
             }}
           />
-        ) : (
+        ) : screen.name === 'history' ? (
           <HistoryScreen
             asksRepo={asksRepo}
             termsRepo={termsRepo}
@@ -616,6 +498,13 @@ export default function App({ ui }: { ui: UiSet }) {
             onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
             onBack={() => setScreen({ name: 'search' })}
           />
+        ) : (
+          ui.TermIndexScreen && (
+            <ui.TermIndexScreen
+              termsRepo={termsRepo}
+              onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
+            />
+          )
         )}
       </main>
 
@@ -645,10 +534,6 @@ export default function App({ ui }: { ui: UiSet }) {
             setAutoUpdateExistingTerms(mode);
             void settingsRepo.setAutoUpdateExistingTerms(mode);
           }}
-          localFolder={localFolder}
-          onLocalFolderChange={setLocalFolder}
-          syncFolderRepo={syncFolderRepo}
-          localFolderDeps={localFolderDeps}
         />
       )}
       {linkOpen && <LinkModal deps={manualSyncDeps} onClose={() => setLinkOpen(false)} />}

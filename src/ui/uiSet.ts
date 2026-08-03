@@ -5,6 +5,7 @@ import type OnboardingModal from './pc/OnboardingModal';
 import type SearchScreen from './pc/SearchScreen';
 import type SettingsModal from './pc/SettingsModal';
 import type TermDetailScreen from './pc/TermDetailScreen';
+import type TermIndexScreen from './pc/TermIndexScreen';
 import type Toast from './pc/Toast';
 import type TopNav from './pc/TopNav';
 
@@ -30,6 +31,8 @@ export interface UiSet {
   SearchScreen: typeof SearchScreen;
   SettingsModal: typeof SettingsModal;
   TermDetailScreen: typeof TermDetailScreen;
+  /** 単語一覧（索引）。Android版は未実装のためオプショナル（後日のUI刷新で対応する） */
+  TermIndexScreen?: typeof TermIndexScreen;
   Toast: typeof Toast;
   TopNav: typeof TopNav;
 }

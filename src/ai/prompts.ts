@@ -1,4 +1,4 @@
-import { buildQualityRules } from '../localData/editRules';
+import { buildQualityRules } from './qualityRules';
 import { FIELDS } from '../types';
 import type { AiMessage } from './aiClient';
 import type { SubjectContext } from './subjectContext';

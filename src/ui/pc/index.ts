@@ -6,6 +6,7 @@ import OnboardingModal from './OnboardingModal';
 import SearchScreen from './SearchScreen';
 import SettingsModal from './SettingsModal';
 import TermDetailScreen from './TermDetailScreen';
+import TermIndexScreen from './TermIndexScreen';
 import Toast from './Toast';
 import TopNav from './TopNav';
 
@@ -18,6 +19,7 @@ export const pcUi: UiSet = {
   SearchScreen,
   SettingsModal,
   TermDetailScreen,
+  TermIndexScreen,
   Toast,
   TopNav,
 };

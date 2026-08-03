@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-export type TopNavCurrent = 'search' | 'history' | 'chat-free' | null;
+export type TopNavCurrent = 'search' | 'history' | 'index' | null;
 
 export interface TopNavProps {
   current: TopNavCurrent;
@@ -8,7 +8,7 @@ export interface TopNavProps {
   linkOpen: boolean;
   onGoSearch: () => void;
   onGoHistory: () => void;
-  onGoFreeChat: () => void;
+  onGoIndex: () => void;
   onOpenSettings: () => void;
   onOpenLink: () => void;
 }
@@ -36,7 +36,7 @@ export default function TopNav({
   linkOpen,
   onGoSearch,
   onGoHistory,
-  onGoFreeChat,
+  onGoIndex,
   onOpenSettings,
   onOpenLink,
 }: TopNavProps) {
@@ -65,8 +65,8 @@ export default function TopNav({
   const entries: DrawerEntry[] = [
     { key: 'search', label: '検索', icon: '🔍', active: current === 'search', run: onGoSearch },
     { key: 'history', label: '履歴', icon: '🕒', active: current === 'history', run: onGoHistory },
-    { key: 'chat', label: '自由に質問', icon: '💬', active: current === 'chat-free', run: onGoFreeChat },
     { key: 'link', label: '連携', icon: '🔗', active: linkOpen, run: onOpenLink },
+    { key: 'index', label: '単語一覧', icon: '📖', active: current === 'index', run: onGoIndex },
     { key: 'settings', label: '設定', icon: '⚙️', active: settingsOpen, run: onOpenSettings },
   ];
 
