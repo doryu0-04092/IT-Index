@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createDynamicAiClient } from './ai/providers';
 import { createCommitOrchestrator } from './ai/commitOrchestrator';
@@ -7,6 +8,7 @@ import { buildSubjectContext, type SubjectContext } from './ai/subjectContext';
 import { isUnsupportedBrowser } from './browserSupport';
 import { db } from './db';
 import { createApiKeyStore, getSessionCredential } from './keystore/apiKeyStore';
+import { createAndroidSecureApiKeyStore } from './keystore/androidSecureApiKeyStore';
 import { createBrowserWebAuthnClient } from './keystore/webauthn';
 import {
   exportPendingChats,
@@ -102,6 +104,8 @@ export default function App({ ui }: { ui: UiSet }) {
   const [seedRefreshTick, setSeedRefreshTick] = useState(0);
   // リロード時の文脈復元（#39）を一度だけ試みるためのガード。seedSettled後に1回だけ実行する。
   const [screenRestoreAttempted, setScreenRestoreAttempted] = useState(false);
+  // 起動時の用語モードセッション自動確定（後述useEffect）を一度だけ試みるためのガード。
+  const [startupAutoCommitAttempted, setStartupAutoCommitAttempted] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [autoUpdateExistingTerms, setAutoUpdateExistingTerms] = useState<AutoUpdateExistingTermsMode>('askedOnly');
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -181,7 +185,14 @@ export default function App({ ui }: { ui: UiSet }) {
   const syncFolderRepo = useMemo(() => createSyncFolderRepository(db), []);
   const keyStoreRepo = useMemo(() => createKeyStoreRepository(db), []);
   const webauthn = useMemo(() => createBrowserWebAuthnClient(), []);
-  const apiKeyStore = useMemo(() => createApiKeyStore(keyStoreRepo, webauthn), [keyStoreRepo, webauthn]);
+  // Android実機はWebAuthnのパスキーが未設定のことが多く保存機能が使えないため、
+  // Android Keystore＋端末標準のロック解除（生体認証/PIN等）を使う実装に差し替える
+  // （ユーザー指摘。src/keystore/androidSecureApiKeyStore.ts）。ApiKeyStoreインターフェースは
+  // 共通のため、呼び出し側（SettingsModal・ApiKeyPrompt）はプラットフォームを意識しない。
+  const apiKeyStore = useMemo(
+    () => (Capacitor.isNativePlatform() ? createAndroidSecureApiKeyStore(keyStoreRepo) : createApiKeyStore(keyStoreRepo, webauthn)),
+    [keyStoreRepo, webauthn],
+  );
   const claude = useMemo(() => createDynamicAiClient(getSessionCredential), []);
 
   // docs/local-data.md。deviceId が読み込まれるまでは作らない（notesRepo.applyCommit に
@@ -283,6 +294,29 @@ export default function App({ ui }: { ui: UiSet }) {
       }
     })();
   }, [seedSettled, screenRestoreAttempted, termsRepo, notesRepo, chatRepo]);
+
+  // 起動時の自動確定（2026-08-03改訂、ユーザー指摘での一部復活）。2026-07-30改訂で
+  // 自動確定トリガーを全廃した理由（Claude Codeのファイル編集との衝突リスク）は今回も
+  // 変わらないため、既存の commitSessionWithLocalSync をそのまま再利用する
+  // （Claude Codeの編集を先に取り込んでから確定する安全策を含む）。ただし対象は
+  // termId が非nullの「用語モード」セッションのみに限定する——自由な質問セッションは
+  // 対象外のまま（利用者は将来的に自由な質問機能自体を廃止する予定のため、今回は対象を広げない）。
+  useEffect(() => {
+    if (!seedSettled || !commitOrchestrator || startupAutoCommitAttempted) return;
+    setStartupAutoCommitAttempted(true);
+
+    (async () => {
+      const openSessions = await chatRepo.getOpenSessions();
+      const termModeSessions = openSessions.filter((s) => s.termId !== null);
+      for (const session of termModeSessions) {
+        const messages = await chatRepo.getMessages(session.id);
+        if (messages.length === 0) continue; // 何もやり取りしていないセッションは確定する内容が無い
+        await commitSessionWithLocalSync(session.id);
+      }
+    })();
+    // commitSessionWithLocalSync はレンダーのたびに再生成される関数のため依存配列に含めない
+    // （既存の syncPendingChats 呼び出し箇所と同じ扱い。334行目付近）。
+  }, [seedSettled, commitOrchestrator, startupAutoCommitAttempted, chatRepo]);
 
   useEffect(() => {
     // docs/local-data.md「自動化」。起動時、選択済みフォルダの権限が残っていれば
