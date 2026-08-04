@@ -7,6 +7,7 @@ import { describeSyncStatus } from '../../pairing/syncStatus';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
 import type { ManualSyncDeps } from '../../manualSync/sync';
+import ConflictResolver from '../shared/ConflictResolver';
 
 export interface LinkModalProps {
   /** deviceId が読み込まれるまでは null（App.tsx の localFolderDeps と同じ理由） */
@@ -109,7 +110,7 @@ function LinkMenu({
   );
 }
 
-function ResultView({ outcome }: { outcome: Outcome }) {
+function ResultView({ outcome, deps }: { outcome: Outcome; deps: ManualSyncDeps | null }) {
   if (!outcome.ok) {
     return <p className="chat-error">{outcome.reason}</p>;
   }
@@ -121,11 +122,7 @@ function ResultView({ outcome }: { outcome: Outcome }) {
           読み込めなかったファイルが{outcome.skippedFiles.length}件あります: {outcome.skippedFiles.join('、')}
         </p>
       )}
-      {outcome.conflicts.length > 0 && (
-        <p className="search-status">
-          自動で統合できなかった項目が{outcome.conflicts.length}件あります。後で確認できます。
-        </p>
-      )}
+      {outcome.conflicts.length > 0 && deps && <ConflictResolver conflicts={outcome.conflicts} deps={deps} />}
     </div>
   );
 }
@@ -219,7 +216,7 @@ function HostView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
       {state.phase === 'processing' && <p className="search-status">受信したデータを取り込んでいます…</p>}
       {state.phase === 'showing' && <p className="search-status">相手の端末でこのQRコードを読み取ってください。</p>}
       {state.phase === 'error' && <p className="chat-error">{state.message}</p>}
-      {state.phase === 'done' && <ResultView outcome={state.outcome} />}
+      {state.phase === 'done' && <ResultView outcome={state.outcome} deps={deps} />}
     </div>
   );
 }
@@ -323,7 +320,7 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
       {state.phase === 'invalidQr' && <p className="chat-error">このQRコードは連携用ではありません。読み取りを続けます。</p>}
       {state.phase === 'processing' && <p className="search-status">接続して取り込んでいます…</p>}
       {state.phase === 'error' && <p className="chat-error">{state.message}</p>}
-      {state.phase === 'done' && <ResultView outcome={state.outcome} />}
+      {state.phase === 'done' && <ResultView outcome={state.outcome} deps={deps} />}
     </div>
   );
 }

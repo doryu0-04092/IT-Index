@@ -9,6 +9,7 @@ import Sheet from './Sheet';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
 import type { ManualSyncDeps } from '../../manualSync/sync';
+import ConflictResolver from '../shared/ConflictResolver';
 
 export interface LinkModalProps {
   /** deviceId が読み込まれるまでは null（Android版Appのlocalの理由はPC版と同じ） */
@@ -102,7 +103,7 @@ function LinkMenu({
   );
 }
 
-function ResultView({ outcome }: { outcome: Outcome }) {
+function ResultView({ outcome, deps }: { outcome: Outcome; deps: ManualSyncDeps | null }) {
   if (!outcome.ok) {
     return <p className="chat-error">{outcome.reason}</p>;
   }
@@ -114,11 +115,7 @@ function ResultView({ outcome }: { outcome: Outcome }) {
           読み込めなかったファイルが{outcome.skippedFiles.length}件あります: {outcome.skippedFiles.join('、')}
         </p>
       )}
-      {outcome.conflicts.length > 0 && (
-        <p className="search-status">
-          自動で統合できなかった項目が{outcome.conflicts.length}件あります。後で確認できます。
-        </p>
-      )}
+      {outcome.conflicts.length > 0 && deps && <ConflictResolver conflicts={outcome.conflicts} deps={deps} />}
     </div>
   );
 }
@@ -236,7 +233,7 @@ function HostView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
         </div>
       )}
       {state.phase === 'error' && <p className="chat-error">{state.message}</p>}
-      {state.phase === 'done' && <ResultView outcome={state.outcome} />}
+      {state.phase === 'done' && <ResultView outcome={state.outcome} deps={deps} />}
     </div>
   );
 }
@@ -357,7 +354,7 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
         </div>
       )}
       {state.phase === 'error' && <p className="chat-error">{state.message}</p>}
-      {state.phase === 'done' && <ResultView outcome={state.outcome} />}
+      {state.phase === 'done' && <ResultView outcome={state.outcome} deps={deps} />}
     </div>
   );
 }

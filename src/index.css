@@ -1108,6 +1108,65 @@ button:disabled {
   gap: var(--space-1);
 }
 
+/* 両端末で同じ語を更新していた場合の確認・解決（要件定義書§5.5） */
+.link-conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.link-conflict-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.link-conflict-term {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+/* 2案を左右に並べて見比べる。狭い画面では自然に縦へ折り返す */
+.link-conflict-sides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.link-conflict-side {
+  flex: 1 1 240px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.link-conflict-side-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+/* 長い説明文でカードが縦に伸びすぎないよう、スクロールに閉じ込める */
+.link-conflict-body {
+  margin: 0;
+  max-height: 12em;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
 /* ============================================================
    Android版（src/ui/android/）専用のスマホ幅・タップ操作対応。
    PC版（src/ui/pc/）と同じCSSクラス名を再利用しつつ、すべて
