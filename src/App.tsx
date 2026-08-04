@@ -30,7 +30,9 @@ type Screen =
   | { name: 'detail'; termId: string }
   | { name: 'chat'; sessionId: string; subject: SubjectContext; returnTermId: string | null }
   | { name: 'history'; view: HistoryView }
-  | { name: 'index' };
+  | { name: 'index' }
+  | { name: 'settings' }
+  | { name: 'link' };
 
 // 画面切替時にフェードインを再生させるためのReact key。screen.nameが変わった時だけでなく、
 // 同じ'chat'のまま別セッションに移った場合（話題変更）にも再生させたいのでsessionId等も含める。
@@ -39,6 +41,8 @@ function topNavCurrent(screen: Screen): TopNavCurrent {
   if (screen.name === 'search') return 'search';
   if (screen.name === 'history') return 'history';
   if (screen.name === 'index') return 'index';
+  if (screen.name === 'settings') return 'settings';
+  if (screen.name === 'link') return 'link';
   return null;
 }
 
@@ -68,6 +72,10 @@ function toPersistedScreen(screen: Screen): PersistedScreen {
       return { name: 'history', view: screen.view };
     case 'index':
       return { name: 'index' };
+    case 'settings':
+      return { name: 'settings' };
+    case 'link':
+      return { name: 'link' };
   }
 }
 
@@ -113,8 +121,6 @@ export default function App({ ui }: { ui: UiSet }) {
   const [keyReady, setKeyReady] = useState(() => getSessionCredential() !== null);
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [linkOpen, setLinkOpen] = useState(false);
   // 確定処理（commitSession）が完了するたびに増分する。
   // SearchScreen の「AIによる単語更新待ち」一覧の再取得トリガー。
   const [pendingRefreshTick, setPendingRefreshTick] = useState(0);
@@ -270,6 +276,12 @@ export default function App({ ui }: { ui: UiSet }) {
           break;
         case 'index':
           setScreen({ name: 'index' });
+          break;
+        case 'settings':
+          setScreen({ name: 'settings' });
+          break;
+        case 'link':
+          setScreen({ name: 'link' });
           break;
         default:
           // 'search' は初期値のまま何もしない
@@ -436,13 +448,11 @@ export default function App({ ui }: { ui: UiSet }) {
       </header>
       <TopNav
         current={topNavCurrent(screen)}
-        settingsOpen={settingsOpen}
-        linkOpen={linkOpen}
         onGoSearch={() => setScreen({ name: 'search' })}
         onGoHistory={() => setScreen({ name: 'history', view: 'weighted' })}
         onGoIndex={() => setScreen({ name: 'index' })}
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenLink={() => setLinkOpen(true)}
+        onOpenSettings={() => setScreen({ name: 'settings' })}
+        onOpenLink={() => setScreen({ name: 'link' })}
       />
       <main key={screenKey(screen)} className="screen-fade-in">
         {!seedSettled ? null : screen.name === 'search' ? (
@@ -498,13 +508,26 @@ export default function App({ ui }: { ui: UiSet }) {
             onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
             onBack={() => setScreen({ name: 'search' })}
           />
-        ) : (
+        ) : screen.name === 'index' ? (
           ui.TermIndexScreen && (
             <ui.TermIndexScreen
               termsRepo={termsRepo}
               onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
             />
           )
+        ) : screen.name === 'settings' ? (
+          <SettingsModal
+            apiKeyStore={apiKeyStore}
+            onClose={() => setScreen({ name: 'search' })}
+            onCredentialReady={() => setKeyReady(true)}
+            autoUpdateExistingTerms={autoUpdateExistingTerms}
+            onChangeAutoUpdateExistingTerms={(mode) => {
+              setAutoUpdateExistingTerms(mode);
+              void settingsRepo.setAutoUpdateExistingTerms(mode);
+            }}
+          />
+        ) : (
+          <LinkModal deps={manualSyncDeps} onClose={() => setScreen({ name: 'search' })} />
         )}
       </main>
 
@@ -524,19 +547,6 @@ export default function App({ ui }: { ui: UiSet }) {
         <Toast message="確定処理を実行しています…" variant="info" durationMs={15_000} onDismiss={() => {}} />
       )}
       {showOnboarding && <OnboardingModal onClose={dismissOnboarding} />}
-      {settingsOpen && (
-        <SettingsModal
-          apiKeyStore={apiKeyStore}
-          onClose={() => setSettingsOpen(false)}
-          onCredentialReady={() => setKeyReady(true)}
-          autoUpdateExistingTerms={autoUpdateExistingTerms}
-          onChangeAutoUpdateExistingTerms={(mode) => {
-            setAutoUpdateExistingTerms(mode);
-            void settingsRepo.setAutoUpdateExistingTerms(mode);
-          }}
-        />
-      )}
-      {linkOpen && <LinkModal deps={manualSyncDeps} onClose={() => setLinkOpen(false)} />}
     </div>
   );
 }

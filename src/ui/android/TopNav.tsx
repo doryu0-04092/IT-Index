@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
-export type TopNavCurrent = 'search' | 'history' | 'index' | null;
+export type TopNavCurrent = 'search' | 'history' | 'index' | 'settings' | 'link' | null;
 
 export interface TopNavProps {
   current: TopNavCurrent;
-  settingsOpen: boolean;
-  linkOpen: boolean;
   onGoSearch: () => void;
   onGoHistory: () => void;
   onGoIndex: () => void;
@@ -30,16 +28,7 @@ interface DrawerEntry {
  *
  * propsはPC版と同一に保つ（src/ui/uiSet.ts が型で強制している）。
  */
-export default function TopNav({
-  current,
-  settingsOpen,
-  linkOpen,
-  onGoSearch,
-  onGoHistory,
-  onGoIndex,
-  onOpenSettings,
-  onOpenLink,
-}: TopNavProps) {
+export default function TopNav({ current, onGoSearch, onGoHistory, onGoIndex, onOpenSettings, onOpenLink }: TopNavProps) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
@@ -65,9 +54,9 @@ export default function TopNav({
   const entries: DrawerEntry[] = [
     { key: 'search', label: '検索', icon: '🔍', active: current === 'search', run: onGoSearch },
     { key: 'history', label: '履歴', icon: '🕒', active: current === 'history', run: onGoHistory },
-    { key: 'link', label: '連携', icon: '🔗', active: linkOpen, run: onOpenLink },
+    { key: 'link', label: '連携', icon: '🔗', active: current === 'link', run: onOpenLink },
     { key: 'index', label: '単語一覧', icon: '📖', active: current === 'index', run: onGoIndex },
-    { key: 'settings', label: '設定', icon: '⚙️', active: settingsOpen, run: onOpenSettings },
+    { key: 'settings', label: '設定', icon: '⚙️', active: current === 'settings', run: onOpenSettings },
   ];
 
   function select(entry: DrawerEntry) {

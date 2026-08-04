@@ -546,6 +546,18 @@ button:disabled {
   cursor: pointer;
 }
 
+.term-index-gojuon-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(24px, 1fr));
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  max-width: 420px;
+}
+
+.term-index-gojuon-blank {
+  display: block;
+}
+
 .term-index-scroll-top {
   position: fixed;
   right: var(--space-4);

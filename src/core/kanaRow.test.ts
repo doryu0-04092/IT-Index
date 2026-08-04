@@ -34,8 +34,8 @@ describe('bucketOf', () => {
     expect(bucketOf(term('ャ始まりの語', ['ャハジマリノゴ']))).toBe('ヤ');
   });
 
-  it('buckets ん and を as their own independent buckets', () => {
-    expect(bucketOf(term('んから始まる語', ['ンカラハジマルゴ']))).toBe('ン');
+  it('buckets both ん and を into ヲ (ん has no dedicated bucket)', () => {
+    expect(bucketOf(term('んから始まる語', ['ンカラハジマルゴ']))).toBe('ヲ');
     expect(bucketOf(term('をから始まる語', ['ヲカラハジマルゴ']))).toBe('ヲ');
   });
 

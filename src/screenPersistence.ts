@@ -16,7 +16,9 @@ export type PersistedScreen =
   | { name: 'detail'; termId: string }
   | { name: 'chat'; sessionId: string; returnTermId: string | null }
   | { name: 'history'; view: HistoryView }
-  | { name: 'index' };
+  | { name: 'index' }
+  | { name: 'settings' }
+  | { name: 'link' };
 
 const STORAGE_KEY = 'it-index-last-screen';
 const VALID_HISTORY_VIEWS: HistoryView[] = ['weighted', 'timeline'];
@@ -35,6 +37,8 @@ export function isPersistedScreen(value: unknown): value is PersistedScreen {
     case 'history':
       return typeof v.view === 'string' && VALID_HISTORY_VIEWS.includes(v.view as HistoryView);
     case 'index':
+    case 'settings':
+    case 'link':
       return true;
     default:
       return false;

@@ -33,10 +33,11 @@ type ScanState =
   | { phase: 'error'; message: string };
 
 /**
- * 「連携」モーダル。同期のコアロジック（src/pairing/、src/manualSync/）は実装済みで、
- * ここではその配線とUIだけを行う。モーダルの書き方は SettingsModal.tsx に揃える
- * （共通の<Modal>コンポーネントが無く、.modal-overlay/.modal-content/.modal-header を
- * 各所で手書きする規約のため）。
+ * トップナビ「連携」の画面。同期のコアロジック（src/pairing/、src/manualSync/）は実装済みで、
+ * ここではその配線とUIだけを行う。以前はモーダル表示だったが、他のナビ項目（検索・履歴・
+ * 単語一覧）と同じ画面遷移先なのにここだけモーダルなのは違和感があるというユーザー指摘により、
+ * 通常の画面表示に変更した（SettingsModal.tsx と同じ扱い）。`onClose` という名前のまま
+ * 残しているが、実質は「検索へ戻る」（App.tsx側でその遷移をする）。
  *
  * 2経路（QR表示・カメラ読み取り）はどちらも「後始末を必ず呼ぶ」点が最重要
  * （docs/ui-pc.md §3のカメラ・タイマー・サーバー停止漏れの実バグ record を踏まえる）。
@@ -64,23 +65,17 @@ export default function LinkModal({ deps, onClose }: LinkModalProps) {
   }
 
   return (
-    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- SettingsModal.tsx と同じ「背景クリックで閉じる」規約。既存コードのパターンに揃えており、キーボード操作は✕ボタンで担保する
-    <div className="modal-overlay" onClick={onClose}>
-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- 上と同じ理由。オーバーレイへのクリック伝播だけを止める */}
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>連携</h2>
-          <button type="button" className="dismiss-error" onClick={onClose}>
-            ✕
+    <div className="link-screen">
+      {view === 'menu' && (
+        <>
+          <button type="button" className="term-detail-back" onClick={onClose}>
+            ← 検索に戻る
           </button>
-        </div>
-
-        {view === 'menu' && (
           <LinkMenu isDesktop={isDesktop} cameraAvailable={cameraAvailable} onSelect={setView} depsReady={deps !== null} />
-        )}
-        {view === 'host' && <HostView deps={deps} onBack={goMenu} />}
-        {view === 'scan' && <ScanView deps={deps} onBack={goMenu} />}
-      </div>
+        </>
+      )}
+      {view === 'host' && <HostView deps={deps} onBack={goMenu} />}
+      {view === 'scan' && <ScanView deps={deps} onBack={goMenu} />}
     </div>
   );
 }
