@@ -16,9 +16,10 @@ function sectionId(bucket: string): string {
 }
 
 /**
- * 「単語一覧」（索引）画面。A〜Z・カタカナの五十音（ア〜ワ）で頭文字ごとに全語を分類し、
- * 1ページ内のジャンプで該当行へ移動できるようにする（バケット分類は src/core/kanaRow.ts）。
- * 該当する語が0件のバケットも見出しだけは表示する——索引としての一覧性を保つため。
+ * 「単語一覧」（索引）画面。A〜Z・かな（清音1文字単位。濁点・半濁点・拗音等は清音にまとめる）で
+ * 頭文字ごとに全語を分類し、1ページ内のジャンプで該当行へ移動できるようにする
+ * （バケット分類は src/core/kanaRow.ts）。該当する語が0件のバケットも見出しだけは表示する
+ * ——索引としての一覧性を保つため。
  *
  * ジャンプは `<a href="#...">` ではなく `scrollIntoView` で行う。このアプリはURLルーティングを
  * 持たず、戻るボタンでの白紙化を防ぐため画面遷移のたびにダミーのhistoryエントリを積み、
@@ -36,6 +37,10 @@ export default function TermIndexScreen({ termsRepo, onSelectTerm }: TermIndexSc
 
   function jumpTo(bucket: string) {
     document.getElementById(sectionId(bucket))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   return (
@@ -79,6 +84,16 @@ export default function TermIndexScreen({ termsRepo, onSelectTerm }: TermIndexSc
           </section>
         ))
       )}
+
+      <button
+        type="button"
+        className="term-index-scroll-top"
+        onClick={scrollToTop}
+        aria-label="一番上へ戻る"
+        title="一番上へ戻る"
+      >
+        ↑
+      </button>
     </div>
   );
 }

@@ -18,16 +18,25 @@ describe('bucketOf', () => {
     expect(bucketOf(term('3Dプリンター', ['スリーディープリンター']))).toBe('0-9');
   });
 
-  it('buckets a katakana-first term by its own literal row (dakuten included)', () => {
+  it('buckets a dakuten-first term into its base seion character', () => {
     expect(bucketOf(term('ガベージコレクション', ['ガベージコレクション']))).toBe('カ');
   });
 
-  it('buckets a small-kana-first term (ッ) into its base row', () => {
-    expect(bucketOf(term('ッ始まりの語', ['ッハジマリノゴ']))).toBe('タ');
+  it('buckets a handakuten-first term into its base seion character', () => {
+    expect(bucketOf(term('パケット', ['パケット']))).toBe('ハ');
   });
 
-  it('buckets ん as ワ行', () => {
-    expect(bucketOf(term('んから始まる語', ['ンカラハジマルゴ']))).toBe('ワ');
+  it('buckets a small-kana-first term (ッ) into ツ', () => {
+    expect(bucketOf(term('ッ始まりの語', ['ッハジマリノゴ']))).toBe('ツ');
+  });
+
+  it('buckets a youon-first term (ャ) into its base seion character', () => {
+    expect(bucketOf(term('ャ始まりの語', ['ャハジマリノゴ']))).toBe('ヤ');
+  });
+
+  it('buckets ん and を as their own independent buckets', () => {
+    expect(bucketOf(term('んから始まる語', ['ンカラハジマルゴ']))).toBe('ン');
+    expect(bucketOf(term('をから始まる語', ['ヲカラハジマルゴ']))).toBe('ヲ');
   });
 
   it('falls back to readings[0] for a kanji-first term', () => {

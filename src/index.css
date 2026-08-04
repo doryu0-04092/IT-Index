@@ -546,6 +546,23 @@ button:disabled {
   cursor: pointer;
 }
 
+.term-index-scroll-top {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--fg) 20%, transparent);
+  z-index: 5;
+}
+
 .term-index-section {
   margin-top: var(--space-4);
   padding-top: var(--space-3);
