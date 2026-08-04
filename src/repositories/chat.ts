@@ -14,8 +14,6 @@ export interface ChatRepository {
   /** 冪等。既に committed なら何もしない */
   commitSession(sessionId: string): Promise<void>;
   getMessages(sessionId: string): Promise<ChatMessageRecord[]>;
-  /** `data/pending/<termId>.md` を書き出した時刻を記録する（docs/local-data.md §6.1） */
-  markPendingExported(sessionId: string, at: number): Promise<void>;
 }
 
 export function createChatRepository(db: ItIndexDB): ChatRepository {
@@ -28,7 +26,6 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
         startedAt: now,
         lastActiveAt: now,
         status: 'open',
-        pendingExportedAt: null,
       };
       await db.chatSessions.add(session);
       return session;
@@ -78,10 +75,6 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
 
     async getMessages(sessionId) {
       return db.chatMessages.where('sessionId').equals(sessionId).sortBy('at');
-    },
-
-    async markPendingExported(sessionId, at) {
-      await db.chatSessions.update(sessionId, { pendingExportedAt: at });
     },
   };
 }

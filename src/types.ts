@@ -121,14 +121,6 @@ export interface ChatSessionRecord {
   startedAt: number;
   lastActiveAt: number;
   status: 'open' | 'committed';
-  /**
-   * ローカルデータ層（docs/local-data.md §6.1）。`data/pending/<termId>.md` を一度でも
-   * 書き出したら、その時刻（epoch ms）を記録する。次回以降、書き出し先にファイルが無ければ
-   * 「Claude Code が処理を終えて削除した」とみなし、このセッションを自動的に commit する。
-   * まだ一度も書き出していない（＝ファイルが無いのは単に新規だから）場合と区別するために必須。
-   * 未書き出しなら null。
-   */
-  pendingExportedAt: number | null;
 }
 
 /** Drive 同期対象外 */
@@ -159,13 +151,6 @@ export interface SettingsRecord {
    * 新規語の登録は常に askedByUser:true が必須（この設定の対象外。distribution.ts参照）。
    */
   autoUpdateExistingTerms: 'askedOnly' | 'all';
-  /**
-   * ローカルデータ層（docs/local-data.md）。`data/terms.json` の最終取り込み時に記録した
-   * `lastModified`（epoch ms）。次回起動時、ファイルのこの値と比較して変化が無ければ
-   * 取り込み処理そのものをスキップする（3510語規模の再パースを避けるため）。
-   * まだ一度もフォルダを選んでいない・取り込んでいなければ null。
-   */
-  localTermsLastModified: number | null;
 }
 
 /**

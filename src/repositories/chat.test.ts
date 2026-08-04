@@ -24,22 +24,6 @@ describe('ChatRepository', () => {
     expect(open).toHaveLength(0);
   });
 
-  it('createSession initializes pendingExportedAt to null', async () => {
-    const repo = createChatRepository(db);
-    const session = await repo.createSession('cors');
-    expect(session.pendingExportedAt).toBeNull();
-  });
-
-  it('markPendingExported records the export time', async () => {
-    const repo = createChatRepository(db);
-    const session = await repo.createSession('cors');
-
-    await repo.markPendingExported(session.id, 12345);
-
-    const [reloaded] = await repo.getOpenSessions();
-    expect(reloaded.pendingExportedAt).toBe(12345);
-  });
-
   it('getSession returns the session by id, or undefined if missing', async () => {
     const repo = createChatRepository(db);
     const session = await repo.createSession('cors');

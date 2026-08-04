@@ -330,12 +330,11 @@ export default function App({ ui }: { ui: UiSet }) {
   // returnTermId: 単語詳細画面の「この語についてAIに聞く」から来た場合のみ、その詳細画面へ
   // 戻れるようにする（検索結果一覧やAI検索欄から直接チャットを開始した場合はnullのまま）。
   //
-  // termIdについて、確定せずに残っている（status:'open'）セッションが既にあれば、それを新規作成
-  // せず再開する——ホームの「AIによる単語更新待ち」一覧から再度その語を開いた場合や、単語詳細画面で
+  // termIdについて、取り込まずに残っている（status:'open'）セッションが既にあれば、それを新規作成
+  // せず再開する——ホームの「取り込み待ち」一覧から再度その語を開いた場合や、単語詳細画面で
   // 「この語についてAIに聞く」をもう一度押した場合が該当する。
-  // 2026-07-30改訂（ローカルデータ層導入）: 確定操作はボタン実行のみにしたため、別の用語の
-  // チャットを開いても元のセッションは自動確定しない。「AIによる単語更新待ち」一覧に残り続け、
-  // 利用者が明示的に確定するまで開いたままになる（docs/local-data.md）。
+  // 別の用語のチャットを開いても元のセッションは自動確定しない。「取り込み待ち」一覧に残り続け、
+  // 利用者がホーム画面で明示的に取り込むまで開いたままになる。
   async function startChat(termId: string | null, seedQuery: string | null, returnTermId: string | null = null) {
     const existing = termId ? await chatRepo.findOpenSessionByTermId(termId) : undefined;
     const session = existing ?? (await chatRepo.createSession(termId));

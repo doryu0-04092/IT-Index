@@ -194,7 +194,6 @@ sequenceDiagram
     participant DB as IndexedDB
     participant CH as チャット画面
     participant AI as Claude API
-    participant FS as ローカルフォルダ<br/>（docs/local-data.md）
 
     U->>S: 「MTU」と入力
     S->>C: normalize + score
@@ -219,33 +218,25 @@ sequenceDiagram
             CH-->>U: 表示＋言及された用語をチップ表示
         end
 
-        Note over CH: 確定は明示的な操作のみ<br/>（2026-07-30改訂。docs/local-data.md §11）
+        Note over CH,S: 取り込みはホーム画面の<br/>「まとめて単語帳に取り込む」のみ<br/>（2026-08-04改訂）
 
-        opt ローカルフォルダが設定済み
-            CH->>FS: data/terms.json・data/notes/*.md を先に取り込む
-            Note over CH,FS: Claude Code の編集を先に反映する<br/>（docs/local-data.md §6）
-        end
+        U->>S: ホームで「取り込む」を押す
+        S->>AI: 会話全体＋既存のAI補足<br/>「用語ごとに切り分けて統合せよ」
+        AI-->>S: [{term, body, diagrams, isTerm}, ...]
+        Note over S: 承認画面は無い（2026-07-30廃止）<br/>常に自動でDBへ反映される
 
-        CH->>AI: 会話全体＋既存のAI補足<br/>「用語ごとに切り分けて統合せよ」
-        AI-->>CH: [{term, body, diagrams, isTerm}, ...]
-        Note over CH: 承認画面は無い（2026-07-30廃止）<br/>常に自動でDBへ反映される
-
-        CH->>DB: 既知の語 → notes を更新
-        CH->>DB: 未知の語 → terms(origin:'ai') と notes を新規作成
-        CH->>DB: 分配先の全語に asks を1件ずつ追加
-        CH->>DB: chatSession を committed に
-
-        opt ローカルフォルダが設定済み
-            CH->>FS: DBの最新状態を書き出す
-        end
+        S->>DB: 既知の語 → notes を更新
+        S->>DB: 未知の語 → terms(origin:'ai') と notes を新規作成
+        S->>DB: 分配先の全語に asks を1件ずつ追加
+        S->>DB: chatSession を committed に
     end
 ```
 
 **要点:**
 
 - **検索は一切通信しない。** 課金の入口は `[AIに聞く]` ボタン1つだけ
-- **対話中は `notes` を更新しない。** 確定時に1回だけ。繰り返し統合による劣化を防ぐ
-- **分配は必ず承認を挟む。** AIの切り分けミスが直接データを壊さない
+- **対話中は `notes` を更新しない。** 取り込み時に1回だけ。繰り返し統合による劣化を防ぐ
+- **取り込みはホーム画面からの明示的な操作のみ。** 自動では走らない（2026-08-04改訂）
 - **`asks` は分配先の語ごとに立つ。** 重み付けの加算元がここ
 
 ### 4.2 同期
@@ -316,7 +307,9 @@ sequenceDiagram
 
 ## 5. 状態遷移図 — チャットセッション
 
-**2026-07-30改訂（ローカルデータ層導入）**: 承認画面（`approving` 状態）は既に廃止済み（AI提案は確認なしに自動反映される）。さらに、自動トリガー（別用語のチャットを開いた／15分放置／起動時の放置セッション回収）を廃止し、確定操作は明示的なボタン実行のみにした（[local-data.md](./local-data.md) §11）。理由: Claude Code のファイル編集が既定で優先されるためには、確定タイミング（＝ファイル書き出しのタイミング）を利用者が制御できる必要があり、自動トリガーは書き出しタイミングを予測不能にして編集の衝突窓を広げるため。
+**2026-07-30改訂**: 承認画面（`approving` 状態）は廃止済み（AI提案は確認なしに自動反映される）。さらに、自動トリガー（別用語のチャットを開いた／15分放置／起動時の放置セッション回収）も廃止し、確定操作は明示的なボタン実行のみにした。
+
+**2026-08-04改訂**: 取り込み（確定）操作を**ホーム画面の「まとめて単語帳に取り込む」1箇所に集約**した。チャット画面の確定ボタンと、一時的に復活させていた起動時の自動確定は廃止した（理由は[requirements.md](./requirements.md) §5.3。要点は、APIキーがセッション限りの保持のため起動直後は必ず未認証で自動確定が必ず失敗すること）。
 
 ```mermaid
 stateDiagram-v2
@@ -324,7 +317,8 @@ stateDiagram-v2
 
     open --> open: メッセージ送受信<br/>（lastActiveAt を更新）
 
-    open --> committing: 明示的な確定操作（確定ボタン）
+    open --> committing: ホーム画面での取り込み操作<br/>（まとめて／個別）
+    open --> committed: その語が削除された<br/>（取り込む対象が無いため閉じる）
 
     committing --> committed: DBへ自動反映
     committing --> open: API呼び出し失敗<br/>（open のまま残し次回再試行）
@@ -333,8 +327,8 @@ stateDiagram-v2
 
     note right of open
         この間 notes は更新しない。
-        確定しない限りここに留まり続ける
-        （ホームの「AIによる単語更新待ち」一覧に表示される）
+        取り込むまでここに留まり続ける
+        （ホームの「取り込み待ち」一覧に表示される）
     end note
 
     note right of committing

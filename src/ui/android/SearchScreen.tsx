@@ -42,9 +42,9 @@ export interface SearchScreenProps {
   /** 前回の確定処理に失敗したセッションIDの集合。一覧に失敗マークを表示するために使う（#41対応） */
   failedCommitSessionIds: Set<string>;
   /**
-   * ローカルフォルダ同期がセッションを裏側で自動commitした可能性がある度に増分する
-   * （docs/local-data.md §6.1）。このコンポーネント自身の操作（確定ボタン）では上がらない
-   * ——そちらは `handleCommitPending` が直接 state を更新するので不要。
+   * この画面の外でセッションの状態が変わった度に増分する（取り込みの完了、単語削除に伴う
+   * セッションの close 等）。一覧の再取得トリガー。このコンポーネント自身の操作
+   * （取り込みボタン）では上がらない——そちらは直接 state を更新するので不要。
    */
   pendingRefreshTick: number;
 }

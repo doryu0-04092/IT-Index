@@ -65,7 +65,7 @@ export const DISTRIBUTION_SYSTEM_PROMPT = `あなたはIT-Indexという学習�
 - 同じ用語が会話中に何度も出てきても、1項目にまとめてください（一度でもユーザーに聞かれていれば askedByUser は true）。
 - 用語が1つも無い会話なら、空配列 [] を返してください。
 
-summary・draftBody に共通の品質基準（docs/local-data.md。Claude Code によるファイル編集にも同じ基準を課している）:
+summary・draftBody に共通の品質基準:
 ${buildQualityRules()}`;
 
 export function buildDistributionMessages(history: AiMessage[]): AiMessage[] {
@@ -89,7 +89,7 @@ export const MERGE_SYSTEM_PROMPT = `あなたはIT-Indexという学習アプリ
 - 既存の説明にある情報を勝手に削らないでください。重複は整理してよいですが、要約して薄めないでください。
 - 新しい説明で判明した情報（つまずきやすい点、具体例など）を優先的に残してください。
 
-品質基準（docs/local-data.md。Claude Code によるファイル編集にも同じ基準を課している）:
+品質基準:
 ${buildQualityRules()}`;
 
 export function buildMergeMessages(
