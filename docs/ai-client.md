@@ -121,27 +121,24 @@ architecture.md §4.1 の「何度でも」ループの1回分。
 `termLabel?: string` を廃止し、`SubjectContext`（`src/ai/subjectContext.ts`）を受け取るようにした：
 
 ```
-SubjectContext =
-  | { mode: 'term'; termId: string; label: string; field: Field; readings: string[];
-      existingSummary: string | null; existingNoteBody: string | null }
-  | { mode: 'free'; seedQuery: string | null }
+SubjectContext = {
+  mode: 'term'; termId: string; label: string; field: Field; readings: string[];
+  existingSummary: string | null; existingNoteBody: string | null
+}
 ```
 
-- `mode: 'term'` は `termId` が確定している場合のみ生成できる（用語詳細画面からの開始、または検索結果一覧で利用者が用語を明示的に選んだ場合）。生成時に `TermsRepository`/`NotesRepository` から実際の `summary`・`field`・`readings`・`notes.body` を取得し、グラウンディング文脈として保持する
-- `mode: 'free'` は `termId` が未確定の場合。`seedQuery`（検索欄の生文字列）は「確定した主題」としてではなく参考情報として保持する
+- `mode: 'term'` は `termId` が確定している場合のみ生成できる（用語詳細画面からの開始、または検索結果一覧で利用者が用語を明示的に選んだ場合）。生成時に `TermsRepository`/`NotesRepository` から実際の `summary`・`field`・`readings`・`notes.body` を取得し、グラウンディング文脈として保持する。語が見つからない（削除済み等）場合は `null` を返し、チャット自体を開かない
+- **2026-08-05: `mode: 'free'`（`termId` を確定させないモード）を廃止した**（リリース対象に含めない判断。要件定義書§5.3）。チャットは必ずいずれかの語にひも付く
 
 `sendChatTurn()` はユーザーの発言（`userText`）に一切手を加えず、代わりに**毎ターン** `SubjectContext` から動的生成した文脈ブロックを `CHAT_SYSTEM_PROMPT` に追加して `system` として送る:
 
 ```
 system = CHAT_SYSTEM_PROMPT
        + "\n\n---\n現在の話題:\n"
-       + （term modeの場合）
-           `${label}（分野: ${field}、読み: ${readings.join('/')}）\n`
-           + (existingSummary ? `既存の初期説明:\n${existingSummary}\n` : '')
-           + (existingNoteBody ? `既存のAI補足:\n${existingNoteBody}\n` : '')
-           + `この対話中「これ」「この」等の指示語は、断りが無い限り「${label}」を指すものとして扱ってください。`
-         （free modeの場合）
-           seedQuery ? `利用者は検索で「${seedQuery}」を探していましたが、確定した用語ではありません。` : '(自由な質問)'
+       + `${label}（分野: ${field}、読み: ${readings.join('/')}）\n`
+       + (existingSummary ? `既存の初期説明:\n${existingSummary}\n` : '')
+       + (existingNoteBody ? `既存のAI補足:\n${existingNoteBody}\n` : '')
+       + `この対話中「これ」「この」等の指示語は、断りが無い限り「${label}」を指すものとして扱ってください。`
 ```
 
 これにより：
@@ -286,7 +283,7 @@ AI呼び出し（`proposeDistribution()`）や書き込み（`commitProposal()`�
 - **OpenAIのモデル一覧フィルタが粗い**（id のプレフィックス・部分文字列によるヒューリスティック）。実際のOpenAIアカウントで一覧を取得し、チャット非対応モデルが混入していないか・逆に有効なモデルを誤って除外していないか未検証
 - **分配統合の出力に `readings`/`field` を含める設計は本実装で追加した拡張**（要件定義書にはAI出力の詳細スキーマが無かったため）。新規語の登録に必須なので追加した
 - **トークン・コストの上限が無い**: チャット履歴は毎ターン全量を送り、分配統合＋統合呼び出しの回数にも上限が無い。長い会話や既存語への言及が多い確定では呼び出し回数・コストが増える。§6非機能要件「費用の目安」との整合は未検証
-- **複数用語にまたがる比較質問（例:「AとBの違いは」）へのグラウンディングは未対応**: `SubjectContext` は現状 `term`（単一 `termId`）/`free` の2モードのみで、複数 `termId` への同時グラウンディングは設計対象外にした（要件定義書§5.3参照）。将来対応する場合は `SubjectContext` に配列型のモードを追加する形が想定される
+- **複数用語にまたがる比較質問（例:「AとBの違いは」）へのグラウンディングは未対応**: `SubjectContext` は単一 `termId` のみを保持し、複数 `termId` への同時グラウンディングは設計対象外にした（要件定義書§5.3参照）。将来対応する場合は `SubjectContext` に配列型のモードを追加する形が想定される
 
 ---
 
