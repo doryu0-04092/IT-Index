@@ -138,15 +138,4 @@ describe('sendChatTurn', () => {
     expect(messages[2].content).toBe('2つ目の質問'); // メッセージ本文は変わらず
   });
 
-  it('mentions the seed query as reference-only context in free mode', async () => {
-    const chatRepo = createChatRepository(db);
-    const session = await chatRepo.createSession(null);
-    const claude = createScriptedAiClient(['回答']);
-    const subject: SubjectContext = { mode: 'free', seedQuery: 'TCP/PI' };
-
-    await sendChatTurn(session.id, '何ですか？', { chatRepo, claude, subject });
-
-    expect(claude.calls[0].system).toContain('TCP/PI');
-    expect(claude.calls[0].system).toContain('確定した用語ではありません');
-  });
 });

@@ -3,7 +3,7 @@ import { mergeSnapshot } from '../core/mergeSnapshot';
 import { isSyncTarget } from '../core/syncTarget';
 import { parseSyncFile } from '../core/validateSyncFile';
 import { buildLocalSnapshot, type LocalSnapshotDeps } from '../sync/localSnapshot';
-import { buildOutboundSyncFile, syncFileName } from '../sync/syncFile';
+import { buildOutboundSyncFile, stripNoteHistory, syncFileName } from '../sync/syncFile';
 
 export interface RawFile {
   name: string;
@@ -101,7 +101,7 @@ export async function exportFullSnapshot(deps: ManualSyncDeps): Promise<RawFile>
     syncSchemaVersion: 1,
     deviceId: deps.deviceId,
     writtenAt: Date.now(),
-    notes: allNotes,
+    notes: stripNoteHistory(allNotes),
     asks: allAsks,
     aiTerms: allTerms.filter(isSyncTarget),
   };

@@ -262,10 +262,12 @@ export default function App({ ui }: { ui: UiSet }) {
           // resumeChatSession()はreturnTermIdを常にnullにする（一覧からの再開はnullで問題ないため）。
           // ここはリロード前の状態（returnTermIdの有無）をそのまま復元する必要があるため使わない。
           const session = await chatRepo.getSession(persisted.sessionId);
-          if (session) {
-            const subject = await buildSubjectContext(session.termId, null, { termsRepo, notesRepo });
-            setActiveChatSessionId(session.id);
-            setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: persisted.returnTermId });
+          if (session && session.termId !== null) {
+            const subject = await buildSubjectContext(session.termId, { termsRepo, notesRepo });
+            if (subject) {
+              setActiveChatSessionId(session.id);
+              setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: persisted.returnTermId });
+            }
           }
           break;
         }
@@ -323,34 +325,36 @@ export default function App({ ui }: { ui: UiSet }) {
     }
   }
 
-  // 要件定義書§5.3「チャットの主題（SubjectContext）」。termId が確定している場合のみ
-  // 用語モードにする（最上位検索候補への自動ひも付けはしない）。「話題を変える」も
-  // このstartChat()を呼ぶだけでよい——既存のトリガー①（別の用語のチャットを開いた＝
-  // 前の会話は終わり）がそのまま「話題変更時は自動で確定してから切り替える」を満たす。
+  // 要件定義書§5.3「チャットの主題（SubjectContext）」。チャットは必ずいずれかの語にひも付く
+  // （主題を確定させない「自由モード」は2026-08-05に廃止した）。最上位検索候補への自動ひも付けは
+  // しない——利用者が明示的に選んだ語だけが主題になる。
   // returnTermId: 単語詳細画面の「この語についてAIに聞く」から来た場合のみ、その詳細画面へ
-  // 戻れるようにする（検索結果一覧やAI検索欄から直接チャットを開始した場合はnullのまま）。
+  // 戻れるようにする（検索結果一覧から直接開始した場合はnullのまま）。
   //
-  // termIdについて、取り込まずに残っている（status:'open'）セッションが既にあれば、それを新規作成
-  // せず再開する——ホームの「取り込み待ち」一覧から再度その語を開いた場合や、単語詳細画面で
-  // 「この語についてAIに聞く」をもう一度押した場合が該当する。
+  // 取り込まずに残っている（status:'open'）セッションが既にあれば、それを新規作成せず再開する
+  // ——ホームの「取り込み待ち」一覧から再度その語を開いた場合や、単語詳細画面で
+  // 「この語についてAIに聞く」をもう一度押した場合が該当する。取り込み中（'committing'）の
+  // セッションは対象外で、新しいセッションが立つ（下記 findOpenSessionByTermId 参照）。
   // 別の用語のチャットを開いても元のセッションは自動確定しない。「取り込み待ち」一覧に残り続け、
   // 利用者がホーム画面で明示的に取り込むまで開いたままになる。
-  async function startChat(termId: string | null, seedQuery: string | null, returnTermId: string | null = null) {
-    const existing = termId ? await chatRepo.findOpenSessionByTermId(termId) : undefined;
+  async function startChat(termId: string, returnTermId: string | null = null) {
+    const subject = await buildSubjectContext(termId, { termsRepo, notesRepo });
+    if (!subject) return; // 語が見つからない（削除済み等）。主題を確定できないので開かない
+
+    const existing = await chatRepo.findOpenSessionByTermId(termId);
     const session = existing ?? (await chatRepo.createSession(termId));
 
-    const subject = await buildSubjectContext(termId, seedQuery, { termsRepo, notesRepo });
     setActiveChatSessionId(session.id);
     setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId });
   }
 
-  // ホームの「AIによる単語更新待ち」一覧から、既知のsessionIdでそのまま再開する。
-  // startChat()と異なり新規セッションは作らない——用語モードだけでなく自由な質問
-  // （termId:null）のセッションも同じ経路で開けるようにするための専用関数。
+  // ホームの「取り込み待ち」一覧から、既知のsessionIdでそのまま再開する。
+  // startChat()と異なり新規セッションは作らない。
   async function resumeChatSession(sessionId: string) {
     const session = await chatRepo.getSession(sessionId);
-    if (!session) return;
-    const subject = await buildSubjectContext(session.termId, null, { termsRepo, notesRepo });
+    if (!session || session.termId === null) return;
+    const subject = await buildSubjectContext(session.termId, { termsRepo, notesRepo });
+    if (!subject) return;
     setActiveChatSessionId(session.id);
     setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: null });
   }
@@ -454,7 +458,7 @@ export default function App({ ui }: { ui: UiSet }) {
             onRetrySeed={runSeedImport}
             failedCommitSessionIds={failedCommitSessionIds}
             onSelectTerm={handleSelectFromSearch}
-            onStartChat={(termId, seedQuery) => void startChat(termId, seedQuery)}
+            onStartChat={(termId) => void startChat(termId)}
             onResumeChatSession={(sessionId) => void resumeChatSession(sessionId)}
             onCommitPending={commitPendingTerm}
             pendingRefreshTick={pendingRefreshTick}
@@ -465,7 +469,7 @@ export default function App({ ui }: { ui: UiSet }) {
             termsRepo={termsRepo}
             notesRepo={notesRepo}
             onBack={() => setScreen({ name: 'search' })}
-            onStartChat={(termId) => void startChat(termId, null, termId)}
+            onStartChat={(termId) => void startChat(termId, termId)}
             onDeleted={(deletedTermId) => void handleTermDeleted(deletedTermId)}
           />
         ) : screen.name === 'chat' ? (
@@ -479,7 +483,7 @@ export default function App({ ui }: { ui: UiSet }) {
             apiKeyStore={apiKeyStore}
             keyReady={keyReady}
             onKeyReady={() => setKeyReady(true)}
-            onChangeSubject={(termId) => void startChat(termId, null)}
+            onChangeSubject={(termId) => void startChat(termId)}
             onBack={() => {
               // 「確定する」を押さずに離れた場合、自動確定はしない。セッションは open のまま
               // 「AIによる単語更新待ち」一覧に残り、利用者が明示的に確定するまでそのまま残る。

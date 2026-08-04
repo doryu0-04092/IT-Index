@@ -1,8 +1,19 @@
 import type { SyncFile } from '../core/mergeSnapshot';
+import { isSyncTarget } from '../core/syncTarget';
 import type { AskRecord, NoteRecord, TermRecord } from '../types';
 
 export function syncFileName(deviceId: string): string {
   return `device-${deviceId}.json`;
+}
+
+/**
+ * 送信するノートから `noteHistory` を落とす。履歴は「この端末で上書きする前の版」の
+ * 積み重ねで、ロールバック用の**端末ローカルな記録**（types.ts に「同期対象外」と明記）。
+ * 相手へ送ると、受け取った側で自分の履歴が置き換わり、その端末で積んだ版が失われる。
+ * 形式互換のため配列自体は残す（`validateSyncFile` が配列であることを要求するため）。
+ */
+export function stripNoteHistory(notes: NoteRecord[]): NoteRecord[] {
+  return notes.map((n) => ({ ...n, noteHistory: [] }));
 }
 
 /**
@@ -26,8 +37,8 @@ export function buildOutboundSyncFile(
     syncSchemaVersion: 1,
     deviceId,
     writtenAt: now,
-    notes: allNotes.filter((n) => n.lastEditedBy === deviceId),
+    notes: stripNoteHistory(allNotes.filter((n) => n.lastEditedBy === deviceId)),
     asks: allAsks.filter((a) => a.deviceId === deviceId),
-    aiTerms: allTerms.filter((t) => t.origin === 'ai'),
+    aiTerms: allTerms.filter(isSyncTarget),
   };
 }

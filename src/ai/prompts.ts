@@ -15,12 +15,6 @@ export const CHAT_SYSTEM_PROMPT = `あなたはIT-Indexという学習アプリ�
  * 必要になる・会話履歴を汚染する、という理由で廃止した。docs/prompts.md 回帰ケース1参照）。
  */
 export function buildSubjectContextBlock(subject: SubjectContext): string {
-  if (subject.mode === 'free') {
-    return subject.seedQuery
-      ? `利用者は検索で「${subject.seedQuery}」を探していましたが、確定した用語ではありません。`
-      : '(自由な質問)';
-  }
-
   const parts = [`${subject.label}（分野: ${subject.field}、読み: ${subject.readings.join('/')}）`];
   if (subject.existingSummary) parts.push(`既存の初期説明:\n${subject.existingSummary}`);
   if (subject.existingNoteBody) parts.push(`既存のAI補足:\n${subject.existingNoteBody}`);

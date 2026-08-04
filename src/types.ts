@@ -120,7 +120,17 @@ export interface ChatSessionRecord {
   termId: string | null; // null = 自由チャット
   startedAt: number;
   lastActiveAt: number;
-  status: 'open' | 'committed';
+  /**
+   * 'open' = 取り込み待ち（ホームの一覧に並ぶ）
+   * 'committing' = 取り込み処理の実行中。AI呼び出しに数秒〜十数秒かかるため、その間は
+   *   再開・再取り込みの対象から外す。外さないと、処理中に同じ語のチャットを開いた場合に
+   *   同一セッションが再開されてしまい、あとから走り終えた取り込みがそれを committed に
+   *   するため、**その間に追加した発言が黙って捨てられる**（実際に起きうる不具合）。
+   *   取り込み中に同じ語を開いた場合は別の新しいセッションが立ち、後でそれを取り込めば
+   *   既存のAI補足に統合される。
+   * 'committed' = 取り込み済み
+   */
+  status: 'open' | 'committing' | 'committed';
 }
 
 /** Drive 同期対象外 */

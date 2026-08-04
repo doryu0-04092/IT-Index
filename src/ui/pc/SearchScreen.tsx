@@ -8,15 +8,9 @@ import FeatureHint from './FeatureHint';
 
 const MAX_RESULTS = 30;
 
-type PendingUpdate =
-  | { sessionId: string; kind: 'term'; term: TermRecord }
-  | { sessionId: string; kind: 'free'; label: string };
-
-const FREE_LABEL_MAX_LENGTH = 30;
-
-function truncateLabel(text: string): string {
-  const trimmed = text.trim();
-  return trimmed.length > FREE_LABEL_MAX_LENGTH ? `${trimmed.slice(0, FREE_LABEL_MAX_LENGTH)}…` : trimmed;
+interface PendingUpdate {
+  sessionId: string;
+  term: TermRecord;
 }
 
 export interface SearchScreenProps {
@@ -24,14 +18,13 @@ export interface SearchScreenProps {
   chatRepo: ChatRepository;
   onSelectTerm: (termId: string) => void;
   /**
-   * AIチャットを開始する。termId を渡すと用語モード（利用者が明示的に選んだ語）、
-   * null なら自由モード（seedQuery は参考情報にすぎず、確定した主題ではない）。
-   * 最上位検索候補への自動ひも付けはしない（要件定義書§5.3）。
+   * その語についてAIチャットを開始する。**利用者が明示的に選んだ語だけが主題になる**
+   * ——最上位検索候補への自動ひも付けはしない（要件定義書§5.3）。
    */
-  onStartChat: (termId: string | null, seedQuery: string | null) => void;
-  /** 「AIによる単語更新待ち」一覧から、そのセッションのチャット画面を開いて再開する（自由な質問も含む） */
+  onStartChat: (termId: string) => void;
+  /** 「取り込み待ち」一覧から、そのセッションのチャット画面を開いて再開する */
   onResumeChatSession: (sessionId: string) => void;
-  /** 「AIによる単語更新待ち」一覧から、チャット画面を開かずその場で確定する */
+  /** 「取り込み待ち」一覧から、チャット画面を開かずその場で単語帳へ取り込む */
   onCommitPending: (sessionId: string) => void;
   /** シード取り込み・ローカル取り込みが異常終了した場合のみ渡される。通常時は null */
   seedError: string | null;
@@ -77,17 +70,13 @@ export default function SearchScreen({
       const sessions = await chatRepo.getOpenSessions();
       const items: PendingUpdate[] = [];
       for (const session of sessions) {
+        // 自由モード（termId:null）は廃止済み。過去バージョンで作られたセッションが
+        // 残っている場合があるため、ここで除外する（取り込む対象の語が無く扱えない）。
+        if (!session.termId) continue;
         const messages = await chatRepo.getMessages(session.id);
         if (messages.length === 0) continue; // まだ何もやり取りしていないセッションは表示不要
-        if (session.termId) {
-          const term = await termsRepo.getById(session.termId);
-          if (term) items.push({ sessionId: session.id, kind: 'term', term });
-          continue;
-        }
-        // 自由な質問（新規用語の可能性を含む）も、確定するまで消えずに一覧から再開できるようにする。
-        // 単語の単位が無いため、最初の発言を短く切って見出しにする。
-        const firstUserMessage = messages.find((m) => m.role === 'user');
-        items.push({ sessionId: session.id, kind: 'free', label: firstUserMessage ? truncateLabel(firstUserMessage.content) : '自由な質問' });
+        const term = await termsRepo.getById(session.termId);
+        if (term) items.push({ sessionId: session.id, term });
       }
       if (!cancelled) setPendingUpdates(items);
     }
@@ -158,19 +147,10 @@ export default function SearchScreen({
             {pendingUpdates.map((p) => (
               <li key={p.sessionId} className="search-result-row">
                 <button type="button" className="search-pending-item" onClick={() => onResumeChatSession(p.sessionId)}>
-                  {p.kind === 'term' ? (
-                    <>
-                      <span className="search-result-term">{p.term.term}</span>
-                      <span className="search-result-reading">{p.term.readings[0]}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="search-result-term">{p.label}</span>
-                      <span className="search-result-reading">新規（自由な質問）</span>
-                    </>
-                  )}
+                  <span className="search-result-term">{p.term.term}</span>
+                  <span className="search-result-reading">{p.term.readings[0]}</span>
                   {failedCommitSessionIds.has(p.sessionId) && (
-                    <span className="search-pending-failed chat-error">前回の確定に失敗しました</span>
+                    <span className="search-pending-failed chat-error">前回の取り込みに失敗しました</span>
                   )}
                 </button>
                 <button
@@ -183,24 +163,6 @@ export default function SearchScreen({
               </li>
             ))}
           </ul>
-        </div>
-      )}
-
-      {/*
-        要件定義書§5.1: スコアリングは何かしら返すため「候補ゼロ」は構造的にほぼ発生しない
-        （長いクエリほど、3510語のどれかと部分一致するため）。よって [AIに聞く] は
-        「結果が0件のときだけ出す」のではなく、クエリがある間は常に出しておく
-        （「求める語が無かったらここを押す」という導線として）。
-      */}
-      {debouncedQuery.trim() !== '' && terms.length > 0 && (
-        <div className="search-ai-hint">
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => onStartChat(null, query.trim() === '' ? null : query.trim())}
-          >
-            求める語が見つからない場合 → AIに聞く（自由な質問）
-          </button>
         </div>
       )}
 
@@ -221,7 +183,7 @@ export default function SearchScreen({
               最上位候補への自動ひも付けはしない（要件定義書§5.3）。この語についてAIに聞きたい
               場合は、利用者が行ごとに明示的に選ぶ。
             */}
-            <button type="button" className="search-result-ask-ai btn-text" onClick={() => onStartChat(term.id, null)}>
+            <button type="button" className="search-result-ask-ai btn-text" onClick={() => onStartChat(term.id)}>
               この語について聞く
             </button>
           </li>

@@ -41,7 +41,14 @@ export function createNotesRepository(db: ItIndexDB): NotesRepository {
     },
 
     async upsertFromSync(note) {
-      await db.notes.put(note);
+      // noteHistory は「この端末で上書きする前の版」の積み重ねで、ロールバック用の
+      // **端末ローカルな記録**（types.ts に「同期対象外」と明記）。レコードごと put すると
+      // 相手の noteHistory で置き換わり、この端末で積んだ版が消えてロールバックできなくなる。
+      // 本文（body/diagrams）は同期するが、履歴はこちらのものを保つ。
+      await db.transaction('rw', db.notes, async () => {
+        const existing = await db.notes.get(note.termId);
+        await db.notes.put({ ...note, noteHistory: existing?.noteHistory ?? [] });
+      });
     },
   };
 }

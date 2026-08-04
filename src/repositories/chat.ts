@@ -5,12 +5,20 @@ export interface ChatRepository {
   createSession(termId: string | null): Promise<ChatSessionRecord>;
   appendMessage(sessionId: string, role: 'user' | 'assistant', content: string, options?: { hidden?: boolean }): Promise<void>;
   touchSession(sessionId: string, at: number): Promise<void>;
-  /** ホーム画面の「AIによる単語更新待ち」一覧用。確定待ち（status:'open'）のセッション全件 */
+  /** ホーム画面の「取り込み待ち」一覧用。取り込み待ち（status:'open'）のセッション全件 */
   getOpenSessions(): Promise<ChatSessionRecord[]>;
-  /** ある単語について未確定のまま残っているセッションがあれば返す。無ければundefined */
+  /** ある単語について取り込まずに残っているセッションがあれば返す。無ければundefined */
   findOpenSessionByTermId(termId: string): Promise<ChatSessionRecord | undefined>;
   /** id指定での単体取得。リロード時の画面復元（#39）等、既知のsessionIdから状態を再構築する用途 */
   getSession(sessionId: string): Promise<ChatSessionRecord | undefined>;
+  /**
+   * 取り込み処理の開始を宣言する（'open' → 'committing'）。**取れたら true**。
+   * 既に 'committing'（別経路が処理中）や 'committed' なら false を返し、二重取り込みを防ぐ。
+   * 「まとめて取り込む」と個別ボタンを続けて押した場合の競合もここで弾ける。
+   */
+  beginCommit(sessionId: string): Promise<boolean>;
+  /** 取り込みに失敗したときに 'committing' → 'open' へ戻す（再試行できる状態にする） */
+  abortCommit(sessionId: string): Promise<void>;
   /** 冪等。既に committed なら何もしない */
   commitSession(sessionId: string): Promise<void>;
   getMessages(sessionId: string): Promise<ChatMessageRecord[]>;
@@ -65,6 +73,24 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
 
     async getSession(sessionId) {
       return db.chatSessions.get(sessionId);
+    },
+
+    async beginCommit(sessionId) {
+      // 「読んでから書く」を1つのトランザクションに包む。包まないと、2箇所から同時に
+      // 押された場合に両方が 'open' と判定して二重にAI呼び出しが走る
+      // （settings.ts のバグ1と同じ形の競合）。
+      return db.transaction('rw', db.chatSessions, async () => {
+        const session = await db.chatSessions.get(sessionId);
+        if (!session || session.status !== 'open') return false;
+        await db.chatSessions.update(sessionId, { status: 'committing' });
+        return true;
+      });
+    },
+
+    async abortCommit(sessionId) {
+      const session = await db.chatSessions.get(sessionId);
+      if (!session || session.status !== 'committing') return;
+      await db.chatSessions.update(sessionId, { status: 'open' });
     },
 
     async commitSession(sessionId) {

@@ -84,26 +84,11 @@ export default function ChatScreen({
     }
   }
 
-  // 「単語の概要を聞く」「さらに詳しく聞く」で送る固定文言。用語モードでは対象が明確だが、
-  // 自由モードには「単語」という単位が無いため、検索語（seedQuery）があればそれを対象にし、
-  // 無ければ「ここまでの話題」を対象にする。「理解のために調べたこと」は用語ごとのAI補足
-  // （notesRepo）であり自由モードには存在しないので、詳しく聞く文言からも外す。
-  function buildOverviewQuestion(): string {
-    if (subject.mode === 'term') {
-      return 'この用語の基本的な情報を、初心者にもわかるように教えてください。';
-    }
-    if (subject.seedQuery) {
-      return `「${subject.seedQuery}」の基本的な情報を、初心者にもわかるように教えてください。`;
-    }
-    return 'ここまでの話題の基本的な情報を、初心者にもわかるように教えてください。';
-  }
-
-  function buildDetailQuestion(): string {
-    if (subject.mode === 'term') {
-      return 'ここまでの会話と「理解のために調べたこと」の内容を踏まえて、さらに詳しく教えてください。';
-    }
-    return 'ここまでの会話を踏まえて、さらに詳しく教えてください。';
-  }
+  // 「単語の概要を聞く」「さらに詳しく聞く」で送る固定文言。どの語について話しているかは
+  // SubjectContext で確定しているため（自由モードは廃止済み）、文言に語名を埋め込む必要はない
+  // ——システムプロンプト側で主題を渡してある（src/ai/prompts.ts）。
+  const OVERVIEW_QUESTION = 'この用語の基本的な情報を、初心者にもわかるように教えてください。';
+  const DETAIL_QUESTION = 'ここまでの会話と「理解のために調べたこと」の内容を踏まえて、さらに詳しく教えてください。';
 
   if (!keyReady) {
     return <ApiKeyPrompt apiKeyStore={apiKeyStore} onSet={onKeyReady} onBack={onBack} />;
@@ -119,16 +104,12 @@ export default function ChatScreen({
 
       {returnTermId && (
         <button type="button" className="chat-back-to-term" onClick={() => onBackToTerm(returnTermId)}>
-          ← 「{subject.mode === 'term' ? subject.label : ''}」の詳細に戻る
+          ← 「{subject.label}」の詳細に戻る
         </button>
       )}
 
       <div className="chat-subject-chip">
-        {subject.mode === 'term' ? (
-          <span>「{subject.label}」について質問中</span>
-        ) : (
-          <span>自由な質問{subject.seedQuery ? `（検索語: ${subject.seedQuery}）` : ''}</span>
-        )}
+        <span>「{subject.label}」について質問中</span>
       </div>
 
       <FeatureHint hintKey="chat-quick-asks">
@@ -136,10 +117,10 @@ export default function ChatScreen({
       </FeatureHint>
 
       <div className="chat-quick-asks">
-        <button type="button" className="btn-secondary" onClick={() => handleSend(buildOverviewQuestion(), true)} disabled={sending}>
-          {subject.mode === 'free' && !subject.seedQuery ? '話題の概要を聞く' : '単語の概要を聞く'}
+        <button type="button" className="btn-secondary" onClick={() => handleSend(OVERVIEW_QUESTION, true)} disabled={sending}>
+          単語の概要を聞く
         </button>
-        <button type="button" className="btn-secondary" onClick={() => handleSend(buildDetailQuestion(), true)} disabled={sending}>
+        <button type="button" className="btn-secondary" onClick={() => handleSend(DETAIL_QUESTION, true)} disabled={sending}>
           さらに詳しく聞く
         </button>
       </div>
@@ -188,7 +169,7 @@ export default function ChatScreen({
         <button
           type="button"
           className="chat-subject-change btn-text"
-          onClick={() => handleSend(buildDetailQuestion(), true)}
+          onClick={() => handleSend(DETAIL_QUESTION, true)}
           disabled={sending}
         >
           さらに詳しく聞く

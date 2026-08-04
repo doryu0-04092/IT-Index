@@ -46,6 +46,12 @@ export interface CommitOrchestrator {
  */
 export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOrchestrator {
   async function commit(sessionId: string): Promise<void> {
+    // 取り込み中であることを先にDBへ記録する（'open' → 'committing'）。取れなかった＝
+    // 既に別経路が処理中／取り込み済みなので何もしない。これでAI呼び出しの数秒〜十数秒の間に
+    // 同じセッションが再開・再取り込みされるのを防ぐ（types.ts の status 参照）。
+    const started = await deps.chatRepo.beginCommit(sessionId);
+    if (!started) return;
+
     try {
       // 「AIに聞く」ボタンを押した時点でセッションはDBに作成される（＝チャット画面が
       // 開かれる前提で先にIDが要る）。そのため、画面を開いただけで一言も送らずに
@@ -73,7 +79,8 @@ export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOr
         deviceId: deps.deviceId,
       });
     } catch (error) {
-      // committing --> open（API呼び出し失敗）。セッションは元々 open のままなので状態変更は不要
+      // committing --> open（API呼び出し失敗）。取り込み待ち一覧に戻し、再試行できるようにする。
+      await deps.chatRepo.abortCommit(sessionId);
       deps.onError?.(sessionId, error);
     }
   }
