@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, protocol, session } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, MenuItem, net, protocol, session } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { postPairing } from './pairingClient.js';
@@ -27,6 +27,8 @@ protocol.registerSchemesAsPrivileged([
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
   },
 ]);
+
+setupEditingContextMenu();
 
 const pairingServer = new PairingServer();
 let mainWindow: BrowserWindow | null = null;
@@ -77,6 +79,30 @@ function registerAppProtocol(): void {
     } catch {
       return new Response('Not Found', { status: 404 });
     }
+  });
+}
+
+/**
+ * Electronはデフォルトでは右クリックメニューを一切出さない（ブラウザと違い自前で用意する
+ * 必要がある）。検索欄・APIキー入力欄などのテキストフィールドで「右クリック→貼り付け」
+ * ができず不便なため、標準的な編集メニュー（切り取り/コピー/貼り付け/すべて選択）を出す
+ * （ユーザー指摘）。全ウィンドウ・全webContentsに効かせるため web-contents-created で登録する。
+ */
+function setupEditingContextMenu(): void {
+  app.on('web-contents-created', (_event, contents) => {
+    contents.on('context-menu', (_e, params) => {
+      const menu = new Menu();
+      if (params.isEditable) {
+        menu.append(new MenuItem({ label: '切り取り', role: 'cut', enabled: params.editFlags.canCut }));
+        menu.append(new MenuItem({ label: 'コピー', role: 'copy', enabled: params.editFlags.canCopy }));
+        menu.append(new MenuItem({ label: '貼り付け', role: 'paste', enabled: params.editFlags.canPaste }));
+        menu.append(new MenuItem({ type: 'separator' }));
+        menu.append(new MenuItem({ label: 'すべて選択', role: 'selectAll', enabled: params.editFlags.canSelectAll }));
+      } else if (params.selectionText) {
+        menu.append(new MenuItem({ label: 'コピー', role: 'copy' }));
+      }
+      if (menu.items.length > 0) menu.popup();
+    });
   });
 }
 
