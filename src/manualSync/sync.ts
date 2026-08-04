@@ -1,5 +1,6 @@
 import type { NoteConflict, SyncFile } from '../core/mergeSnapshot';
 import { mergeSnapshot } from '../core/mergeSnapshot';
+import { isSyncTarget } from '../core/syncTarget';
 import { parseSyncFile } from '../core/validateSyncFile';
 import { buildLocalSnapshot, type LocalSnapshotDeps } from '../sync/localSnapshot';
 import { buildOutboundSyncFile, syncFileName } from '../sync/syncFile';
@@ -94,7 +95,7 @@ export async function exportFullSnapshot(deps: ManualSyncDeps): Promise<RawFile>
   const [allNotes, allAsks, allTerms] = await Promise.all([
     deps.notesRepo.getAll(),
     deps.asksRepo.getAllOrdered(),
-    deps.termsRepo.getAll(),
+    deps.termsRepo.getAllForSync(),
   ]);
   const full: SyncFile = {
     syncSchemaVersion: 1,
@@ -102,7 +103,7 @@ export async function exportFullSnapshot(deps: ManualSyncDeps): Promise<RawFile>
     writtenAt: Date.now(),
     notes: allNotes,
     asks: allAsks,
-    aiTerms: allTerms.filter((t) => t.origin === 'ai'),
+    aiTerms: allTerms.filter(isSyncTarget),
   };
 
   return { name: `full-${syncFileName(deps.deviceId)}`, content: JSON.stringify(full, null, 2) };

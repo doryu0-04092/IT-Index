@@ -102,11 +102,17 @@ export default function SearchScreen({
     };
   }, [chatRepo, termsRepo, pendingRefreshTick]);
 
-  // 確定処理はバックグラウンドで進む（ChatScreenの「この会話を確定する」と同様）。
-  // 押した時点でこの一覧からは消してよい——結果を待たせない。
+  // 取り込みはバックグラウンドで進む。押した時点でこの一覧からは消してよい——結果を待たせない。
   function handleCommitPending(sessionId: string) {
     onCommitPending(sessionId);
     setPendingUpdates((prev) => prev.filter((p) => p.sessionId !== sessionId));
+  }
+
+  // 「まとめて単語帳に取り込む」。チャット画面から確定ボタンを無くし、取り込みの操作を
+  // このホーム画面1箇所に集約したため（2026-08-04改訂。PC版と同じ）。
+  function handleCommitAll() {
+    for (const p of pendingUpdates) onCommitPending(p.sessionId);
+    setPendingUpdates([]);
   }
 
   const results = useMemo(() => {
@@ -147,10 +153,13 @@ export default function SearchScreen({
       */}
       {debouncedQuery.trim() === '' && pendingUpdates.length > 0 && (
         <div className="search-pending">
-          <h3 className="search-pending-title">AIによる単語更新待ち</h3>
+          <h3 className="search-pending-title">単語帳への取り込み待ち（{pendingUpdates.length}件）</h3>
           <FeatureHint hintKey="search-pending">
-            AIと会話した内容は自動では保存されません。「確定する」を押すと、その内容がAI補足として保存されます。
+            AIと会話した内容は自動では保存されません。ここで取り込むと、その内容がAI補足として単語帳に保存されます。
           </FeatureHint>
+          <button type="button" className="btn-primary btn-block search-pending-commit-all" onClick={handleCommitAll}>
+            まとめて単語帳に取り込む（{pendingUpdates.length}件）
+          </button>
           <ul className="search-pending-list">
             {pendingUpdates.map((p) => (
               <li key={p.sessionId} className="search-result-row">
@@ -175,7 +184,7 @@ export default function SearchScreen({
                   className="search-pending-commit btn-secondary"
                   onClick={() => handleCommitPending(p.sessionId)}
                 >
-                  確定する
+                  取り込む
                 </button>
               </li>
             ))}

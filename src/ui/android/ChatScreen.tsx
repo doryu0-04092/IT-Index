@@ -25,8 +25,6 @@ export interface ChatScreenProps {
   keyReady: boolean;
   /** この画面内でAPIキーが（初めて、または再度）使えるようになったときに呼ぶ */
   onKeyReady: () => void;
-  /** 確定処理（バックグラウンド起動）と、ローカル検索画面への遷移の両方を行う。呼び出し元の責務 */
-  onCommit: (sessionId: string) => void;
   onBack: () => void;
   /** returnTermIdが非nullの時だけ表示するリンクから呼ばれる。元の単語詳細画面へ戻る */
   onBackToTerm: (termId: string) => void;
@@ -48,7 +46,6 @@ export default function ChatScreen({
   apiKeyStore,
   keyReady,
   onKeyReady,
-  onCommit,
   onBack,
   onBackToTerm,
 }: ChatScreenProps) {
@@ -103,13 +100,6 @@ export default function ChatScreen({
       return 'ここまでの会話と「理解のために調べたこと」の内容を踏まえて、さらに詳しく教えてください。';
     }
     return 'ここまでの会話を踏まえて、さらに詳しく教えてください。';
-  }
-
-  function handleCommit() {
-    // 確定処理（AI呼び出し）はバックグラウンドで進み、押した時点でローカル検索画面へ
-    // 戻る（呼び出し元の commitAndReturnToSearch）。成否のフィードバックはこの画面の
-    // ローカル状態ではなく既存のグローバルな経路に委ねる。
-    onCommit(sessionId);
   }
 
   if (!keyReady) {
@@ -223,15 +213,6 @@ export default function ChatScreen({
           </button>
         )}
       </div>
-
-      <button
-        type="button"
-        className="chat-commit-button btn-primary btn-block"
-        onClick={handleCommit}
-        disabled={messages.length === 0}
-      >
-        この会話を確定する
-      </button>
     </div>
   );
 }

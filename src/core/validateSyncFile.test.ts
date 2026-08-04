@@ -58,6 +58,24 @@ describe('parseSyncFile', () => {
     expect(result.ok).toBe(false);
   });
 
+  // 回帰: ローカル検索の確定（asksRepo.addSearchConfirm）は sessionId を持たない。
+  // ここで null を弾いていたため、検索結果から用語詳細を一度でも開いた端末が送る同期ファイルは
+  // 必ず検証に落ち、ファイルごと読み飛ばされて連携が何も取り込めなくなっていた。
+  it('accepts an ask without a sessionId (local search confirmation)', () => {
+    const file = validFile();
+    file.asks[0].sessionId = null as unknown as string;
+    expect(parseSyncFile(file).ok).toBe(true);
+  });
+
+  // 回帰: 削除（tombstone）だけは origin を問わず受け入れる。内蔵シードの語を削除した場合も
+  // その削除を相手へ伝える必要があるため（送らないと相手の削除前レコードがマージで戻ってくる）。
+  it('accepts a deleted seed term so that deletions propagate', () => {
+    const file = validFile();
+    file.aiTerms[0].origin = 'seed';
+    file.aiTerms[0].deletedAt = 123 as unknown as null;
+    expect(parseSyncFile(file).ok).toBe(true);
+  });
+
   it('accepts a null summary on aiTerms (AI-registered terms have no summary)', () => {
     const result = parseSyncFile(validFile());
     expect(result.ok).toBe(true);

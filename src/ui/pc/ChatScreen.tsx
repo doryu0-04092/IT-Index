@@ -31,8 +31,6 @@ export interface ChatScreenProps {
   keyReady: boolean;
   /** この画面内でAPIキーが（初めて、または再度）使えるようになったときに呼ぶ。App.tsx側のkeyReadyを更新する */
   onKeyReady: () => void;
-  /** 確定処理（バックグラウンド起動）と、ローカル検索画面への遷移の両方を行う。呼び出し元（App）の責務 */
-  onCommit: (sessionId: string) => void;
   /** 「話題を変える」で用語を選んだ。トリガー①相当（自動確定してから新しい話題で続ける）は呼び出し元（App）の責務 */
   onChangeSubject: (termId: string) => void;
   onBack: () => void;
@@ -50,7 +48,6 @@ export default function ChatScreen({
   apiKeyStore,
   keyReady,
   onKeyReady,
-  onCommit,
   onChangeSubject,
   onBack,
   onBackToTerm,
@@ -106,14 +103,6 @@ export default function ChatScreen({
       return 'ここまでの会話と「理解のために調べたこと」の内容を踏まえて、さらに詳しく教えてください。';
     }
     return 'ここまでの会話を踏まえて、さらに詳しく教えてください。';
-  }
-
-  function handleCommit() {
-    // 確定処理（AI呼び出し）はバックグラウンドで進み、クリックした時点でローカル検索画面へ
-    // 戻る（App.tsx の commitAndReturnToSearch）。成否のフィードバックはこの画面のローカル
-    // 状態ではなく既存のグローバルな経路に委ねる: 成功時は commitOrchestrator の
-    // onProposalReady が承認画面へ遷移させ、失敗時は onError が App.tsx の globalError に表示する。
-    onCommit(sessionId);
   }
 
   if (!keyReady) {
@@ -216,15 +205,6 @@ export default function ChatScreen({
           onCancel={() => setPickerOpen(false)}
         />
       )}
-
-      <button
-        type="button"
-        className="chat-commit-button btn-primary btn-block"
-        onClick={handleCommit}
-        disabled={messages.length === 0}
-      >
-        この会話を確定する
-      </button>
     </div>
   );
 }

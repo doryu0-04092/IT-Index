@@ -1,4 +1,5 @@
 import { db } from './db';
+import { clearPersistedScreen } from './screenPersistence';
 
 /**
  * 「オールクリア」（設定画面）。語・ノート・履歴だけでなく、APIキー・パスキー保存状態・
@@ -17,4 +18,8 @@ export async function factoryReset(): Promise<void> {
   for (const key of Object.keys(localStorage)) {
     if (key.startsWith('it-index-')) localStorage.removeItem(key);
   }
+
+  // リロード時の画面復元（#39）は sessionStorage に持っている。これを消さないと、
+  // 初期化直後のリロードで「設定」「連携」など直前の画面に復帰してしまう。
+  clearPersistedScreen();
 }

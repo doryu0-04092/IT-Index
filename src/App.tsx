@@ -105,8 +105,6 @@ export default function App({ ui }: { ui: UiSet }) {
   const [seedRefreshTick, setSeedRefreshTick] = useState(0);
   // リロード時の文脈復元（#39）を一度だけ試みるためのガード。seedSettled後に1回だけ実行する。
   const [screenRestoreAttempted, setScreenRestoreAttempted] = useState(false);
-  // 起動時の用語モードセッション自動確定（後述useEffect）を一度だけ試みるためのガード。
-  const [startupAutoCommitAttempted, setStartupAutoCommitAttempted] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [autoUpdateExistingTerms, setAutoUpdateExistingTerms] = useState<AutoUpdateExistingTermsMode>('askedOnly');
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -290,25 +288,12 @@ export default function App({ ui }: { ui: UiSet }) {
     })();
   }, [seedSettled, screenRestoreAttempted, termsRepo, notesRepo, chatRepo]);
 
-  // 起動時の自動確定。開いたままの用語モードセッション（termId が非null）を、ユーザーの
-  // 操作を待たずに確定する。自由な質問セッションは対象外のまま（利用者は将来的に自由な質問
-  // 機能自体を廃止する予定のため、今回は対象を広げない）。
-  useEffect(() => {
-    if (!seedSettled || !commitOrchestrator || startupAutoCommitAttempted) return;
-    setStartupAutoCommitAttempted(true);
-
-    (async () => {
-      const openSessions = await chatRepo.getOpenSessions();
-      const termModeSessions = openSessions.filter((s) => s.termId !== null);
-      for (const session of termModeSessions) {
-        const messages = await chatRepo.getMessages(session.id);
-        if (messages.length === 0) continue; // 何もやり取りしていないセッションは確定する内容が無い
-        await commitSession(session.id);
-      }
-    })();
-    // commitSession はレンダーのたびに再生成される関数のため依存配列に含めない。
-  }, [seedSettled, commitOrchestrator, startupAutoCommitAttempted, chatRepo]);
-
+  // 2026-08-04改訂: 起動時の自動確定を廃止した。理由は2つ:
+  // (1) APIキーはセッション限りの保持なので起動直後は必ず未認証で、この処理が先に走ると
+  //     「確定処理に失敗しました: APIキーが設定されていません」が必ず出ていた
+  //     （docs/ui-pc.md §3 バグ6と同じ形の再発）
+  // (2) 「AIと会話した内容は自動では保存されない」という利用者への説明と矛盾していた
+  // 取り込みはホーム画面（SearchScreen）の「まとめて単語帳に取り込む」に一元化した。
   useEffect(() => {
     // サイトに入った時点で「保存済みのAPIキーがあるか」だけ確認する（復号はしない）。
     // 実際の復元（WebAuthn呼び出し）はユーザーがボタンを押した瞬間に行う——
@@ -393,17 +378,23 @@ export default function App({ ui }: { ui: UiSet }) {
     }
   }
 
-  // 明示的な確定操作（確定ボタン）。確定処理はバックグラウンドで進め、クリックした時点で
-  // ローカル検索画面へ戻す——確定結果を待たせない（2026-07-29）。
-  // 2026-07-30: 承認画面を廃止したため、確定＝そのままDBへの自動反映になる。
-  function commitAndReturnToSearch(sessionId: string) {
-    void commitSession(sessionId);
-    setActiveChatSessionId(null);
+  // 単語を削除したときの後始末。その語の未取り込みチャットを閉じてから検索画面へ戻す。
+  // 閉じないと、ホームの「取り込み待ち」一覧は語が引けないセッションを表示しないため
+  // （SearchScreen が termsRepo.getById() で引ける語だけ並べる）、利用者からは見えず
+  // 取り込むことも消すこともできない孤児セッションとして残り続ける。
+  async function handleTermDeleted(deletedTermId: string) {
+    const session = await chatRepo.findOpenSessionByTermId(deletedTermId);
+    if (session) {
+      await chatRepo.commitSession(session.id);
+      if (activeChatSessionId === session.id) setActiveChatSessionId(null);
+    }
+    setPendingRefreshTick((t) => t + 1);
     setScreen({ name: 'search' });
   }
 
-  // ホームの「AIによる単語更新待ち」一覧から、チャット画面を開かずその場で確定する。
-  // 画面遷移はしない点だけがcommitAndReturnToSearchと異なる（既にsearch画面にいるため）。
+  // ホーム画面の「取り込み待ち」一覧から取り込む。2026-08-04改訂で、取り込み操作は
+  // この経路1つに集約した（チャット画面の「この会話を確定する」と起動時の自動確定を廃止）。
+  // 処理はバックグラウンドで進め、押した時点で待たせない。
   function commitPendingTerm(sessionId: string) {
     void commitSession(sessionId);
     if (activeChatSessionId === sessionId) setActiveChatSessionId(null);
@@ -476,7 +467,7 @@ export default function App({ ui }: { ui: UiSet }) {
             notesRepo={notesRepo}
             onBack={() => setScreen({ name: 'search' })}
             onStartChat={(termId) => void startChat(termId, null, termId)}
-            onDeleted={() => setScreen({ name: 'search' })}
+            onDeleted={(deletedTermId) => void handleTermDeleted(deletedTermId)}
           />
         ) : screen.name === 'chat' ? (
           <ChatScreen
@@ -489,7 +480,6 @@ export default function App({ ui }: { ui: UiSet }) {
             apiKeyStore={apiKeyStore}
             keyReady={keyReady}
             onKeyReady={() => setKeyReady(true)}
-            onCommit={commitAndReturnToSearch}
             onChangeSubject={(termId) => void startChat(termId, null)}
             onBack={() => {
               // 「確定する」を押さずに離れた場合、自動確定はしない。セッションは open のまま

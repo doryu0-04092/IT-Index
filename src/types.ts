@@ -183,13 +183,3 @@ export interface KeyStoreRecord {
   iv: Uint8Array<ArrayBuffer>;
 }
 
-/**
- * Drive 同期対象外。手動同期の「共有フォルダ方式」（docs/manual-sync.md）で選んだ
- * フォルダの参照を次回起動時にも使えるよう保持する。FileSystemDirectoryHandle は
- * 構造化複製可能なため IndexedDB にそのまま保存できる（Chrome 86+）。
- * 権限（readwrite）は保存されないため、使用時に毎回 queryPermission/requestPermission が要る。
- */
-export interface SyncFolderRecord {
-  key: 'singleton';
-  handle: FileSystemDirectoryHandle;
-}

@@ -11,8 +11,11 @@ export interface TermDetailScreenProps {
   notesRepo: NotesRepository;
   onBack: () => void;
   onStartChat: (termId: string) => void;
-  /** 削除を実行し、検索画面へ戻す（削除後にこの語を表示し続けても意味が無いため） */
-  onDeleted: () => void;
+  /**
+   * 削除した後の後始末（未取り込みチャットの整理・検索画面への遷移）。呼び出し元（App）の責務。
+   * 削除後にこの語を表示し続けても意味が無いため、必ず画面を離れる。
+   */
+  onDeleted: (termId: string) => void;
 }
 
 export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack, onStartChat, onDeleted }: TermDetailScreenProps) {
@@ -32,7 +35,7 @@ export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack,
 
   async function handleDelete() {
     await termsRepo.softDelete(termId, Date.now());
-    onDeleted();
+    onDeleted(termId);
   }
 
   return (

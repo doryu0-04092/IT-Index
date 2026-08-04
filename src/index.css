@@ -284,7 +284,6 @@ button:disabled {
   box-shadow: 0 1px 4px color-mix(in srgb, var(--fg) 20%, transparent);
 }
 
-.seed-status,
 .search-status {
   color: var(--muted);
   font-size: 0.85rem;
@@ -317,11 +316,6 @@ button:disabled {
 
 .search-ai-hint {
   margin-top: 10px;
-}
-
-.search-hint {
-  color: var(--muted);
-  font-size: 0.85rem;
 }
 
 .search-pending {
@@ -801,10 +795,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.chat-commit-button {
-  margin-top: 16px;
-}
-
 /* History screen */
 .history-screen .term-detail-back {
   margin-bottom: 24px;
@@ -1116,16 +1106,6 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-}
-
-.link-file-input {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  font-size: var(--font-size-sm);
-  color: var(--muted);
-  cursor: pointer;
-  margin-top: var(--space-2);
 }
 
 /* ============================================================
