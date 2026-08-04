@@ -1,6 +1,9 @@
 import { useState } from 'react';
+import type { AiClient } from '../../ai/aiClient';
+import { logAiError } from '../../ai/logError';
 import type { NoteConflict } from '../../core/mergeSnapshot';
 import type { ManualSyncDeps } from '../../manualSync/sync';
+import { resolveConflict } from '../../sync/resolveConflict';
 import type { NoteRecord } from '../../types';
 
 /**
@@ -18,14 +21,56 @@ import type { NoteRecord } from '../../types';
  * PC版・Android版で表示内容もCSSクラスも同一のため、`src/ui/shared/` に置いて共有する
  * （`MermaidDiagram.tsx` と同じ扱い）。狭幅では2案が縦に折り返る（`.link-conflict-sides`）。
  */
-export default function ConflictResolver({ conflicts, deps }: { conflicts: NoteConflict[]; deps: ManualSyncDeps }) {
+type Resolution = 'local' | 'remote' | 'merged';
+
+export default function ConflictResolver({
+  conflicts,
+  deps,
+  claude,
+}: {
+  conflicts: NoteConflict[];
+  deps: ManualSyncDeps;
+  claude: AiClient;
+}) {
   const [open, setOpen] = useState(false);
-  const [resolved, setResolved] = useState<Record<string, 'local' | 'remote'>>({});
+  const [resolved, setResolved] = useState<Record<string, Resolution>>({});
+  const [merging, setMerging] = useState<string | null>(null);
+  const [mergeError, setMergeError] = useState<Record<string, string>>({});
+
+  async function apply(termId: string, body: string, diagrams: string[], how: Resolution) {
+    await deps.notesRepo.applyCommit(termId, body, diagrams, deps.deviceId, Date.now());
+    setResolved((prev) => ({ ...prev, [termId]: how }));
+  }
 
   async function choose(conflict: NoteConflict, side: 'local' | 'remote') {
     const chosen = side === 'local' ? conflict.local : conflict.remote;
-    await deps.notesRepo.applyCommit(conflict.termId, chosen.body, chosen.diagrams, deps.deviceId, Date.now());
-    setResolved((prev) => ({ ...prev, [conflict.termId]: side }));
+    await apply(conflict.termId, chosen.body, chosen.diagrams, side);
+  }
+
+  /**
+   * どちらか一方を捨てるのではなく、2つをAIに掛け合わせて1つの説明にまとめる。
+   * 使うプロンプトは取り込み時の育成統合と同じ `MERGE_SYSTEM_PROMPT`
+   * （「既存の情報を勝手に削らない・重複整理のみ・要約して薄めない」の制約付き）なので、
+   * どちらかの内容が一方的に落ちることは無い。APIキーが未設定なら送信時に失敗するため、
+   * その旨をこの語の行に出す（画面全体を止めない）。
+   */
+  async function mergeWithAi(conflict: NoteConflict) {
+    setMerging(conflict.termId);
+    setMergeError((prev) => {
+      const next = { ...prev };
+      delete next[conflict.termId];
+      return next;
+    });
+    try {
+      const result = await resolveConflict(conflict, claude);
+      if (!result) throw new Error('AIの応答を解釈できませんでした。');
+      await apply(conflict.termId, result.body, result.diagrams, 'merged');
+    } catch (err) {
+      logAiError(`ConflictResolver.mergeWithAi(${conflict.termId})`, err);
+      setMergeError((prev) => ({ ...prev, [conflict.termId]: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setMerging(null);
+    }
   }
 
   if (!open) {
@@ -43,26 +88,47 @@ export default function ConflictResolver({ conflicts, deps }: { conflicts: NoteC
 
   return (
     <div className="link-conflicts">
-      <p className="search-status">採用したい方を選んでください。選ばなければ新しい方（自動採用）のままです。</p>
+      <p className="search-status">
+        どちらかを採用するか、2つをAIで統合できます。何もしなければ新しい方（自動採用）のままです。
+      </p>
       <ul className="link-conflict-list">
         {conflicts.map((c) => (
           <li key={c.termId} className="link-conflict">
             <h4 className="link-conflict-term">{c.termId}</h4>
             {resolved[c.termId] ? (
-              <p className="search-status">
-                {resolved[c.termId] === 'local' ? 'この端末の内容' : '相手の端末の内容'}にしました。
-              </p>
+              <p className="search-status">{describeResolution(resolved[c.termId])}</p>
             ) : (
-              <div className="link-conflict-sides">
-                <ConflictSide title="この端末の内容" note={c.local} onChoose={() => void choose(c, 'local')} />
-                <ConflictSide title="相手の端末の内容" note={c.remote} onChoose={() => void choose(c, 'remote')} />
-              </div>
+              <>
+                <div className="link-conflict-sides">
+                  <ConflictSide title="この端末の内容" note={c.local} onChoose={() => void choose(c, 'local')} />
+                  <ConflictSide title="相手の端末の内容" note={c.remote} onChoose={() => void choose(c, 'remote')} />
+                </div>
+                <div className="link-conflict-merge">
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => void mergeWithAi(c)}
+                    disabled={merging !== null}
+                  >
+                    {merging === c.termId ? 'AIが統合しています…' : '2つをAIで統合する'}
+                  </button>
+                  <span className="search-status">
+                    どちらも捨てずに、AIが1つの説明にまとめます（APIキーが必要です）。
+                  </span>
+                  {mergeError[c.termId] && <p className="chat-error">{mergeError[c.termId]}</p>}
+                </div>
+              </>
             )}
           </li>
         ))}
       </ul>
     </div>
   );
+}
+
+function describeResolution(how: Resolution): string {
+  if (how === 'merged') return '2つをAIで統合しました。';
+  return `${how === 'local' ? 'この端末の内容' : '相手の端末の内容'}にしました。`;
 }
 
 function ConflictSide({ title, note, onChoose }: { title: string; note: NoteRecord; onChoose: () => void }) {

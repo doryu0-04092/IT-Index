@@ -1157,6 +1157,14 @@ button:disabled {
   font-size: var(--font-size-sm);
 }
 
+/* 「どちらかを採る」の下に「2つをAIで統合する」を置く（どちらも捨てたくない場合の第3の選択肢） */
+.link-conflict-merge {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
 /* 長い説明文でカードが縦に伸びすぎないよう、スクロールに閉じ込める */
 .link-conflict-body {
   margin: 0;

@@ -147,7 +147,7 @@ Android版は同じpropsのまま、左端から出るドロワー（☰）と�
 - ~~設定モーダルでのDrive/手動同期~~ **端末間同期は独立した「連携」画面として実装した**（`LinkModal.tsx`。トップナビの3番目）。Drive同期（`src/drive/`）はUIから未配線のまま休眠
 - ~~Mermaidの描画~~ **2026-08-02実装済み**（`src/ui/shared/MermaidDiagram.tsx`）
 - Markdownの描画（`notes.body` は現在プレーンテキスト表示）
-- ~~競合の確認画面~~ **2026-08-05実装済み**（`src/ui/shared/ConflictResolver.tsx`）。連携結果から、競合した語ごとに両端末の本文と更新時刻を並べて見比べ、採用したい方を選び直せる。なおAIによる自動統合案（`src/sync/resolveConflict.ts`）は実装はあるが未配線のまま——決定的マージ＋手動での選び直しで用が足りているため
+- ~~競合の確認画面~~ **2026-08-05実装済み**（`src/ui/shared/ConflictResolver.tsx`）。連携結果から、競合した語ごとに両端末の本文と更新時刻を並べて見比べ、①この端末の内容を採る ②相手の内容を採る ③**2つをAIで統合する**（`src/sync/resolveConflict.ts`。取り込み時の育成統合と同じ `MERGE_SYSTEM_PROMPT` を使うため、どちらの内容も一方的に落ちない）の3つから選べる。何もしなければ決定的マージの結果（新しい方）のまま
 - Service Worker（オフライン動作）
 - Android版の単語一覧（`TermIndexScreen`）。PC版のみ実装済みで、`UiSet` ではオプショナルにしてある
 

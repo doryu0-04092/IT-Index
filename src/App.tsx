@@ -520,7 +520,7 @@ export default function App({ ui }: { ui: UiSet }) {
             }}
           />
         ) : (
-          <LinkModal deps={manualSyncDeps} onClose={() => setScreen({ name: 'search' })} />
+          <LinkModal deps={manualSyncDeps} claude={claude} onClose={() => setScreen({ name: 'search' })} />
         )}
       </main>
 

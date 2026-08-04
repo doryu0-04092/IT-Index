@@ -6,12 +6,15 @@ import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
 import { describeSyncStatus } from '../../pairing/syncStatus';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
+import type { AiClient } from '../../ai/aiClient';
 import type { ManualSyncDeps } from '../../manualSync/sync';
 import ConflictResolver from '../shared/ConflictResolver';
 
 export interface LinkModalProps {
   /** deviceId が読み込まれるまでは null（App.tsx の localFolderDeps と同じ理由） */
   deps: ManualSyncDeps | null;
+  /** 競合を「2つをAIで統合する」ために使う（src/ui/shared/ConflictResolver.tsx） */
+  claude: AiClient;
   onClose: () => void;
 }
 
@@ -44,7 +47,7 @@ type ScanState =
  * （docs/ui-pc.md §3のカメラ・タイマー・サーバー停止漏れの実バグ record を踏まえる）。
  * 「ファイルでやり取りする」経路は廃止した（ユーザー指摘）。
  */
-export default function LinkModal({ deps, onClose }: LinkModalProps) {
+export default function LinkModal({ deps, claude, onClose }: LinkModalProps) {
   const [view, setView] = useState<View>('menu');
   const isDesktop = typeof window !== 'undefined' && !!window.desktop;
 
@@ -75,8 +78,8 @@ export default function LinkModal({ deps, onClose }: LinkModalProps) {
           <LinkMenu isDesktop={isDesktop} cameraAvailable={cameraAvailable} onSelect={setView} depsReady={deps !== null} />
         </>
       )}
-      {view === 'host' && <HostView deps={deps} onBack={goMenu} />}
-      {view === 'scan' && <ScanView deps={deps} onBack={goMenu} />}
+      {view === 'host' && <HostView deps={deps} claude={claude} onBack={goMenu} />}
+      {view === 'scan' && <ScanView deps={deps} claude={claude} onBack={goMenu} />}
     </div>
   );
 }
@@ -110,7 +113,7 @@ function LinkMenu({
   );
 }
 
-function ResultView({ outcome, deps }: { outcome: Outcome; deps: ManualSyncDeps | null }) {
+function ResultView({ outcome, deps, claude }: { outcome: Outcome; deps: ManualSyncDeps | null; claude: AiClient }) {
   if (!outcome.ok) {
     return <p className="chat-error">{outcome.reason}</p>;
   }
@@ -122,13 +125,13 @@ function ResultView({ outcome, deps }: { outcome: Outcome; deps: ManualSyncDeps 
           読み込めなかったファイルが{outcome.skippedFiles.length}件あります: {outcome.skippedFiles.join('、')}
         </p>
       )}
-      {outcome.conflicts.length > 0 && deps && <ConflictResolver conflicts={outcome.conflicts} deps={deps} />}
+      {outcome.conflicts.length > 0 && deps && <ConflictResolver conflicts={outcome.conflicts} deps={deps} claude={claude} />}
     </div>
   );
 }
 
 /** 「QRを表示する」（待ち受け役）。docs要件: 完了・中断・閉じるとき必ず stopPairingServer() を呼ぶ */
-function HostView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () => void }) {
+function HostView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claude: AiClient; onBack: () => void }) {
   const [state, setState] = useState<HostState>({ phase: 'starting' });
 
   useEffect(() => {
@@ -216,13 +219,13 @@ function HostView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
       {state.phase === 'processing' && <p className="search-status">受信したデータを取り込んでいます…</p>}
       {state.phase === 'showing' && <p className="search-status">相手の端末でこのQRコードを読み取ってください。</p>}
       {state.phase === 'error' && <p className="chat-error">{state.message}</p>}
-      {state.phase === 'done' && <ResultView outcome={state.outcome} deps={deps} />}
+      {state.phase === 'done' && <ResultView outcome={state.outcome} deps={deps} claude={claude} />}
     </div>
   );
 }
 
 /** 「カメラで読み取る」（接続役）。docs要件: 成功・失敗・画面離脱いずれでも必ずスキャン停止関数を呼ぶ */
-function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () => void }) {
+function ScanView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claude: AiClient; onBack: () => void }) {
   const [state, setState] = useState<ScanState>({ phase: 'scanning' });
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -320,7 +323,7 @@ function ScanView({ deps, onBack }: { deps: ManualSyncDeps | null; onBack: () =>
       {state.phase === 'invalidQr' && <p className="chat-error">このQRコードは連携用ではありません。読み取りを続けます。</p>}
       {state.phase === 'processing' && <p className="search-status">接続して取り込んでいます…</p>}
       {state.phase === 'error' && <p className="chat-error">{state.message}</p>}
-      {state.phase === 'done' && <ResultView outcome={state.outcome} deps={deps} />}
+      {state.phase === 'done' && <ResultView outcome={state.outcome} deps={deps} claude={claude} />}
     </div>
   );
 }
