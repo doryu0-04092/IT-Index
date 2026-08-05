@@ -31,8 +31,7 @@ export interface UiSet {
   SearchScreen: typeof SearchScreen;
   SettingsModal: typeof SettingsModal;
   TermDetailScreen: typeof TermDetailScreen;
-  /** 単語一覧（索引）。Android版は未実装のためオプショナル（後日のUI刷新で対応する） */
-  TermIndexScreen?: typeof TermIndexScreen;
+  TermIndexScreen: typeof TermIndexScreen;
   Toast: typeof Toast;
   TopNav: typeof TopNav;
 }

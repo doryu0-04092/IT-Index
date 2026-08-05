@@ -1574,3 +1574,36 @@ button:disabled {
   min-width: 44px;
   font-size: 1rem;
 }
+
+/* 単語詳細の削除ボタン・削除確認（本当に削除しますか？ 削除する キャンセル）。
+   タップ領域が狭いままだと誤操作しやすい操作なので44px以上に広げる。長い文言でも
+   折り返せるよう、行自体もwrapを許す（PC版は横一列に収まる想定で組んでいる）。 */
+.android-app .term-detail-top-row {
+  flex-wrap: wrap;
+}
+
+.android-app .term-detail-delete,
+.android-app .term-detail-delete-confirm button {
+  min-height: 44px;
+}
+
+/* 単語一覧（索引）画面。A〜Zのジャンプリンク・五十音図の各マスは元の見た目だと
+   タップ領域が44pxに届かないため広げる。五十音図はグリッドの列幅そのものを
+   広げて対応する（PC版は10列固定でも十分な余白があるが、狭幅ではそれが窮屈になる）。 */
+.android-app .term-index-jump-link {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.android-app .term-index-gojuon-grid {
+  grid-template-columns: repeat(10, minmax(28px, 1fr));
+}
+
+/* ジェスチャーバー（セーフエリア）に食い込まないよう、下端の余白を足す */
+.android-app .term-index-scroll-top {
+  bottom: calc(env(safe-area-inset-bottom) + var(--space-4));
+  right: calc(var(--space-3) + env(safe-area-inset-right));
+}

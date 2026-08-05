@@ -37,7 +37,7 @@ export default function FactoryResetSection() {
     <section className="settings-section settings-section-danger">
       <h3>オールクリア</h3>
       <p className="search-status">
-        用語・ノート・検索履歴・APIキー・ローカルフォルダ連携・テーマ設定など、このアプリが保存している全てのデータを削除し、初回起動時と同じ状態に戻します。
+        用語・ノート・検索履歴・APIキー・テーマ設定など、このアプリが保存している全てのデータを削除し、初回起動時と同じ状態に戻します。
         <strong>この操作は取り消せません。</strong>
         （WebAuthnのパスキー登録自体はブラウザ・OS側の管轄のため削除されません）
       </p>

@@ -6,7 +6,6 @@ import type { ApiKeyStore } from '../../keystore/apiKeyStore';
 import { getSessionCredential } from '../../keystore/apiKeyStore';
 import ApiKeyPrompt from './ApiKeyPrompt';
 import FactoryResetSection from './FactoryResetSection';
-import Sheet from './Sheet';
 
 export interface SettingsModalProps {
   apiKeyStore: ApiKeyStore;
@@ -19,9 +18,11 @@ export interface SettingsModalProps {
 }
 
 /**
- * 設定（Android版）。propsとロジックはPC版と同じだが、見せ方は下から出るシート
- * （`Sheet.tsx`）にしてある。縦持ちでは中央のダイアログだと閉じる操作も内容も
- * 親指から遠くなるため。
+ * 設定（Android版）。propsとロジックはPC版と同じ。以前は下から出るシート
+ * （`Sheet.tsx`）で見せていたが、トップナビ（ドロワー）からの遷移先という点で他の
+ * 画面（検索・履歴・単語一覧）と変わらないのにここだけモーダルなのは違和感がある
+ * というユーザー指摘により、PC版と同じ通常の画面表示に変更した
+ * （`src/ui/pc/SettingsModal.tsx` と同じ扱い）。
  */
 export default function SettingsModal({
   apiKeyStore,
@@ -65,7 +66,7 @@ export default function SettingsModal({
 
   if (editingKey) {
     return (
-      <Sheet title="APIキーの設定" onClose={onClose}>
+      <div className="settings-screen">
         <ApiKeyPrompt
           apiKeyStore={apiKeyStore}
           backLabel="← 設定に戻る"
@@ -76,66 +77,68 @@ export default function SettingsModal({
             apiKeyStore.hasPersistedCredential().then(setHasPersisted);
           }}
         />
-      </Sheet>
+      </div>
     );
   }
 
   return (
-    <Sheet title="設定" onClose={onClose}>
-      <>
+    <div className="settings-screen">
+      <button type="button" className="term-detail-back" onClick={onClose}>
+        ← 検索に戻る
+      </button>
+
+      <section className="settings-section">
+        <h3>AIプロバイダ・APIキー</h3>
+        <p className="search-status">
+          {credential ? `${getProviderInfo(credential.provider).label}（${credential.model}）を使用中` : '未設定'}
+        </p>
+        <button type="button" className="btn-secondary" onClick={() => setEditingKey(true)}>
+          {credential ? 'APIキーを変更' : 'APIキーを設定'}
+        </button>
+      </section>
+
+      <section className="settings-section">
+        <h3>既存語の自動更新</h3>
+        <p className="search-status">
+          AIチャットの確定は承認画面を挟まず自動でAI補足に反映されます。この設定は、話題にしていない語（会話の中でついでに触れられただけの既存語）まで反映するかどうかを決めます。
+        </p>
+        <label className="settings-radio">
+          <input
+            type="radio"
+            name="autoUpdateExistingTerms"
+            checked={autoUpdateExistingTerms === 'askedOnly'}
+            onChange={() => onChangeAutoUpdateExistingTerms('askedOnly')}
+          />
+          自分が検索・質問した語だけ自動更新する（既定）
+        </label>
+        <label className="settings-radio">
+          <input
+            type="radio"
+            name="autoUpdateExistingTerms"
+            checked={autoUpdateExistingTerms === 'all'}
+            onChange={() => onChangeAutoUpdateExistingTerms('all')}
+          />
+          他の語について調べた際に出てきた情報も自動更新する
+        </label>
+      </section>
+
+      {hasPersisted && (
         <section className="settings-section">
-          <h3>AIプロバイダ・APIキー</h3>
-          <p className="search-status">
-            {credential ? `${getProviderInfo(credential.provider).label}（${credential.model}）を使用中` : '未設定'}
-          </p>
-          <button type="button" className="btn-secondary" onClick={() => setEditingKey(true)}>
-            {credential ? 'APIキーを変更' : 'APIキーを設定'}
-          </button>
+          <h3>この端末への保存</h3>
+          <p className="search-status">パスキーで暗号化保存されています。</p>
+          <div className="api-key-actions">
+            <button type="button" className="btn-secondary" onClick={handleAuthenticate} disabled={authenticating || credential !== null}>
+              {authenticating ? '認証中…' : credential ? '認証済み' : 'パスキーで認証'}
+            </button>
+            <button type="button" className="btn-text" onClick={handleForget}>
+              この端末の保存を削除
+            </button>
+          </div>
+          {authError && <p className="chat-error">{authError}</p>}
         </section>
+      )}
 
-        <section className="settings-section">
-          <h3>既存語の自動更新</h3>
-          <p className="search-status">
-            AIチャットの確定は承認画面を挟まず自動でAI補足に反映されます。この設定は、話題にしていない語（会話の中でついでに触れられただけの既存語）まで反映するかどうかを決めます。
-          </p>
-          <label className="settings-radio">
-            <input
-              type="radio"
-              name="autoUpdateExistingTerms"
-              checked={autoUpdateExistingTerms === 'askedOnly'}
-              onChange={() => onChangeAutoUpdateExistingTerms('askedOnly')}
-            />
-            自分が検索・質問した語だけ自動更新する（既定）
-          </label>
-          <label className="settings-radio">
-            <input
-              type="radio"
-              name="autoUpdateExistingTerms"
-              checked={autoUpdateExistingTerms === 'all'}
-              onChange={() => onChangeAutoUpdateExistingTerms('all')}
-            />
-            他の語について調べた際に出てきた情報も自動更新する
-          </label>
-        </section>
-
-        {hasPersisted && (
-          <section className="settings-section">
-            <h3>この端末への保存</h3>
-            <p className="search-status">パスキーで暗号化保存されています。</p>
-            <div className="api-key-actions">
-              <button type="button" className="btn-secondary" onClick={handleAuthenticate} disabled={authenticating || credential !== null}>
-                {authenticating ? '認証中…' : credential ? '認証済み' : 'パスキーで認証'}
-              </button>
-              <button type="button" className="btn-text" onClick={handleForget}>
-                この端末の保存を削除
-              </button>
-            </div>
-            {authError && <p className="chat-error">{authError}</p>}
-          </section>
-        )}
-
-        <FactoryResetSection />
-      </>
-    </Sheet>
+      <FactoryResetSection />
+    </div>
   );
 }

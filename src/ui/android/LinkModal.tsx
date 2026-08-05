@@ -5,7 +5,6 @@ import { generatePairingKey, importPairingKey } from '../../pairing/crypto';
 import { decodePairingPayload, encodePairingPayload } from '../../pairing/pairingCodec';
 import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
 import { describeSyncStatus } from '../../pairing/syncStatus';
-import Sheet from './Sheet';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
 import type { AiClient } from '../../ai/aiClient';
@@ -39,9 +38,12 @@ type ScanState =
   | { phase: 'error'; message: string };
 
 /**
- * 「連携」モーダル（Android版）。同期のコアロジック（src/pairing/、src/manualSync/）は
+ * トップナビ「連携」の画面（Android版）。同期のコアロジック（src/pairing/、src/manualSync/）は
  * プラットフォーム非依存で、PC版とAndroid版で共有する。ここではその配線とUIだけを行う
- * （PC版 src/ui/pc/LinkModal.tsx と同じ方針）。
+ * （PC版 src/ui/pc/LinkModal.tsx と同じ方針）。以前は下から出るシートで見せていたが、
+ * SettingsModal.tsx と同じ理由（他のナビ項目と同じ画面遷移先なのにここだけモーダルなのは
+ * 違和感がある）で通常の画面表示に変更した。`onClose` という名前のまま残しているが、
+ * 実質は「検索へ戻る」（App.tsx側でその遷移をする）。
  *
  * PC版との唯一の違いは、待ち受け役（HostView）の実装が Electron の window.desktop ではなく
  * Capacitorプラグイン `PairingServer`（src/native/pairingServer.ts）になる点。
@@ -70,13 +72,18 @@ export default function LinkModal({ deps, claude, onClose }: LinkModalProps) {
   }
 
   return (
-    <Sheet title="連携" onClose={onClose}>
-      <>
-        {view === 'menu' && <LinkMenu cameraAvailable={cameraAvailable} onSelect={setView} depsReady={deps !== null} />}
-        {view === 'host' && <HostView deps={deps} claude={claude} onBack={goMenu} />}
-        {view === 'scan' && <ScanView deps={deps} claude={claude} onBack={goMenu} />}
-      </>
-    </Sheet>
+    <div className="link-screen">
+      {view === 'menu' && (
+        <>
+          <button type="button" className="term-detail-back" onClick={onClose}>
+            ← 検索に戻る
+          </button>
+          <LinkMenu cameraAvailable={cameraAvailable} onSelect={setView} depsReady={deps !== null} />
+        </>
+      )}
+      {view === 'host' && <HostView deps={deps} claude={claude} onBack={goMenu} />}
+      {view === 'scan' && <ScanView deps={deps} claude={claude} onBack={goMenu} />}
+    </div>
   );
 }
 

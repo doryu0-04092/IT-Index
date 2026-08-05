@@ -94,6 +94,7 @@ export default function App({ ui }: { ui: UiSet }) {
     SearchScreen,
     SettingsModal,
     TermDetailScreen,
+    TermIndexScreen,
     Toast,
     TopNav,
   } = ui;
@@ -502,12 +503,7 @@ export default function App({ ui }: { ui: UiSet }) {
             onBack={() => setScreen({ name: 'search' })}
           />
         ) : screen.name === 'index' ? (
-          ui.TermIndexScreen && (
-            <ui.TermIndexScreen
-              termsRepo={termsRepo}
-              onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
-            />
-          )
+          <TermIndexScreen termsRepo={termsRepo} onSelectTerm={(termId) => setScreen({ name: 'detail', termId })} />
         ) : screen.name === 'settings' ? (
           <SettingsModal
             apiKeyStore={apiKeyStore}

@@ -11,31 +11,62 @@ export interface TermDetailScreenProps {
   notesRepo: NotesRepository;
   onBack: () => void;
   onStartChat: (termId: string) => void;
+  /**
+   * 削除した後の後始末（未取り込みチャットの整理・検索画面への遷移）。呼び出し元（App）の責務。
+   * 削除後にこの語を表示し続けても意味が無いため、必ず画面を離れる。
+   */
+  onDeleted: (termId: string) => void;
 }
 
 /**
  * 用語詳細画面（Android版）。PC版と同じprops・同じロジック・同じCSSクラス名。
  * Mermaid図は`MermaidDiagram`（src/ui/shared/）でPC版と共通描画する。狭幅での
  * 触感向上分は `.android-app` スコープで追記する（src/index.css 末尾）。
+ * 削除の2段階確認もPC版と同じ挙動（`src/ui/pc/TermDetailScreen.tsx`参照）。
  */
-export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack, onStartChat }: TermDetailScreenProps) {
+export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack, onStartChat, onDeleted }: TermDetailScreenProps) {
   const [term, setTerm] = useState<TermRecord | null | undefined>(undefined); // undefined = 読み込み中
   const [note, setNote] = useState<NoteRecord | undefined>(undefined);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     setTerm(undefined);
     setNote(undefined);
+    setConfirmingDelete(false);
     Promise.all([termsRepo.getById(termId), notesRepo.getByTermId(termId)]).then(([t, n]) => {
       setTerm(t ?? null);
       setNote(n);
     });
   }, [termId, termsRepo, notesRepo]);
 
+  async function handleDelete() {
+    await termsRepo.softDelete(termId, Date.now());
+    onDeleted(termId);
+  }
+
   return (
     <div className="term-detail">
-      <button type="button" className="term-detail-back" onClick={onBack}>
-        ← 検索に戻る
-      </button>
+      <div className="term-detail-top-row">
+        <button type="button" className="term-detail-back" onClick={onBack}>
+          ← 検索に戻る
+        </button>
+        {term && !confirmingDelete && (
+          <button type="button" className="btn-text term-detail-delete" onClick={() => setConfirmingDelete(true)}>
+            この語を削除
+          </button>
+        )}
+        {term && confirmingDelete && (
+          <span className="term-detail-delete-confirm">
+            本当に削除しますか？
+            <button type="button" className="btn-secondary" onClick={() => void handleDelete()}>
+              削除する
+            </button>
+            <button type="button" className="btn-text" onClick={() => setConfirmingDelete(false)}>
+              キャンセル
+            </button>
+          </span>
+        )}
+      </div>
 
       {term === undefined && <Skeleton lines={4} />}
       {term === null && <p className="search-status">この語は見つかりませんでした。</p>}
