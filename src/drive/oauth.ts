@@ -6,7 +6,7 @@
  * アクセストークンはメモリにのみ保持し、タブを閉じれば消える（APIキーと同じ扱い）。
  *
  * 実際の同意画面・認可はブラウザでの対話が要るためテスト対象外
- * （src/keystore/webauthn.ts と同じ位置づけ）。
+ * （src/native/secureKeyStore.ts と同じ位置づけ）。
  *
  * 前提: このモジュールを実際に動かすには、開発者が Google Cloud Console で
  * OAuthクライアントID（種類: ウェブアプリケーション）を発行し、Drive API を有効化し、

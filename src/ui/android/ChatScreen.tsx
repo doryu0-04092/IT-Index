@@ -6,6 +6,7 @@ import type { SubjectContext } from '../../ai/subjectContext';
 import type { ApiKeyStore } from '../../keystore/apiKeyStore';
 import type { ChatRepository } from '../../repositories/chat';
 import type { ChatMessageRecord } from '../../types';
+import ChatMessageBody from '../shared/ChatMessageBody';
 import ApiKeyPrompt from './ApiKeyPrompt';
 import FeatureHint from './FeatureHint';
 
@@ -125,7 +126,7 @@ export default function ChatScreen({
       <div className="chat-messages">
         {visibleMessages.map((m) => (
           <div key={m.id} className={`chat-message chat-message-${m.role}`}>
-            <p>{m.content}</p>
+            {m.role === 'assistant' ? <ChatMessageBody content={m.content} /> : <p>{m.content}</p>}
           </div>
         ))}
         {sending && (
@@ -194,6 +195,17 @@ export default function ChatScreen({
           </button>
         )}
       </div>
+
+      {/* 質問を重ねて会話が伸びると、画面上部の戻るリンクまでスクロールしないと前の画面に
+          戻れない不便があった（ユーザー指摘）。同じリンクをここにも複製する。 */}
+      <button type="button" className="term-detail-back" onClick={onBack}>
+        ← 検索に戻る
+      </button>
+      {returnTermId && (
+        <button type="button" className="chat-back-to-term" onClick={() => onBackToTerm(returnTermId)}>
+          ← 「{subject.label}」の詳細に戻る
+        </button>
+      )}
     </div>
   );
 }

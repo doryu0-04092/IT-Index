@@ -2,14 +2,13 @@ import { Capacitor } from '@capacitor/core';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createDynamicAiClient } from './ai/providers';
 import { createCommitOrchestrator } from './ai/commitOrchestrator';
-import type { AutoUpdateExistingTermsMode } from './ai/distribution';
 import { logAiError } from './ai/logError';
 import { buildSubjectContext, type SubjectContext } from './ai/subjectContext';
 import { isUnsupportedBrowser } from './browserSupport';
 import { db } from './db';
-import { createApiKeyStore, getSessionCredential } from './keystore/apiKeyStore';
+import { getSessionCredential } from './keystore/apiKeyStore';
 import { createAndroidSecureApiKeyStore } from './keystore/androidSecureApiKeyStore';
-import { createBrowserWebAuthnClient } from './keystore/webauthn';
+import { createElectronSafeStorageApiKeyStore } from './keystore/electronSafeStorageApiKeyStore';
 import type { ManualSyncDeps } from './manualSync/sync';
 import { persistScreen, readPersistedScreen, type PersistedScreen } from './screenPersistence';
 import { hasSeenOnboarding, markOnboardingSeen } from './ui/onboarding';
@@ -26,9 +25,12 @@ import type { HistoryView } from './ui/pc/HistoryScreen';
 import type { TopNavCurrent } from './ui/pc/TopNav';
 import type { UiSet } from './ui/uiSet';
 
+/** 単語詳細画面の遷移元。検索から来た場合は戻る先が「検索」の1つだけなので情報を持たない */
+type DetailFrom = 'search' | 'index' | { screen: 'history'; view: HistoryView };
+
 type Screen =
   | { name: 'search' }
-  | { name: 'detail'; termId: string }
+  | { name: 'detail'; termId: string; from: DetailFrom }
   | { name: 'chat'; sessionId: string; subject: SubjectContext; returnTermId: string | null }
   | { name: 'history'; view: HistoryView }
   | { name: 'index' }
@@ -45,6 +47,19 @@ function topNavCurrent(screen: Screen): TopNavCurrent {
   if (screen.name === 'settings') return 'settings';
   if (screen.name === 'link') return 'link';
   return null;
+}
+
+/**
+ * 単語詳細画面の2本目の「戻る」リンク（履歴・単語一覧経由の場合のみ）。検索から来た場合は
+ * undefined（← 検索に戻る の1本のみ）。
+ */
+function secondaryBackFor(
+  from: DetailFrom,
+  setScreen: (screen: Screen) => void,
+): { label: string; onClick: () => void } | undefined {
+  if (from === 'search') return undefined;
+  if (from === 'index') return { label: '← 単語一覧に戻る', onClick: () => setScreen({ name: 'index' }) };
+  return { label: '← 履歴に戻る', onClick: () => setScreen({ name: 'history', view: from.view }) };
 }
 
 function screenKey(screen: Screen): string {
@@ -66,7 +81,7 @@ function toPersistedScreen(screen: Screen): PersistedScreen {
     case 'search':
       return { name: 'search' };
     case 'detail':
-      return { name: 'detail', termId: screen.termId };
+      return { name: 'detail', termId: screen.termId, from: screen.from };
     case 'chat':
       return { name: 'chat', sessionId: screen.sessionId, returnTermId: screen.returnTermId };
     case 'history':
@@ -108,10 +123,12 @@ export default function App({ ui }: { ui: UiSet }) {
   // リロード時の文脈復元（#39）を一度だけ試みるためのガード。seedSettled後に1回だけ実行する。
   const [screenRestoreAttempted, setScreenRestoreAttempted] = useState(false);
   const [deviceId, setDeviceId] = useState<string | null>(null);
-  const [autoUpdateExistingTerms, setAutoUpdateExistingTerms] = useState<AutoUpdateExistingTermsMode>('askedOnly');
   const [globalError, setGlobalError] = useState<string | null>(null);
   // 確定処理は fire-and-forget のため（#40対応）、実行中であることをトーストで示す。
-  const [commitInProgress, setCommitInProgress] = useState(false);
+  // 「まとめて単語帳に取り込む」で複数セッションを並行実行することがあるため、booleanではなく
+  // 実行中件数のカウンタにする（2026-08-05修正。booleanのままだと、複数同時実行中に1件だけ
+  // 完了しても表示が消えてしまい、表示のオン/オフが処理の実態と食い違っていた）。
+  const [commitInProgress, setCommitInProgress] = useState(0);
   // 確定に失敗したセッションIDの集合。「AIによる単語更新待ち」一覧に失敗マークを表示するため
   // に使う（#41対応）。次に確定に成功したら該当セッションを取り除く。
   const [failedCommitSessionIds, setFailedCommitSessionIds] = useState<Set<string>>(new Set());
@@ -178,14 +195,14 @@ export default function App({ ui }: { ui: UiSet }) {
   const chatRepo = useMemo(() => createChatRepository(db), []);
   const settingsRepo = useMemo(() => createSettingsRepository(db), []);
   const keyStoreRepo = useMemo(() => createKeyStoreRepository(db), []);
-  const webauthn = useMemo(() => createBrowserWebAuthnClient(), []);
-  // Android実機はWebAuthnのパスキーが未設定のことが多く保存機能が使えないため、
-  // Android Keystore＋端末標準のロック解除（生体認証/PIN等）を使う実装に差し替える
-  // （ユーザー指摘。src/keystore/androidSecureApiKeyStore.ts）。ApiKeyStoreインターフェースは
-  // 共通のため、呼び出し側（SettingsModal・ApiKeyPrompt）はプラットフォームを意識しない。
+  // Android実機・PC(Electron)実機どちらも、WebAuthnのパスキー(PRF拡張)は環境依存で失敗しやすく
+  // 保存自体ができないことがあった（ユーザー指摘）。Androidは Android Keystore＋端末標準の
+  // ロック解除（生体認証/PIN等）、PCはElectron組み込みのsafeStorage（OS標準の暗号化）に
+  // 差し替える。ApiKeyStoreインターフェースは共通のため、呼び出し側（SettingsModal・
+  // ApiKeyPrompt）はプラットフォームを意識しない。
   const apiKeyStore = useMemo(
-    () => (Capacitor.isNativePlatform() ? createAndroidSecureApiKeyStore(keyStoreRepo) : createApiKeyStore(keyStoreRepo, webauthn)),
-    [keyStoreRepo, webauthn],
+    () => (Capacitor.isNativePlatform() ? createAndroidSecureApiKeyStore(keyStoreRepo) : createElectronSafeStorageApiKeyStore(keyStoreRepo)),
+    [keyStoreRepo],
   );
   const claude = useMemo(() => createDynamicAiClient(getSessionCredential), []);
 
@@ -207,14 +224,16 @@ export default function App({ ui }: { ui: UiSet }) {
       claude,
       asksRepo,
       deviceId,
-      autoUpdateExistingTerms,
+      // 既定(自分が検索・質問した語だけ自動更新)のみを使う運用にしたため固定値を渡す
+      // （2026-08-05、設定画面から選択UIを削除）。
+      autoUpdateExistingTerms: 'askedOnly',
       onError: (sessionId, error) => {
         logAiError(`commitOrchestrator(session=${sessionId})`, error);
         setGlobalError(`確定処理に失敗しました: ${error instanceof Error ? error.message : String(error)}`);
         setFailedCommitSessionIds((prev) => new Set(prev).add(sessionId));
       },
     });
-  }, [chatRepo, termsRepo, notesRepo, claude, asksRepo, deviceId, autoUpdateExistingTerms]);
+  }, [chatRepo, termsRepo, notesRepo, claude, asksRepo, deviceId]);
 
   const runSeedImport = useCallback(() => {
     setSeedError(null);
@@ -240,7 +259,6 @@ export default function App({ ui }: { ui: UiSet }) {
 
     settingsRepo.get().then((s) => {
       setDeviceId(s.deviceId);
-      setAutoUpdateExistingTerms(s.autoUpdateExistingTerms);
     });
   }, [runSeedImport, settingsRepo]);
 
@@ -258,7 +276,7 @@ export default function App({ ui }: { ui: UiSet }) {
       switch (persisted.name) {
         case 'detail': {
           const term = await termsRepo.getById(persisted.termId);
-          if (term) setScreen({ name: 'detail', termId: persisted.termId });
+          if (term) setScreen({ name: 'detail', termId: persisted.termId, from: persisted.from });
           break;
         }
         case 'chat': {
@@ -301,10 +319,9 @@ export default function App({ ui }: { ui: UiSet }) {
   // 取り込みはホーム画面（SearchScreen）の「まとめて単語帳に取り込む」に一元化した。
   useEffect(() => {
     // サイトに入った時点で「保存済みのAPIキーがあるか」だけ確認する（復号はしない）。
-    // 実際の復元（WebAuthn呼び出し）はユーザーがボタンを押した瞬間に行う——
-    // navigator.credentials.get() はユーザー操作を伴わない自動呼び出しをブラウザに
-    // 拒否されることがあり、ページ読み込み直後に自動で試すと静かに失敗しやすいため
-    // （実際に報告された不具合。docs/ui-pc.md 参照）。
+    // 実際の復元はユーザーがボタンを押した瞬間に行う——Android版はKeystoreの生体認証/PIN
+    // ダイアログがユーザー操作を伴わない自動呼び出しでは拒否されることがあり、
+    // ページ読み込み直後に自動で試すと静かに失敗しやすいため（実際に報告された不具合）。
     if (!keyReady) {
       apiKeyStore.hasPersistedCredential().then(setHasPersistedKey);
     }
@@ -318,7 +335,7 @@ export default function App({ ui }: { ui: UiSet }) {
       if (restored) {
         setKeyReady(true);
       } else {
-        setAuthError('認証できませんでした（キャンセルされたか、この端末のパスキーではありません）。');
+        setAuthError('復元できませんでした（キャンセルされたか、保存内容が壊れている可能性があります）。');
       }
     } catch (err) {
       logAiError('App.handleAuthenticate', err);
@@ -365,7 +382,7 @@ export default function App({ ui }: { ui: UiSet }) {
   // 確定＝AI要約処理・DB書き込み（commitOrchestrator）。完了後、SearchScreenの
   // 「AIによる単語更新待ち」一覧を再取得させるため pendingRefreshTick を進める。
   async function commitSession(sessionId: string): Promise<void> {
-    setCommitInProgress(true);
+    setCommitInProgress((n) => n + 1);
     try {
       // commitOrchestratorのcommit()は失敗時も例外を投げず、内部でonErrorを呼ぶだけで
       // resolveする（src/ai/commitOrchestrator.ts:73-76）。そのため「呼び出し前に楽観的に
@@ -379,7 +396,7 @@ export default function App({ ui }: { ui: UiSet }) {
       });
       await commitOrchestrator?.triggerCommit(sessionId);
     } finally {
-      setCommitInProgress(false);
+      setCommitInProgress((n) => n - 1);
       setPendingRefreshTick((t) => t + 1);
     }
   }
@@ -413,7 +430,7 @@ export default function App({ ui }: { ui: UiSet }) {
     if (deviceId) {
       void asksRepo.addSearchConfirm(termId, deviceId, Date.now());
     }
-    setScreen({ name: 'detail', termId });
+    setScreen({ name: 'detail', termId, from: 'search' });
   }
 
   return (
@@ -434,7 +451,7 @@ export default function App({ ui }: { ui: UiSet }) {
           <div className="auth-banner">
             <span>保存済みのAPIキーがあります。</span>
             <button type="button" className="btn-primary" onClick={handleAuthenticate} disabled={authenticating}>
-              {authenticating ? '認証中…' : 'パスキーで認証'}
+              {authenticating ? '認証中…' : '保存内容を使う'}
             </button>
             <button type="button" className="btn-text" onClick={() => setHasPersistedKey(false)} disabled={authenticating}>
               今は使わない
@@ -472,6 +489,7 @@ export default function App({ ui }: { ui: UiSet }) {
             termsRepo={termsRepo}
             notesRepo={notesRepo}
             onBack={() => setScreen({ name: 'search' })}
+            secondaryBack={secondaryBackFor(screen.from, setScreen)}
             onStartChat={(termId) => void startChat(termId, termId)}
             onDeleted={(deletedTermId) => void handleTermDeleted(deletedTermId)}
           />
@@ -493,7 +511,7 @@ export default function App({ ui }: { ui: UiSet }) {
               setScreen({ name: 'search' });
             }}
             onBackToTerm={(termId) => {
-              setScreen({ name: 'detail', termId });
+              setScreen({ name: 'detail', termId, from: 'search' });
             }}
           />
         ) : screen.name === 'history' ? (
@@ -502,13 +520,13 @@ export default function App({ ui }: { ui: UiSet }) {
             termsRepo={termsRepo}
             syncEventsRepo={syncEventsRepo}
             initialView={screen.view}
-            onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
+            onSelectTerm={(termId) => setScreen({ name: 'detail', termId, from: { screen: 'history', view: screen.view } })}
             onBack={() => setScreen({ name: 'search' })}
           />
         ) : screen.name === 'index' ? (
           <TermIndexScreen
             termsRepo={termsRepo}
-            onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
+            onSelectTerm={(termId) => setScreen({ name: 'detail', termId, from: 'index' })}
             onBack={() => setScreen({ name: 'search' })}
           />
         ) : screen.name === 'settings' ? (
@@ -516,11 +534,6 @@ export default function App({ ui }: { ui: UiSet }) {
             apiKeyStore={apiKeyStore}
             onClose={() => setScreen({ name: 'search' })}
             onCredentialReady={() => setKeyReady(true)}
-            autoUpdateExistingTerms={autoUpdateExistingTerms}
-            onChangeAutoUpdateExistingTerms={(mode) => {
-              setAutoUpdateExistingTerms(mode);
-              void settingsRepo.setAutoUpdateExistingTerms(mode);
-            }}
           />
         ) : (
           <LinkModal
@@ -544,8 +557,13 @@ export default function App({ ui }: { ui: UiSet }) {
       </div>
 
       {globalError && <Toast message={globalError} onDismiss={() => setGlobalError(null)} />}
-      {!globalError && commitInProgress && (
-        <Toast message="確定処理を実行しています…" variant="info" durationMs={15_000} onDismiss={() => {}} />
+      {!globalError && commitInProgress > 0 && (
+        <Toast
+          message="確定処理を実行しています…"
+          variant="info"
+          durationMs={15_000}
+          onDismiss={() => setCommitInProgress(0)}
+        />
       )}
       {showOnboarding && <OnboardingModal onClose={dismissOnboarding} />}
     </div>

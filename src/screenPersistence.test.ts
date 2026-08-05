@@ -8,12 +8,17 @@ describe('isPersistedScreen', () => {
     expect(isPersistedScreen({ name: 'search' })).toBe(true);
   });
 
-  it('accepts a detail screen with a string termId', () => {
-    expect(isPersistedScreen({ name: 'detail', termId: 'api' })).toBe(true);
+  it('accepts a detail screen with a string termId and a valid from', () => {
+    expect(isPersistedScreen({ name: 'detail', termId: 'api', from: 'search' })).toBe(true);
+    expect(isPersistedScreen({ name: 'detail', termId: 'api', from: 'index' })).toBe(true);
+    expect(isPersistedScreen({ name: 'detail', termId: 'api', from: { screen: 'history', view: 'weighted' } })).toBe(true);
   });
 
-  it('rejects a detail screen without termId', () => {
+  it('rejects a detail screen without termId or from', () => {
     expect(isPersistedScreen({ name: 'detail' })).toBe(false);
+    expect(isPersistedScreen({ name: 'detail', termId: 'api' })).toBe(false);
+    expect(isPersistedScreen({ name: 'detail', termId: 'api', from: 'bogus' })).toBe(false);
+    expect(isPersistedScreen({ name: 'detail', termId: 'api', from: { screen: 'history', view: 'bogus' } })).toBe(false);
   });
 
   it('accepts a chat screen with a term-linked returnTermId', () => {

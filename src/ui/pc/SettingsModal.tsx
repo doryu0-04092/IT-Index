@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { getProviderInfo } from '../../ai/providers/types';
-import type { AutoUpdateExistingTermsMode } from '../../ai/distribution';
 import { logAiError } from '../../ai/logError';
 import type { ApiKeyStore } from '../../keystore/apiKeyStore';
 import { getSessionCredential } from '../../keystore/apiKeyStore';
@@ -12,26 +11,16 @@ export interface SettingsModalProps {
   onClose: () => void;
   /** APIキーが（再）設定された、または保存済み資格情報を復元できたときに呼ぶ */
   onCredentialReady: () => void;
-  /** 要件定義書§5.3「既存語の自動更新」。現在の設定値 */
-  autoUpdateExistingTerms: AutoUpdateExistingTermsMode;
-  onChangeAutoUpdateExistingTerms: (mode: AutoUpdateExistingTermsMode) => void;
 }
 
 /**
  * トップナビ「設定」の画面。APIキー（プロバイダ・モデルの変更含む）と、この端末への保存
- * （パスキー）をここに集約する（2026-07-28設計）。既存語の自動更新範囲（2026-07-30追加）も
- * ここに置く——承認画面を廃止した代わりに、利用者が事前に選べる唯一のコントロールになる。
+ * （OS標準の暗号化機能）をここに集約する（2026-07-28設計）。
  * 以前はモーダル表示だったが、他のナビ項目（検索・履歴・単語一覧）と同じ画面遷移先なのに
  * ここだけモーダルなのは違和感があるというユーザー指摘により、通常の画面表示に変更した。
  * `onClose` という名前のまま残しているが、実質は「検索へ戻る」（App.tsx側でその遷移をする）。
  */
-export default function SettingsModal({
-  apiKeyStore,
-  onClose,
-  onCredentialReady,
-  autoUpdateExistingTerms,
-  onChangeAutoUpdateExistingTerms,
-}: SettingsModalProps) {
+export default function SettingsModal({ apiKeyStore, onClose, onCredentialReady }: SettingsModalProps) {
   const [editingKey, setEditingKey] = useState(false);
   const [hasPersisted, setHasPersisted] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
@@ -50,7 +39,7 @@ export default function SettingsModal({
       if (restored) {
         onCredentialReady();
       } else {
-        setAuthError('認証できませんでした（キャンセルされたか、この端末のパスキーではありません）。');
+        setAuthError('復元できませんでした（キャンセルされたか、保存内容が壊れている可能性があります）。');
       }
     } catch (err) {
       logAiError('SettingsModal.handleAuthenticate', err);
@@ -98,38 +87,13 @@ export default function SettingsModal({
         </button>
       </section>
 
-      <section className="settings-section">
-        <h3>既存語の自動更新</h3>
-        <p className="search-status">
-          AIチャットの確定は承認画面を挟まず自動でAI補足に反映されます。この設定は、話題にしていない語（会話の中でついでに触れられただけの既存語）まで反映するかどうかを決めます。
-        </p>
-        <label className="settings-radio">
-          <input
-            type="radio"
-            name="autoUpdateExistingTerms"
-            checked={autoUpdateExistingTerms === 'askedOnly'}
-            onChange={() => onChangeAutoUpdateExistingTerms('askedOnly')}
-          />
-          自分が検索・質問した語だけ自動更新する（既定）
-        </label>
-        <label className="settings-radio">
-          <input
-            type="radio"
-            name="autoUpdateExistingTerms"
-            checked={autoUpdateExistingTerms === 'all'}
-            onChange={() => onChangeAutoUpdateExistingTerms('all')}
-          />
-          他の語について調べた際に出てきた情報も自動更新する
-        </label>
-      </section>
-
       {hasPersisted && (
         <section className="settings-section">
           <h3>この端末への保存</h3>
-          <p className="search-status">パスキーで暗号化保存されています。</p>
+          <p className="search-status">OS標準の暗号化機能で保存されています。</p>
           <div className="api-key-actions">
             <button type="button" className="btn-secondary" onClick={handleAuthenticate} disabled={authenticating || credential !== null}>
-              {authenticating ? '認証中…' : credential ? '認証済み' : 'パスキーで認証'}
+              {authenticating ? '復元中…' : credential ? '復元済み' : '保存内容を復元'}
             </button>
             <button type="button" className="btn-text" onClick={handleForget}>
               この端末の保存を削除

@@ -10,6 +10,8 @@ export interface TermDetailScreenProps {
   termsRepo: TermsRepository;
   notesRepo: NotesRepository;
   onBack: () => void;
+  /** 履歴・単語一覧経由で来た場合のみ、遷移元へ戻るリンクを「← 検索に戻る」の下にもう1本出す */
+  secondaryBack?: { label: string; onClick: () => void };
   onStartChat: (termId: string) => void;
   /**
    * 削除した後の後始末（未取り込みチャットの整理・検索画面への遷移）。呼び出し元（App）の責務。
@@ -18,7 +20,15 @@ export interface TermDetailScreenProps {
   onDeleted: (termId: string) => void;
 }
 
-export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack, onStartChat, onDeleted }: TermDetailScreenProps) {
+export default function TermDetailScreen({
+  termId,
+  termsRepo,
+  notesRepo,
+  onBack,
+  secondaryBack,
+  onStartChat,
+  onDeleted,
+}: TermDetailScreenProps) {
   const [term, setTerm] = useState<TermRecord | null | undefined>(undefined); // undefined = 読み込み中
   const [note, setNote] = useState<NoteRecord | undefined>(undefined);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -61,6 +71,11 @@ export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack,
           </span>
         )}
       </div>
+      {secondaryBack && (
+        <button type="button" className="term-detail-back" onClick={secondaryBack.onClick}>
+          {secondaryBack.label}
+        </button>
+      )}
 
       {term === undefined && <Skeleton lines={4} />}
       {term === null && <p className="search-status">この語は見つかりませんでした。</p>}

@@ -5,6 +5,15 @@
 export interface DesktopApi {
   isDesktop: true;
 
+  /** この端末でAPIキーのローカル暗号化保存（safeStorage）が使えるか。 */
+  keystoreIsAvailable(): Promise<boolean>;
+
+  /** 平文を暗号化してBase64文字列で返す。使えない場合は reject する。 */
+  keystoreEncrypt(plaintext: string): Promise<string>;
+
+  /** keystoreEncrypt で得たBase64文字列を復号する。 */
+  keystoreDecrypt(ciphertextBase64: string): Promise<string>;
+
   /**
    * ローカルHTTPサーバーを起動し、LAN内から到達できるURLを返す。
    * LAN IPが取得できない場合は { url: null, reason: "日本語の説明" } を返す。

@@ -26,7 +26,7 @@ type Step =
  *    打ち込んでしまえるため）。一覧が取れない場合のみテキスト入力にフォールバックする。
  *
  * 既定はセッションのみ保持（要件定義書§5.6層3）。「この端末に保存する」を明示的に
- * チェックした場合のみ、パスキーに紐付けて暗号化保存する（層2）。
+ * チェックした場合のみ、Android Keystore＋端末標準のロック解除で暗号化保存する（層2）。
  */
 export default function ApiKeyPrompt({ apiKeyStore, onSet, onBack, backLabel = '← 検索に戻る' }: ApiKeyPromptProps) {
   const [provider, setProvider] = useState<AiProvider>('anthropic');
@@ -166,19 +166,12 @@ export default function ApiKeyPrompt({ apiKeyStore, onSet, onBack, backLabel = '
           )}
 
           {canPersist ? (
-            <>
-              <label className="api-key-persist">
-                <input type="checkbox" checked={persist} onChange={(e) => setPersist(e.target.checked)} />
-                この端末に保存する（パスキーで暗号化。次回から入力不要）
-              </label>
-              {persist && (
-                <p className="search-status">
-                  端末によっては、保存の完了までに生体認証等の確認を2回連続で求められることがあります。
-                </p>
-              )}
-            </>
+            <label className="api-key-persist">
+              <input type="checkbox" checked={persist} onChange={(e) => setPersist(e.target.checked)} />
+              この端末に保存する（生体認証/PIN等で暗号化。次回から入力不要）
+            </label>
           ) : (
-            <p className="search-status">この環境ではパスキーによる保存が使えないため、毎回入力が必要です。</p>
+            <p className="search-status">この端末では保存機能が使えないため、毎回入力が必要です。</p>
           )}
 
           <div className="api-key-actions">

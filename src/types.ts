@@ -181,7 +181,9 @@ export interface SyncEventRecord {
 /**
  * Drive 同期対象外。APIキーの暗号化保存が明示的にオプトインされた場合のみ1行できる
  * （既定はセッションのみでこのテーブル自体が空のまま）。
- * `credentialId` はパスキーの識別子で秘匿情報ではない。復号には毎回 WebAuthn PRF を要する。
+ * `credentialId`/`iv`は元々WebAuthnのパスキー(PRF拡張)向けのフィールドだったが、現在は
+ * PC版(Electron safeStorage)・Android版(Android Keystore)ともダミー値を入れて流用している
+ * （`src/keystore/electronSafeStorageApiKeyStore.ts`・`src/keystore/androidSecureApiKeyStore.ts`）。
  * `provider`/`model` はどのAIプロバイダ・モデル向けの鍵かを示す（秘匿情報ではないので平文）。
  */
 export interface KeyStoreRecord {

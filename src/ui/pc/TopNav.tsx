@@ -26,11 +26,11 @@ export default function TopNav({ current, onGoSearch, onGoHistory, onGoIndex, on
       <button type="button" className={navItemClass(current === 'history')} onClick={onGoHistory}>
         履歴
       </button>
-      <button type="button" className={navItemClass(current === 'link')} onClick={onOpenLink}>
-        連携
-      </button>
       <button type="button" className={navItemClass(current === 'index')} onClick={onGoIndex}>
         単語一覧
+      </button>
+      <button type="button" className={navItemClass(current === 'link')} onClick={onOpenLink}>
+        連携
       </button>
       <button type="button" className={navItemClass(current === 'settings')} onClick={onOpenSettings}>
         設定

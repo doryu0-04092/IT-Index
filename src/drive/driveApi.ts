@@ -1,7 +1,7 @@
 /**
  * Google Drive の appDataFolder（要件定義書§5.6層5「Driveは drive.appdata のみ」）に対する
  * 薄いREST v3ラッパー。実際の疎通は認可済みトークンとネットワークが要るためテスト対象外
- * （src/keystore/webauthn.ts と同じ位置づけ）。オーケストレーション側（src/drive/sync.ts）は
+ * （src/native/secureKeyStore.ts と同じ位置づけ）。オーケストレーション側（src/drive/sync.ts）は
  * このインターフェースだけに依存させ、テスト時はフェイク実装を注入する。
  */
 

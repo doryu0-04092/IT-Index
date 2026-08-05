@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, MenuItem, net, protocol, session } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, MenuItem, net, protocol, safeStorage, session } from 'electron';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { postPairing } from './pairingClient.js';
@@ -117,6 +117,30 @@ function setupPermissionHandler(): void {
   });
 }
 
+/**
+ * APIキーのローカル暗号化保存。以前はレンダラー側でWebAuthnのパスキー(PRF拡張)を使っていたが、
+ * Windows Hello等プラットフォーム認証器の設定状況に依存して失敗しやすく、環境によっては
+ * 保存自体ができなかった（ユーザー指摘）。Electron組み込みの safeStorage はOS標準の暗号化
+ * （Windowsは資格情報保護機能）を使い、ユーザー操作の儀式なしに確実に使える。
+ * safeStorage はメインプロセスでしか呼べないため、IPC越しに公開する。
+ * 暗号文はBase64文字列としてやり取りする（IPCでBufferをそのまま送るより単純で、
+ * Android版のSecureKeyStoreプラグイン（src/native/secureKeyStore.ts）と同じ扱い）。
+ */
+function setupKeystoreIpc(): void {
+  ipcMain.handle('keystore:isAvailable', () => safeStorage.isEncryptionAvailable());
+
+  ipcMain.handle('keystore:encrypt', (_event, plaintext: string) => {
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('この端末では保存機能が使えません（OSの暗号化機能が利用できません）');
+    }
+    return safeStorage.encryptString(plaintext).toString('base64');
+  });
+
+  ipcMain.handle('keystore:decrypt', (_event, ciphertextBase64: string) => {
+    return safeStorage.decryptString(Buffer.from(ciphertextBase64, 'base64'));
+  });
+}
+
 function setupPairingIpc(): void {
   pairingServer.setRequestHandler((requestId, body) => {
     mainWindow?.webContents.send('pairing:request', requestId, body);
@@ -133,6 +157,7 @@ function setupPairingIpc(): void {
 void app.whenReady().then(() => {
   registerAppProtocol();
   setupPermissionHandler();
+  setupKeystoreIpc();
   setupPairingIpc();
   createWindow();
 

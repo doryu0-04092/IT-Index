@@ -54,8 +54,8 @@ export default function TopNav({ current, onGoSearch, onGoHistory, onGoIndex, on
   const entries: DrawerEntry[] = [
     { key: 'search', label: '検索', icon: '🔍', active: current === 'search', run: onGoSearch },
     { key: 'history', label: '履歴', icon: '🕒', active: current === 'history', run: onGoHistory },
-    { key: 'link', label: '連携', icon: '🔗', active: current === 'link', run: onOpenLink },
     { key: 'index', label: '単語一覧', icon: '📖', active: current === 'index', run: onGoIndex },
+    { key: 'link', label: '連携', icon: '🔗', active: current === 'link', run: onOpenLink },
     { key: 'settings', label: '設定', icon: '⚙️', active: current === 'settings', run: onOpenSettings },
   ];
 

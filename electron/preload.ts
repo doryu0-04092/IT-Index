@@ -8,6 +8,12 @@ import type { DesktopApi } from './desktopApi.js';
 const desktopApi: DesktopApi = {
   isDesktop: true,
 
+  keystoreIsAvailable: () => ipcRenderer.invoke('keystore:isAvailable'),
+
+  keystoreEncrypt: (plaintext) => ipcRenderer.invoke('keystore:encrypt', plaintext),
+
+  keystoreDecrypt: (ciphertextBase64) => ipcRenderer.invoke('keystore:decrypt', ciphertextBase64),
+
   startPairingServer: () => ipcRenderer.invoke('pairing:start'),
 
   stopPairingServer: () => ipcRenderer.invoke('pairing:stop'),

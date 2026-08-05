@@ -3,7 +3,7 @@ import { decodeQrFromImageData } from './qrCodec';
 /**
  * カメラ映像からQRコードを継続的に読み取る層。getUserMedia・video要素・
  * requestAnimationFrame ループに依存するためテスト対象外
- * （src/keystore/webauthn.ts と同じ位置づけ）。デコード自体は qrCodec.ts でテスト済み。
+ * （src/native/secureKeyStore.ts と同じ位置づけ）。デコード自体は qrCodec.ts でテスト済み。
  */
 
 /** getUserMedia が使える環境か（APIの有無だけ。カメラが繋がっているかは分からない） */
