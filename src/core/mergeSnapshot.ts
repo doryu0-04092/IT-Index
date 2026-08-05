@@ -86,7 +86,8 @@ export function mergeSnapshot(local: LocalSnapshot, remoteFiles: SyncFile[]): Me
   };
 }
 
-function isSameContent(a: NoteRecord, b: NoteRecord): boolean {
+/** src/core/syncDelta.ts でも使う（内容比較。updatedAt/lastEditedByは見ない） */
+export function isSameContent(a: NoteRecord, b: NoteRecord): boolean {
   return a.body === b.body && JSON.stringify(a.diagrams) === JSON.stringify(b.diagrams);
 }
 

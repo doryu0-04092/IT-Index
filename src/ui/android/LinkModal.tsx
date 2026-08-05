@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { PairingServer } from '../../native/pairingServer';
-import type { NoteConflict } from '../../core/mergeSnapshot';
 import { generatePairingKey, importPairingKey } from '../../pairing/crypto';
 import { decodePairingPayload, encodePairingPayload } from '../../pairing/pairingCodec';
-import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
+import { openAndMerge, sealSnapshot, type PairingResult } from '../../pairing/runPairingExchange';
 import { describeSyncStatus } from '../../pairing/syncStatus';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
 import type { AiClient } from '../../ai/aiClient';
 import type { ManualSyncDeps } from '../../manualSync/sync';
+import type { SyncEventsRepository } from '../../repositories/syncEvents';
 import ConflictResolver from '../shared/ConflictResolver';
 
 export interface LinkModalProps {
@@ -16,10 +16,19 @@ export interface LinkModalProps {
   deps: ManualSyncDeps | null;
   /** 競合を「2つをAIで統合する」ために使う（src/ui/shared/ConflictResolver.tsx） */
   claude: AiClient;
+  /** 連携成立時に取り込み履歴（履歴画面の「取り込み履歴」タブ）へ記録する */
+  syncEventsRepo: SyncEventsRepository;
   onClose: () => void;
 }
 
-type Outcome = { ok: true; mergedNoteCount: number; conflicts: NoteConflict[]; skippedFiles: string[] } | { ok: false; reason: string };
+/** 単語の増減が無いexchangeは履歴に残さない（asksのみのやり取り等） */
+function recordSyncEvent(syncEventsRepo: SyncEventsRepository, result: Extract<Outcome, { ok: true }>) {
+  if (result.receivedDelta.termIds.length === 0 && result.sentDelta.termIds.length === 0) return;
+  const peerDeviceId = result.peerDeviceIds[0] ?? 'unknown';
+  void syncEventsRepo.add(peerDeviceId, result.receivedDelta.termIds, result.sentDelta.termIds, Date.now());
+}
+
+type Outcome = PairingResult;
 
 type View = 'menu' | 'host' | 'scan';
 
@@ -51,7 +60,7 @@ type ScanState =
  * （docs/ui-pc.md §3のカメラ・タイマー・サーバー停止漏れの実バグ記録を踏まえる）。
  * 「ファイルでやり取りする」経路は廃止した（ユーザー指摘）。
  */
-export default function LinkModal({ deps, claude, onClose }: LinkModalProps) {
+export default function LinkModal({ deps, claude, syncEventsRepo, onClose }: LinkModalProps) {
   const [view, setView] = useState<View>('menu');
 
   // カメラの有無は非同期にしか分からない（hasCameraDevice の説明を参照）。
@@ -81,8 +90,8 @@ export default function LinkModal({ deps, claude, onClose }: LinkModalProps) {
           <LinkMenu cameraAvailable={cameraAvailable} onSelect={setView} depsReady={deps !== null} />
         </>
       )}
-      {view === 'host' && <HostView deps={deps} claude={claude} onBack={goMenu} />}
-      {view === 'scan' && <ScanView deps={deps} claude={claude} onBack={goMenu} />}
+      {view === 'host' && <HostView deps={deps} claude={claude} syncEventsRepo={syncEventsRepo} onBack={goMenu} />}
+      {view === 'scan' && <ScanView deps={deps} claude={claude} syncEventsRepo={syncEventsRepo} onBack={goMenu} />}
     </div>
   );
 }
@@ -119,7 +128,9 @@ function ResultView({ outcome, deps, claude }: { outcome: Outcome; deps: ManualS
   }
   return (
     <div className="link-result">
-      <p className="search-status">{outcome.mergedNoteCount}件の単語データを取り込みました。</p>
+      <p className="search-status">
+        渡した: {outcome.sentDelta.termIds.length}件 / 受け取った: {outcome.receivedDelta.termIds.length}件
+      </p>
       {outcome.skippedFiles.length > 0 && (
         <p className="search-status">
           読み込めなかったファイルが{outcome.skippedFiles.length}件あります: {outcome.skippedFiles.join('、')}
@@ -136,7 +147,17 @@ function ResultView({ outcome, deps, claude }: { outcome: Outcome; deps: ManualS
  * React 18 StrictModeの二重effect実行でサーバー・リスナーが二重に残らないよう、
  * PC版のHostViewと同じ `cancelled` フラグによる対策を踏襲する。
  */
-function HostView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claude: AiClient; onBack: () => void }) {
+function HostView({
+  deps,
+  claude,
+  syncEventsRepo,
+  onBack,
+}: {
+  deps: ManualSyncDeps | null;
+  claude: AiClient;
+  syncEventsRepo: SyncEventsRepository;
+  onBack: () => void;
+}) {
   const [state, setState] = useState<HostState>({ phase: 'starting' });
 
   useEffect(() => {
@@ -184,12 +205,13 @@ function HostView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claud
           const { requestId, body } = event;
           setState((prev) => (prev.phase === 'showing' ? { phase: 'processing', svg: prev.svg } : prev));
           try {
-            const result = await openAndMerge(cryptoKey, body, deps);
+            const sealed = await sealSnapshot(cryptoKey, deps);
+            if (cancelled) return;
+            const result = await openAndMerge(cryptoKey, body, deps, sealed.file);
             if (cancelled) return;
             if (result.ok) {
-              const envelope = await sealSnapshot(cryptoKey, deps);
-              if (cancelled) return;
-              await PairingServer.respond({ requestId, body: envelope });
+              await PairingServer.respond({ requestId, body: sealed.envelope });
+              recordSyncEvent(syncEventsRepo, result);
             } else {
               await PairingServer.respond({ requestId, body: null });
             }
@@ -249,7 +271,17 @@ function HostView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claud
 }
 
 /** 「カメラで読み取る」（接続役）。docs要件: 成功・失敗・画面離脱いずれでも必ずスキャン停止関数を呼ぶ */
-function ScanView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claude: AiClient; onBack: () => void }) {
+function ScanView({
+  deps,
+  claude,
+  syncEventsRepo,
+  onBack,
+}: {
+  deps: ManualSyncDeps | null;
+  claude: AiClient;
+  syncEventsRepo: SyncEventsRepository;
+  onBack: () => void;
+}) {
   const [state, setState] = useState<ScanState>({ phase: 'scanning' });
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -278,10 +310,10 @@ function ScanView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claud
             try {
               const key = await importPairingKey(payload.k);
               if (!key) throw new Error('このQRコードの鍵を読み取れませんでした。');
-              const envelope = await sealSnapshot(key, deps);
+              const sealed = await sealSnapshot(key, deps);
               // CapacitorHttp が有効なので fetch はネイティブ側で実行され、
               // WebViewの混在コンテンツ制限とCSPを回避してLAN内へ出られる（capacitor.config.ts）。
-              const res = await fetch(`${payload.url}/sync`, { method: 'POST', body: envelope });
+              const res = await fetch(`${payload.url}/sync`, { method: 'POST', body: sealed.envelope });
               if (cancelled) return;
               // ステータスを必ず見る。見ないと 409/413/504 の本文をそのまま復号にかけて
               // 「鍵が合いません」と案内してしまい、QRを読み直しても直らない。
@@ -291,8 +323,9 @@ function ScanView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claud
                 return;
               }
               const responseBody = await res.text();
-              const result = await openAndMerge(key, responseBody, deps);
+              const result = await openAndMerge(key, responseBody, deps, sealed.file);
               if (cancelled) return;
+              if (result.ok) recordSyncEvent(syncEventsRepo, result);
               setState({ phase: 'done', outcome: result });
               stop?.();
             } catch (err) {

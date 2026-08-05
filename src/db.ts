@@ -6,6 +6,7 @@ import type {
   KeyStoreRecord,
   NoteRecord,
   SettingsRecord,
+  SyncEventRecord,
   TermRecord,
 } from './types';
 
@@ -22,6 +23,7 @@ export class ItIndexDB extends Dexie {
   chatMessages!: Table<ChatMessageRecord, string>;
   settings!: Table<SettingsRecord, string>;
   keyStore!: Table<KeyStoreRecord, string>;
+  syncEvents!: Table<SyncEventRecord, string>;
 
   constructor(name = 'it-index') {
     super(name);
@@ -46,6 +48,10 @@ export class ItIndexDB extends Dexie {
     // 既存定義を書き換えず、新しい version で null を指定して落とす（Dexieの作法）。
     this.version(4).stores({
       syncFolder: null,
+    });
+    // v5: 連携（QR）の取り込み履歴。端末ローカルのみ・同期対象外
+    this.version(5).stores({
+      syncEvents: 'id, at',
     });
   }
 }

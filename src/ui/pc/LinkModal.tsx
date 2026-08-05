@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import type { NoteConflict } from '../../core/mergeSnapshot';
 import { generatePairingKey, importPairingKey } from '../../pairing/crypto';
 import { decodePairingPayload, encodePairingPayload } from '../../pairing/pairingCodec';
-import { openAndMerge, sealSnapshot } from '../../pairing/runPairingExchange';
+import { openAndMerge, sealSnapshot, type PairingResult } from '../../pairing/runPairingExchange';
 import { describeSyncStatus } from '../../pairing/syncStatus';
 import { encodeAsQrSvg } from '../../manualSync/qrCodec';
 import { hasCameraDevice, startQrScan } from '../../manualSync/qrScanner';
 import type { AiClient } from '../../ai/aiClient';
 import type { ManualSyncDeps } from '../../manualSync/sync';
+import type { SyncEventsRepository } from '../../repositories/syncEvents';
 import ConflictResolver from '../shared/ConflictResolver';
 
 export interface LinkModalProps {
@@ -15,10 +15,19 @@ export interface LinkModalProps {
   deps: ManualSyncDeps | null;
   /** 競合を「2つをAIで統合する」ために使う（src/ui/shared/ConflictResolver.tsx） */
   claude: AiClient;
+  /** 連携成立時に取り込み履歴（履歴画面の「取り込み履歴」タブ）へ記録する */
+  syncEventsRepo: SyncEventsRepository;
   onClose: () => void;
 }
 
-type Outcome = { ok: true; mergedNoteCount: number; conflicts: NoteConflict[]; skippedFiles: string[] } | { ok: false; reason: string };
+/** 単語の増減が無いexchangeは履歴に残さない（asksのみのやり取り等） */
+function recordSyncEvent(syncEventsRepo: SyncEventsRepository, result: Extract<Outcome, { ok: true }>) {
+  if (result.receivedDelta.termIds.length === 0 && result.sentDelta.termIds.length === 0) return;
+  const peerDeviceId = result.peerDeviceIds[0] ?? 'unknown';
+  void syncEventsRepo.add(peerDeviceId, result.receivedDelta.termIds, result.sentDelta.termIds, Date.now());
+}
+
+type Outcome = PairingResult;
 
 type View = 'menu' | 'host' | 'scan';
 
@@ -47,7 +56,7 @@ type ScanState =
  * （docs/ui-pc.md §3のカメラ・タイマー・サーバー停止漏れの実バグ record を踏まえる）。
  * 「ファイルでやり取りする」経路は廃止した（ユーザー指摘）。
  */
-export default function LinkModal({ deps, claude, onClose }: LinkModalProps) {
+export default function LinkModal({ deps, claude, syncEventsRepo, onClose }: LinkModalProps) {
   const [view, setView] = useState<View>('menu');
   const isDesktop = typeof window !== 'undefined' && !!window.desktop;
 
@@ -78,8 +87,8 @@ export default function LinkModal({ deps, claude, onClose }: LinkModalProps) {
           <LinkMenu isDesktop={isDesktop} cameraAvailable={cameraAvailable} onSelect={setView} depsReady={deps !== null} />
         </>
       )}
-      {view === 'host' && <HostView deps={deps} claude={claude} onBack={goMenu} />}
-      {view === 'scan' && <ScanView deps={deps} claude={claude} onBack={goMenu} />}
+      {view === 'host' && <HostView deps={deps} claude={claude} syncEventsRepo={syncEventsRepo} onBack={goMenu} />}
+      {view === 'scan' && <ScanView deps={deps} claude={claude} syncEventsRepo={syncEventsRepo} onBack={goMenu} />}
     </div>
   );
 }
@@ -119,7 +128,9 @@ function ResultView({ outcome, deps, claude }: { outcome: Outcome; deps: ManualS
   }
   return (
     <div className="link-result">
-      <p className="search-status">{outcome.mergedNoteCount}件の単語データを取り込みました。</p>
+      <p className="search-status">
+        渡した: {outcome.sentDelta.termIds.length}件 / 受け取った: {outcome.receivedDelta.termIds.length}件
+      </p>
       {outcome.skippedFiles.length > 0 && (
         <p className="search-status">
           読み込めなかったファイルが{outcome.skippedFiles.length}件あります: {outcome.skippedFiles.join('、')}
@@ -131,7 +142,17 @@ function ResultView({ outcome, deps, claude }: { outcome: Outcome; deps: ManualS
 }
 
 /** 「QRを表示する」（待ち受け役）。docs要件: 完了・中断・閉じるとき必ず stopPairingServer() を呼ぶ */
-function HostView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claude: AiClient; onBack: () => void }) {
+function HostView({
+  deps,
+  claude,
+  syncEventsRepo,
+  onBack,
+}: {
+  deps: ManualSyncDeps | null;
+  claude: AiClient;
+  syncEventsRepo: SyncEventsRepository;
+  onBack: () => void;
+}) {
   const [state, setState] = useState<HostState>({ phase: 'starting' });
 
   useEffect(() => {
@@ -175,12 +196,13 @@ function HostView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claud
         void (async () => {
           setState((prev) => (prev.phase === 'showing' ? { phase: 'processing', svg: prev.svg } : prev));
           try {
-            const result = await openAndMerge(cryptoKey, body, deps);
+            const sealed = await sealSnapshot(cryptoKey, deps);
+            if (cancelled) return;
+            const result = await openAndMerge(cryptoKey, body, deps, sealed.file);
             if (cancelled) return;
             if (result.ok) {
-              const envelope = await sealSnapshot(cryptoKey, deps);
-              if (cancelled) return;
-              await desktop.respondPairing(requestId, envelope);
+              await desktop.respondPairing(requestId, sealed.envelope);
+              recordSyncEvent(syncEventsRepo, result);
             } else {
               await desktop.respondPairing(requestId, null);
             }
@@ -225,7 +247,17 @@ function HostView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claud
 }
 
 /** 「カメラで読み取る」（接続役）。docs要件: 成功・失敗・画面離脱いずれでも必ずスキャン停止関数を呼ぶ */
-function ScanView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claude: AiClient; onBack: () => void }) {
+function ScanView({
+  deps,
+  claude,
+  syncEventsRepo,
+  onBack,
+}: {
+  deps: ManualSyncDeps | null;
+  claude: AiClient;
+  syncEventsRepo: SyncEventsRepository;
+  onBack: () => void;
+}) {
   const [state, setState] = useState<ScanState>({ phase: 'scanning' });
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -254,7 +286,7 @@ function ScanView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claud
             try {
               const key = await importPairingKey(payload.k);
               if (!key) throw new Error('このQRコードの鍵を読み取れませんでした。');
-              const envelope = await sealSnapshot(key, deps);
+              const sealed = await sealSnapshot(key, deps);
 
               // レンダラーから直接 fetch すると index.html の CSP `connect-src 'self'` に
               // 阻まれてLAN内へ出られない。メインプロセス経由で送る（electron/pairingClient.ts）。
@@ -262,7 +294,7 @@ function ScanView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claud
               // 誤って案内することがない。
               const desktop = window.desktop;
               if (!desktop) throw new Error('この機能はデスクトップ版でのみ使えます。');
-              const posted = await desktop.postPairing(payload.url, envelope);
+              const posted = await desktop.postPairing(payload.url, sealed.envelope);
               if (cancelled) return;
               if (!posted.ok) {
                 const message =
@@ -272,8 +304,9 @@ function ScanView({ deps, claude, onBack }: { deps: ManualSyncDeps | null; claud
                 return;
               }
 
-              const result = await openAndMerge(key, posted.body, deps);
+              const result = await openAndMerge(key, posted.body, deps, sealed.file);
               if (cancelled) return;
+              if (result.ok) recordSyncEvent(syncEventsRepo, result);
               setState({ phase: 'done', outcome: result });
               stop?.();
             } catch (err) {

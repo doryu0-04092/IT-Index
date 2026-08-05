@@ -54,7 +54,8 @@ describe('exportOwnSyncFile / importSyncFiles', () => {
 
     const result = await importSyncFiles([remoteFile], { deviceId: 'device-A', notesRepo, asksRepo, termsRepo });
 
-    expect(result.mergedNoteCount).toBe(1);
+    expect(result.receivedDelta.noteTermIds).toEqual(['udp']);
+    expect(result.peerDeviceIds).toEqual(['device-B']);
     expect(result.skippedFiles).toEqual([]);
     expect((await notesRepo.getByTermId('udp'))?.body).toBe('別端末の説明');
   });
@@ -183,7 +184,8 @@ describe('exportFullSnapshot (PC-as-relay scenario for devices without shared-fo
 
     // ② PC: Androidの分を取り込む（通常のマージ）
     const importResult = await importSyncFiles([androidDiff], pcDeps);
-    expect(importResult.mergedNoteCount).toBe(2); // device-C分 + Android分
+    // 取り込み前のPCは既に device-C 分を持っているため、今回新しく増えたのは Android 分のみ
+    expect(importResult.receivedDelta.noteTermIds).toEqual(['tcp/ip']);
 
     // ③ PC: 「知っている全部」をエクスポート（device-C分もAndroid分も両方含む）
     const fullSnapshot = await exportFullSnapshot(pcDeps);

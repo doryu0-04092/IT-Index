@@ -38,7 +38,7 @@ describe('sealSnapshot / openAndMerge', () => {
     expect(keyA).not.toBeNull();
     expect(keyB).not.toBeNull();
 
-    const envelope = await sealSnapshot(keyA!, depsA);
+    const { envelope } = await sealSnapshot(keyA!, depsA);
     const result = await openAndMerge(keyB!, envelope, depsB);
 
     expect(result.ok).toBe(false);
@@ -67,18 +67,31 @@ describe('sealSnapshot / openAndMerge', () => {
     const key = await importPairingKey(generatePairingKey());
     expect(key).not.toBeNull();
 
-    // 待ち受け役=B、接続役=A という想定だが、呼ぶ関数はどちらも同じ
+    // 待ち受け役=B、接続役=A という想定だが、呼ぶ関数はどちらも同じ。
+    // Bは HostView と同じ順序（先にseal、後でmerge）で処理する
+    // ——マージ後にsealすると、返信に「Aから今取り込んだばかりの分」が混ざってしまい、
+    // Aが「自分が新しく渡したものは何件か」を返信から正確に算出できなくなる。
     // ① A: 自分が知っている全部を封筒にして送る
-    const envelopeFromA = await sealSnapshot(key!, depsA);
-    // ② B: 受け取って復号しマージする
-    const resultAtB = await openAndMerge(key!, envelopeFromA, depsB);
+    const sealedA = await sealSnapshot(key!, depsA);
+    // ② B: 受け取る前に、まず自分のマージ前スナップショットを封印しておく
+    const sealedB = await sealSnapshot(key!, depsB);
+    // ③ B: 受け取って復号しマージする（自分が渡した分=sealedB.fileと比較し、送信分もわかる）
+    const resultAtB = await openAndMerge(key!, sealedA.envelope, depsB, sealedB.file);
     expect(resultAtB.ok).toBe(true);
+    if (resultAtB.ok) {
+      // Aから受け取った tcp/ip が新しく増え、Bが元々持っていた udp をAに渡したはず
+      expect(resultAtB.receivedDelta.noteTermIds).toContain('tcp/ip');
+      expect(resultAtB.sentDelta.noteTermIds).toContain('udp');
+    }
 
-    // ③ B: マージ後の全部を封筒にして送り返す
-    const envelopeFromB = await sealSnapshot(key!, depsB);
-    // ④ A: 受け取って復号しマージする
-    const resultAtA = await openAndMerge(key!, envelopeFromB, depsA);
+    // ④ B: マージ前に封印しておいたものをそのまま送り返す（HostViewと同じ）
+    // ⑤ A: 受け取って復号しマージする
+    const resultAtA = await openAndMerge(key!, sealedB.envelope, depsA, sealedA.file);
     expect(resultAtA.ok).toBe(true);
+    if (resultAtA.ok) {
+      expect(resultAtA.receivedDelta.noteTermIds).toContain('udp');
+      expect(resultAtA.sentDelta.noteTermIds).toContain('tcp/ip');
+    }
 
     // 両者とも相手のtermを知っている状態になっている
     expect((await depsA.notesRepo.getByTermId('udp'))?.body).toBe('Bで聞いた説明');
@@ -90,8 +103,8 @@ describe('sealSnapshot / openAndMerge', () => {
     const finalA = await sealSnapshot(key!, depsA);
     const finalB = await sealSnapshot(key!, depsB);
     const { open } = await import('./crypto');
-    const contentA = JSON.parse((await open(key!, finalA))!);
-    const contentB = JSON.parse((await open(key!, finalB))!);
+    const contentA = JSON.parse((await open(key!, finalA.envelope))!);
+    const contentB = JSON.parse((await open(key!, finalB.envelope))!);
 
     const normalize = (snapshot: { notes: Array<{ termId: string; body: string }> }) =>
       snapshot.notes.map((n) => ({ termId: n.termId, body: n.body })).sort((a, b) => a.termId.localeCompare(b.termId));

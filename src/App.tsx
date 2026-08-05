@@ -19,6 +19,7 @@ import { createChatRepository } from './repositories/chat';
 import { createKeyStoreRepository } from './repositories/keyStore';
 import { createNotesRepository } from './repositories/notes';
 import { createSettingsRepository } from './repositories/settings';
+import { createSyncEventsRepository } from './repositories/syncEvents';
 import { createTermsRepository } from './repositories/terms';
 import { fetchSeedFile, importSeed } from './seedImport';
 import type { HistoryView } from './ui/pc/HistoryScreen';
@@ -173,6 +174,7 @@ export default function App({ ui }: { ui: UiSet }) {
   const termsRepo = useMemo(() => createTermsRepository(db), []);
   const notesRepo = useMemo(() => createNotesRepository(db), []);
   const asksRepo = useMemo(() => createAsksRepository(db), []);
+  const syncEventsRepo = useMemo(() => createSyncEventsRepository(db), []);
   const chatRepo = useMemo(() => createChatRepository(db), []);
   const settingsRepo = useMemo(() => createSettingsRepository(db), []);
   const keyStoreRepo = useMemo(() => createKeyStoreRepository(db), []);
@@ -498,12 +500,17 @@ export default function App({ ui }: { ui: UiSet }) {
           <HistoryScreen
             asksRepo={asksRepo}
             termsRepo={termsRepo}
+            syncEventsRepo={syncEventsRepo}
             initialView={screen.view}
             onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
             onBack={() => setScreen({ name: 'search' })}
           />
         ) : screen.name === 'index' ? (
-          <TermIndexScreen termsRepo={termsRepo} onSelectTerm={(termId) => setScreen({ name: 'detail', termId })} />
+          <TermIndexScreen
+            termsRepo={termsRepo}
+            onSelectTerm={(termId) => setScreen({ name: 'detail', termId })}
+            onBack={() => setScreen({ name: 'search' })}
+          />
         ) : screen.name === 'settings' ? (
           <SettingsModal
             apiKeyStore={apiKeyStore}
@@ -516,7 +523,12 @@ export default function App({ ui }: { ui: UiSet }) {
             }}
           />
         ) : (
-          <LinkModal deps={manualSyncDeps} claude={claude} onClose={() => setScreen({ name: 'search' })} />
+          <LinkModal
+            deps={manualSyncDeps}
+            claude={claude}
+            syncEventsRepo={syncEventsRepo}
+            onClose={() => setScreen({ name: 'search' })}
+          />
         )}
       </main>
 

@@ -1,5 +1,6 @@
-import type { NoteConflict, SyncFile } from '../core/mergeSnapshot';
+import type { LocalSnapshot, NoteConflict, SyncFile } from '../core/mergeSnapshot';
 import { mergeSnapshot } from '../core/mergeSnapshot';
+import { computeSyncDelta, type SyncDelta } from '../core/syncDelta';
 import { isSyncTarget } from '../core/syncTarget';
 import { parseSyncFile } from '../core/validateSyncFile';
 import { buildLocalSnapshot, type LocalSnapshotDeps } from '../sync/localSnapshot';
@@ -11,8 +12,12 @@ export interface RawFile {
 }
 
 export interface ImportResult {
-  /** マージ後にローカルへ反映した notes の件数（自分の分・取り込んだ分どちらも含む） */
-  mergedNoteCount: number;
+  /** この import で新しく増えた/変わった単語・ノート（取り込み前のローカル状態との差分） */
+  receivedDelta: SyncDelta;
+  /** 差分計算の基準にした、取り込み前のローカルスナップショット */
+  baseline: LocalSnapshot;
+  /** 取り込んだ相手ファイルの deviceId 一覧 */
+  peerDeviceIds: string[];
   /** 決定的コードでは判断できず、AIによる統合案の提示が必要な語（要件定義書§5.5） */
   conflicts: NoteConflict[];
   /** JSON構文エラー・syncSchemaVersion検証NG等で読み飛ばしたファイル名 */
@@ -63,7 +68,15 @@ export async function importSyncFiles(files: RawFile[], deps: ManualSyncDeps): P
     await deps.termsRepo.upsertFromSync(term);
   }
 
-  return { mergedNoteCount: result.notes.length, conflicts: result.conflicts, skippedFiles };
+  const receivedDelta = computeSyncDelta(local, { notes: result.notes, aiTerms: result.terms });
+
+  return {
+    receivedDelta,
+    baseline: local,
+    peerDeviceIds: remoteFiles.map((f) => f.deviceId),
+    conflicts: result.conflicts,
+    skippedFiles,
+  };
 }
 
 /**
@@ -91,13 +104,13 @@ export async function exportOwnSyncFile(deps: ManualSyncDeps): Promise<RawFile> 
  * SyncFile 形式・検証（parseSyncFile）はそのまま使えるので、受け取り側は
  * 普通に importSyncFiles() でマージすればよい（上書きではない。理由は同docs参照）。
  */
-export async function exportFullSnapshot(deps: ManualSyncDeps): Promise<RawFile> {
+export async function buildFullSnapshot(deps: ManualSyncDeps): Promise<SyncFile> {
   const [allNotes, allAsks, allTerms] = await Promise.all([
     deps.notesRepo.getAll(),
     deps.asksRepo.getAllOrdered(),
     deps.termsRepo.getAllForSync(),
   ]);
-  const full: SyncFile = {
+  return {
     syncSchemaVersion: 1,
     deviceId: deps.deviceId,
     writtenAt: Date.now(),
@@ -105,6 +118,9 @@ export async function exportFullSnapshot(deps: ManualSyncDeps): Promise<RawFile>
     asks: allAsks,
     aiTerms: allTerms.filter(isSyncTarget),
   };
+}
 
+export async function exportFullSnapshot(deps: ManualSyncDeps): Promise<RawFile> {
+  const full = await buildFullSnapshot(deps);
   return { name: `full-${syncFileName(deps.deviceId)}`, content: JSON.stringify(full, null, 2) };
 }

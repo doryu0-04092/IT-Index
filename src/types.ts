@@ -164,6 +164,21 @@ export interface SettingsRecord {
 }
 
 /**
+ * Drive 同期対象外（端末ローカルの記録。連携相手には送らない）。
+ * QR連携1回ごとに1件。取り込み履歴タブ（HistoryScreen）の表示に使う。
+ */
+export interface SyncEventRecord {
+  id: string;
+  at: number; // epoch ms
+  /** 相手端末の deviceId。名前を付ける機能が無いため表示には使わず、同一相手の判別にのみ使う */
+  peerDeviceId: string;
+  /** この連携で新しく受け取った単語のterm id */
+  receivedTermIds: string[];
+  /** この連携で新しく相手に渡した単語のterm id */
+  sentTermIds: string[];
+}
+
+/**
  * Drive 同期対象外。APIキーの暗号化保存が明示的にオプトインされた場合のみ1行できる
  * （既定はセッションのみでこのテーブル自体が空のまま）。
  * `credentialId` はパスキーの識別子で秘匿情報ではない。復号には毎回 WebAuthn PRF を要する。

@@ -21,7 +21,7 @@ export type PersistedScreen =
   | { name: 'link' };
 
 const STORAGE_KEY = 'it-index-last-screen';
-const VALID_HISTORY_VIEWS: HistoryView[] = ['weighted', 'timeline'];
+const VALID_HISTORY_VIEWS: HistoryView[] = ['weighted', 'timeline', 'sync'];
 
 /** sessionStorageから読んだJSONの検証。純関数なのでここだけユニットテスト対象にする */
 export function isPersistedScreen(value: unknown): value is PersistedScreen {

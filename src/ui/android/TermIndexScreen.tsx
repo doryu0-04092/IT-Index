@@ -6,6 +6,7 @@ import type { TermRecord } from '../../types';
 export interface TermIndexScreenProps {
   termsRepo: TermsRepository;
   onSelectTerm: (termId: string) => void;
+  onBack: () => void;
 }
 
 const LATIN_BUCKETS = BUCKET_ORDER.filter((b) => /^[A-Z]$/.test(b));
@@ -24,7 +25,7 @@ function sectionId(bucket: string): string {
  * タップ操作向けの調整（ジャンプリンク・五十音図の各マスを44px以上に広げる等）は
  * `.android-app` スコープのCSS（src/index.css 末尾）で追記する。
  */
-export default function TermIndexScreen({ termsRepo, onSelectTerm }: TermIndexScreenProps) {
+export default function TermIndexScreen({ termsRepo, onSelectTerm, onBack }: TermIndexScreenProps) {
   const [buckets, setBuckets] = useState<Map<string, TermRecord[]> | null>(null);
 
   useEffect(() => {
@@ -41,6 +42,9 @@ export default function TermIndexScreen({ termsRepo, onSelectTerm }: TermIndexSc
 
   return (
     <div className="term-index">
+      <button type="button" className="term-detail-back" onClick={onBack}>
+        ← 検索に戻る
+      </button>
       <nav className="term-index-jump" aria-label="頭文字へジャンプ">
         {LATIN_BUCKETS.map((b) => (
           <button key={b} type="button" className="term-index-jump-link" onClick={() => jumpTo(b)}>

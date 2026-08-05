@@ -822,6 +822,24 @@ button:disabled {
   color: white;
 }
 
+.sync-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sync-history-event {
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.sync-history-label {
+  font-size: var(--font-size-xs);
+  color: var(--muted);
+  margin: var(--space-2) 0 var(--space-1);
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1600,6 +1618,24 @@ button:disabled {
 
 .android-app .term-index-gojuon-grid {
   grid-template-columns: repeat(10, minmax(28px, 1fr));
+}
+
+/* 五十音図のマスは.term-index-jump-linkのmin-width:44pxをそのまま引き継ぐと、
+   狭幅の画面では上のgrid-template-columnsで割り当てた列幅（28px前後）より
+   ボタンの最小幅の方が大きくなり、ページ全体が横にはみ出す（実バグ）。
+   タップ領域の高さ（min-height:44px）はそのまま残し、幅だけ列幅に委ねる。 */
+.android-app .term-index-gojuon-grid .term-index-jump-link {
+  min-width: 0;
+}
+
+/* 横スクロールが起きる不具合の安全網。上のgojuon-grid修正で根本原因は無くしたが、
+   他の要因（長い読み仮名等）による将来のはみ出しでも横スクロール自体を発生させない
+   （ユーザー指摘: 横スクロールが「不要」ではなく「できない」状態にする）。
+   下端の余白は「一番上へ戻る」ボタン分——スクロールし切っても最後の単語が
+   ボタンに隠れないようにする。 */
+.android-app .term-index {
+  overflow-x: hidden;
+  padding-bottom: calc(44px + var(--space-4) * 2 + env(safe-area-inset-bottom));
 }
 
 /* ジェスチャーバー（セーフエリア）に食い込まないよう、下端の余白を足す */
