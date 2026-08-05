@@ -423,14 +423,18 @@ export default function App({ ui }: { ui: UiSet }) {
     if (activeChatSessionId === sessionId) setActiveChatSessionId(null);
   }
 
-  // 要件定義書§5.4「ローカル検索の確定」。検索結果一覧から用語を選んで詳細を開いた
-  // 瞬間だけを「確定」とみなす（検索欄への入力や一覧の閲覧だけでは呼ばない）。
-  // AIチャット確定（source:'ai'）より弱い重みで加算する（computeWeights.ts）。
-  function handleSelectFromSearch(termId: string) {
+  // 要件定義書§5.4「ローカル検索の確定」。検索結果一覧・単語一覧・履歴一覧のいずれから
+  // 選んで単語詳細を開いた場合も「確定」として記録する（2026-08-06、単語一覧・履歴経由が
+  // 漏れていて重み付け・時系列に反映されない不具合があったのを機に、単語詳細を開く経路を
+  // ここ1箇所に集約した）。AIチャット確定（source:'ai'）より弱い重みで加算する
+  // （computeWeights.ts）。チャット画面の「〇〇の詳細に戻る」は新しい選択ではなく元の画面に
+  // 戻るだけなのでここは通らない（onBackToTerm経由。App.tsx内で直接setScreenする）。
+  // リロード時の画面復元（#39）も同様に対象外。
+  function openDetail(termId: string, from: DetailFrom) {
     if (deviceId) {
       void asksRepo.addSearchConfirm(termId, deviceId, Date.now());
     }
-    setScreen({ name: 'detail', termId, from: 'search' });
+    setScreen({ name: 'detail', termId, from });
   }
 
   return (
@@ -477,7 +481,7 @@ export default function App({ ui }: { ui: UiSet }) {
             seedRefreshTick={seedRefreshTick}
             onRetrySeed={runSeedImport}
             failedCommitSessionIds={failedCommitSessionIds}
-            onSelectTerm={handleSelectFromSearch}
+            onSelectTerm={(termId) => openDetail(termId, 'search')}
             onStartChat={(termId) => void startChat(termId)}
             onResumeChatSession={(sessionId) => void resumeChatSession(sessionId)}
             onCommitPending={commitPendingTerm}
@@ -520,13 +524,13 @@ export default function App({ ui }: { ui: UiSet }) {
             termsRepo={termsRepo}
             syncEventsRepo={syncEventsRepo}
             initialView={screen.view}
-            onSelectTerm={(termId) => setScreen({ name: 'detail', termId, from: { screen: 'history', view: screen.view } })}
+            onSelectTerm={(termId) => openDetail(termId, { screen: 'history', view: screen.view })}
             onBack={() => setScreen({ name: 'search' })}
           />
         ) : screen.name === 'index' ? (
           <TermIndexScreen
             termsRepo={termsRepo}
-            onSelectTerm={(termId) => setScreen({ name: 'detail', termId, from: 'index' })}
+            onSelectTerm={(termId) => openDetail(termId, 'index')}
             onBack={() => setScreen({ name: 'search' })}
           />
         ) : screen.name === 'settings' ? (

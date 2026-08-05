@@ -46,13 +46,13 @@ export interface SearchScreenProps {
  * 検索画面（Android版）。PC版と同じprops・同じロジック・同じCSSクラス名を使う
  * （見た目を大きく変えない方針。docs/ui-pc.md §1参照）。狭幅での折り返しは
  * `.android-app .search-result-row` 側のCSS（src/index.css 末尾）で対応する。
+ * 各行の「この語について聞く」もPC版と同じく表示する（2026-08-06、誤って消えていたのを復元）。
  */
 export default function SearchScreen({
   termsRepo,
   chatRepo,
   onSelectTerm,
-  // onStartChat は受け取るがAndroid版では使わない（propsはPC版と同一に保つ規約。src/ui/uiSet.ts）。
-  // 狭幅では検索結果の各行にボタンを2つ並べられないため、AIに聞く導線は単語詳細画面のみに置く。
+  onStartChat,
   onResumeChatSession,
   onCommitPending,
   seedError,
@@ -185,6 +185,13 @@ export default function SearchScreen({
               <span className="search-result-reading">{term.readings[0]}</span>
               <span className="search-result-field">{term.field}</span>
               {import.meta.env.DEV && <span className="search-result-score">{s.toFixed(2)}</span>}
+            </button>
+            {/*
+              最上位候補への自動ひも付けはしない（要件定義書§5.3）。この語についてAIに聞きたい
+              場合は、利用者が行ごとに明示的に選ぶ（PC版と同じ）。
+            */}
+            <button type="button" className="search-result-ask-ai btn-text" onClick={() => onStartChat(term.id)}>
+              この語について聞く
             </button>
           </li>
         ))}
