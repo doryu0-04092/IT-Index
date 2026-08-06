@@ -13,6 +13,7 @@ function baseDeps(
   overrides: Partial<CommitOrchestratorDeps> & Pick<CommitOrchestratorDeps, 'chatRepo' | 'termsRepo' | 'notesRepo' | 'claude'>,
 ): CommitOrchestratorDeps {
   return {
+    db,
     asksRepo: createAsksRepository(db),
     deviceId: 'device-A',
     autoUpdateExistingTerms: 'askedOnly',
@@ -80,6 +81,85 @@ describe('createCommitOrchestrator', () => {
 
     const open = await chatRepo.getOpenSessions();
     expect(open.map((s) => s.id)).toContain(session.id); // committed になっていない
+  });
+
+  it('never loses chat messages when the AI call fails (data integrity)', async () => {
+    const session = await chatRepo.createSession(null);
+    await chatRepo.appendMessage(session.id, 'user', 'TCP/IPって何？');
+    await chatRepo.appendMessage(session.id, 'assistant', '層に分けた通信規約の集まりです。');
+
+    const claude = { send: vi.fn().mockRejectedValue(new Error('network down')) };
+    const orchestrator = createCommitOrchestrator(baseDeps(db, { chatRepo, termsRepo, notesRepo, claude }));
+
+    await orchestrator.triggerCommit(session.id);
+
+    const messages = await chatRepo.getMessages(session.id);
+    expect(messages).toHaveLength(2);
+    expect(messages[0].content).toBe('TCP/IPって何？');
+    expect(messages[1].content).toBe('層に分けた通信規約の集まりです。');
+  });
+
+  it('rolls back every write when a later term fails mid-commit, leaving no partial data (data integrity)', async () => {
+    const session = await chatRepo.createSession(null);
+    await chatRepo.appendMessage(session.id, 'user', '複数の語について聞いた');
+
+    const claude = createScriptedAiClient([
+      JSON.stringify([
+        {
+          term: '一つ目語',
+          isTerm: true,
+          askedByUser: true,
+          summary: '説明1',
+          readings: ['ヒトツメゴ'],
+          field: 'ネットワーク',
+          draftBody: '説明1',
+          diagrams: [],
+        },
+        {
+          term: '二つ目語',
+          isTerm: true,
+          askedByUser: true,
+          summary: '説明2',
+          readings: ['フタツメゴ'],
+          field: 'ネットワーク',
+          draftBody: '説明2',
+          diagrams: [],
+        },
+      ]),
+    ]);
+
+    // 1語目は成功、2語目の書き込みで失敗するように細工する（DB書き込み自体の失敗を模す）
+    let upsertCount = 0;
+    const flakyTermsRepo: TermsRepository = {
+      ...termsRepo,
+      async upsertFromAi(term) {
+        upsertCount++;
+        if (upsertCount === 2) throw new Error('simulated write failure');
+        return termsRepo.upsertFromAi(term);
+      },
+    };
+
+    const onError = vi.fn();
+    const orchestrator = createCommitOrchestrator(
+      baseDeps(db, { chatRepo, termsRepo: flakyTermsRepo, notesRepo, claude, onError }),
+    );
+
+    await orchestrator.triggerCommit(session.id);
+
+    expect(onError).toHaveBeenCalled();
+
+    // 1語目もロールバックされ、部分的な書き込みが一切残っていない
+    expect(await termsRepo.getById(makeTermId('一つ目語'))).toBeUndefined();
+    expect(await termsRepo.getById(makeTermId('二つ目語'))).toBeUndefined();
+    expect(await notesRepo.getByTermId(makeTermId('一つ目語'))).toBeUndefined();
+    expect(await asksRepo.getByTermId(makeTermId('一つ目語'))).toHaveLength(0);
+
+    // セッションは再試行できる状態（open）に戻っている
+    const open = await chatRepo.getOpenSessions();
+    expect(open.map((s) => s.id)).toContain(session.id);
+
+    // チャット履歴自体は失敗しても一切失われない
+    expect(await chatRepo.getMessages(session.id)).toHaveLength(1);
   });
 
   describe('自動反映（2026-07-30: 承認画面を廃止し常に自動反映する）', () => {

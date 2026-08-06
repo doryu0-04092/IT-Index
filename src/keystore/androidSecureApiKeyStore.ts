@@ -77,5 +77,12 @@ export function createAndroidSecureApiKeyStore(keyStoreRepo: KeyStoreRepository)
       await keyStoreRepo.clear();
       await SecureKeyStore.clear();
     },
+
+    async updatePersistedModel(model) {
+      const record = await keyStoreRepo.get();
+      if (!record) return; // 保存していない（セッションのみ）
+      const { key: _key, ...rest } = record;
+      await keyStoreRepo.put({ ...rest, model });
+    },
   };
 }

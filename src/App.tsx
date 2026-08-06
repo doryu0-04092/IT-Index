@@ -218,6 +218,7 @@ export default function App({ ui }: { ui: UiSet }) {
   const commitOrchestrator = useMemo(() => {
     if (deviceId === null) return null;
     return createCommitOrchestrator({
+      db,
       chatRepo,
       termsRepo,
       notesRepo,

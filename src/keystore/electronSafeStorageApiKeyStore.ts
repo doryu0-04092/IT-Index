@@ -75,5 +75,12 @@ export function createElectronSafeStorageApiKeyStore(keyStoreRepo: KeyStoreRepos
     async disablePersistence() {
       await keyStoreRepo.clear();
     },
+
+    async updatePersistedModel(model) {
+      const record = await keyStoreRepo.get();
+      if (!record) return; // 保存していない（セッションのみ）
+      const { key: _key, ...rest } = record;
+      await keyStoreRepo.put({ ...rest, model });
+    },
   };
 }

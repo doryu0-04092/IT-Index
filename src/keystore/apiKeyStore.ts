@@ -43,4 +43,10 @@ export interface ApiKeyStore {
   /** 保存済みなら復号してセッションに載せる。無ければ何もせず false。 */
   tryRestore(): Promise<boolean>;
   disablePersistence(): Promise<void>;
+  /**
+   * 保存済みならモデル名だけ書き換える（APIキー自体は変わらないため再暗号化は不要）。
+   * 保存していない（セッションのみ）場合は何もしない——呼び出し側がセッション側の
+   * `setSessionCredential` を別途呼ぶ。
+   */
+  updatePersistedModel(model: string): Promise<void>;
 }

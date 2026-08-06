@@ -1,3 +1,4 @@
+import type { ItIndexDB } from '../db';
 import type { AsksRepository } from '../repositories/asks';
 import type { ChatRepository } from '../repositories/chat';
 import type { NotesRepository } from '../repositories/notes';
@@ -6,6 +7,8 @@ import type { AiClient } from './aiClient';
 import { commitProposal, proposeDistribution, type AutoUpdateExistingTermsMode } from './distribution';
 
 export interface CommitOrchestratorDeps {
+  /** terms/notes/asks/chatSessionsへの書き込みを1つのトランザクションに包むために使う（下記参照） */
+  db: ItIndexDB;
   chatRepo: ChatRepository;
   termsRepo: TermsRepository;
   notesRepo: NotesRepository;
@@ -43,6 +46,16 @@ export interface CommitOrchestrator {
  *
  * 「処理は冪等」（状態遷移図の注記）は proposeDistribution 自体が読み取り専用、
  * commitSession() 自体も冪等なので保たれる。
+ *
+ * 2026-08-06改訂: commitProposal()（terms/notes/asksへの書き込み＋セッションのcommitSession()）を
+ * 1つのDexieトランザクションで包む。それまでは各テーブルへの書き込みが個別に確定していたため、
+ * 複数語を含む確定処理の途中（例: 3語中2語目の書き込み）で失敗すると、1語目だけが書き込まれた
+ * 半端な状態がDBに残ったままセッションだけ'open'に戻り、再試行すると同じ語がもう一度
+ * 書き込まれる（askは新規UUIDで積み増しなので重複する）不具合があった（ユーザー指摘）。
+ * トランザクション化により、失敗時は書き込みが全て自動的にロールバックされ、
+ * 「何も書き込まれていない・セッションもopenのまま」という一貫した状態からやり直せる。
+ * チャットメッセージ自体（chatMessages）はこの処理では一切書き込まない・削除しないため、
+ * 確定の成否に関わらず常に残る。
  */
 export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOrchestrator {
   async function commit(sessionId: string): Promise<void> {
@@ -64,6 +77,7 @@ export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOr
         return;
       }
 
+      // AI呼び出し（時間がかかる・DBと無関係）はトランザクションの外で行う。
       const proposal = await proposeDistribution(sessionId, {
         chatRepo: deps.chatRepo,
         termsRepo: deps.termsRepo,
@@ -71,12 +85,16 @@ export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOr
         claude: deps.claude,
       });
 
-      await commitProposal(proposal, deps.autoUpdateExistingTerms, {
-        termsRepo: deps.termsRepo,
-        notesRepo: deps.notesRepo,
-        asksRepo: deps.asksRepo,
-        chatRepo: deps.chatRepo,
-        deviceId: deps.deviceId,
+      // 実際のDB書き込みは1つのトランザクションに包む。複数語のうち一部だけ書き込まれた
+      // 状態でエラーになることを防ぐ（全部書き込まれるか、何も書き込まれないかのどちらかにする）。
+      await deps.db.transaction('rw', [deps.db.terms, deps.db.notes, deps.db.asks, deps.db.chatSessions], async () => {
+        await commitProposal(proposal, deps.autoUpdateExistingTerms, {
+          termsRepo: deps.termsRepo,
+          notesRepo: deps.notesRepo,
+          asksRepo: deps.asksRepo,
+          chatRepo: deps.chatRepo,
+          deviceId: deps.deviceId,
+        });
       });
     } catch (error) {
       // committing --> open（API呼び出し失敗）。取り込み待ち一覧に戻し、再試行できるようにする。

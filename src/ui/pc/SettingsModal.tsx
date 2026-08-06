@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { getProviderInfo } from '../../ai/providers/types';
+import { listModelsForProvider } from '../../ai/providers';
 import { logAiError } from '../../ai/logError';
 import type { ApiKeyStore } from '../../keystore/apiKeyStore';
-import { getSessionCredential } from '../../keystore/apiKeyStore';
+import { getSessionCredential, setSessionCredential } from '../../keystore/apiKeyStore';
 import ApiKeyPrompt from './ApiKeyPrompt';
 import FactoryResetSection from './FactoryResetSection';
 
@@ -25,11 +26,46 @@ export default function SettingsModal({ apiKeyStore, onClose, onCredentialReady 
   const [hasPersisted, setHasPersisted] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [models, setModels] = useState<string[] | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [changingModel, setChangingModel] = useState(false);
   const credential = getSessionCredential();
 
   useEffect(() => {
     apiKeyStore.hasPersistedCredential().then(setHasPersisted);
   }, [apiKeyStore]);
+
+  // APIキーが登録済みの場合のみ、その場でモデル一覧を取って自由に切り替えられるようにする
+  // （「APIキーを変更」からだと毎回キーの再入力・再確認が要って手間なため。ユーザー指摘）。
+  useEffect(() => {
+    if (!credential) {
+      setModels(null);
+      setModelsError(null);
+      return;
+    }
+    let cancelled = false;
+    setModels(null);
+    setModelsError(null);
+    listModelsForProvider(credential.provider, credential.apiKey)
+      .then((list) => {
+        if (!cancelled) setModels(list);
+      })
+      .catch((err) => {
+        if (!cancelled) setModelsError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [credential?.provider, credential?.apiKey]);
+
+  async function handleChangeModel(model: string) {
+    if (!credential || model === credential.model) return;
+    setChangingModel(true);
+    setSessionCredential({ ...credential, model });
+    await apiKeyStore.updatePersistedModel(model);
+    setChangingModel(false);
+  }
 
   async function handleAuthenticate() {
     setAuthenticating(true);
@@ -85,6 +121,34 @@ export default function SettingsModal({ apiKeyStore, onClose, onCredentialReady 
         <button type="button" className="btn-secondary" onClick={() => setEditingKey(true)}>
           {credential ? 'APIキーを変更' : 'APIキーを設定'}
         </button>
+
+        {credential && (
+          <>
+            {modelsError && (
+              <p className="search-status">モデル一覧を取得できませんでした（{modelsError}）。「APIキーを変更」から再設定してください。</p>
+            )}
+            {!modelsError && (
+              <label className="api-key-field">
+                <span>モデル</span>
+                <select
+                  value={credential.model}
+                  onChange={(e) => void handleChangeModel(e.target.value)}
+                  disabled={models === null || changingModel}
+                >
+                  {models === null ? (
+                    <option value={credential.model}>読み込み中…</option>
+                  ) : (
+                    (models.includes(credential.model) ? models : [credential.model, ...models]).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+            )}
+          </>
+        )}
       </section>
 
       {hasPersisted && (
