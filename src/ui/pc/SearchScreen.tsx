@@ -29,6 +29,12 @@ export interface SearchScreenProps {
   onResumeChatSession: (sessionId: string) => void;
   /** 「取り込み待ち」一覧から、チャット画面を開かずその場で単語帳へ取り込む */
   onCommitPending: (sessionId: string) => void;
+  /**
+   * 「登録しない」（2026-08-06追加）。AIの判定に登録可否を委ねず、利用者が明示的に
+   * 拒否できるようにするための操作。会話は削除しない——履歴画面の「取り込み履歴」タブに
+   * 残り、後から取り込み直せる（データが消えるわけではないため確認は1回のクリックのみ）。
+   */
+  onDeclineSession: (sessionId: string) => void;
   /** シード取り込み・ローカル取り込みが異常終了した場合のみ渡される。通常時は null */
   seedError: string | null;
   /** シード取り込み（再試行含む）が完了するたびに増分される。termsの再読み込みトリガー */
@@ -52,6 +58,7 @@ export default function SearchScreen({
   onAiSearch,
   onResumeChatSession,
   onCommitPending,
+  onDeclineSession,
   seedError,
   seedRefreshTick,
   onRetrySeed,
@@ -97,6 +104,12 @@ export default function SearchScreen({
   // 取り込みはバックグラウンドで進む。押した時点でこの一覧からは消してよい——結果を待たせない。
   function handleCommitPending(sessionId: string) {
     onCommitPending(sessionId);
+    setPendingUpdates((prev) => prev.filter((p) => p.sessionId !== sessionId));
+  }
+
+  // 「登録しない」。会話は消えず「取り込み履歴」タブに残るので、ここでは一覧から消すだけでよい。
+  function handleDeclineSession(sessionId: string) {
+    onDeclineSession(sessionId);
     setPendingUpdates((prev) => prev.filter((p) => p.sessionId !== sessionId));
   }
 
@@ -178,6 +191,13 @@ export default function SearchScreen({
                   onClick={() => handleCommitPending(p.sessionId)}
                 >
                   取り込む
+                </button>
+                <button
+                  type="button"
+                  className="search-pending-decline btn-text"
+                  onClick={() => handleDeclineSession(p.sessionId)}
+                >
+                  登録しない
                 </button>
               </li>
             ))}

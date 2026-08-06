@@ -73,8 +73,20 @@ export const DISTRIBUTION_SYSTEM_PROMPT = `あなたはIT-Indexという学習�
 summary・draftBody に共通の品質基準:
 ${buildQualityRules()}`;
 
-export function buildDistributionMessages(history: AiMessage[]): AiMessage[] {
-  return [...history, { role: 'user', content: DISTRIBUTION_INSTRUCTION }];
+/**
+ * subjectLabel: セッションの主題（利用者が選んだ語、または「AIで検索」に打った文字列）。
+ * 渡すと、この語を分配統合の判定（isTerm・askedByUser）から独立して必ず含めるよう指示する。
+ *
+ * 2026-08-06追加: 以前はここでAIに主題を一切伝えておらず、「利用者が明示的に尋ねた語か」の
+ * 判定を会話文からの**AIの推測**だけに委ねていた。主題はアプリ側が既に確定させている情報
+ * （要件定義書§5.3「AIに推測させず、利用者が選ぶ」）なので、それをAIにも教えたうえで、
+ * さらにJS側でも強制する（distribution.ts）——AIの判定だけに頼らない二重の防御にする。
+ */
+export function buildDistributionMessages(history: AiMessage[], subjectLabel?: string | null): AiMessage[] {
+  const instruction = subjectLabel
+    ? `${DISTRIBUTION_INSTRUCTION}\nなお、この会話の主題は「${subjectLabel}」です。話題として成立するかどうかの判断に関わらず、必ずこの語を1項目として含め、isTermをtrue、askedByUserをtrueにしてください（termは表記の揺れを正した正式名にしてよい）。`
+    : DISTRIBUTION_INSTRUCTION;
+  return [...history, { role: 'user', content: instruction }];
 }
 
 /**

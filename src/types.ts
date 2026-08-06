@@ -137,8 +137,11 @@ export interface ChatSessionRecord {
    *   取り込み中に同じ語を開いた場合は別の新しいセッションが立ち、後でそれを取り込めば
    *   既存のAI補足に統合される。
    * 'committed' = 取り込み済み
+   * 'declined' = 利用者が「登録しない」を選んだ（2026-08-06追加）。会話は削除しない
+   *   ——履歴画面の「取り込み履歴」タブから後で見返し、取り込み直すこともできる。
+   *   'open' と同じくbeginCommit()で'committing'へ遷移できる（気が変わって取り込む場合）。
    */
-  status: 'open' | 'committing' | 'committed';
+  status: 'open' | 'committing' | 'committed' | 'declined';
 }
 
 /** Drive 同期対象外 */

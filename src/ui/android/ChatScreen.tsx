@@ -34,6 +34,11 @@ export interface ChatScreenProps {
   onBack: () => void;
   /** returnTermIdが非nullの時だけ表示するリンクから呼ばれる。元の単語詳細画面へ戻る */
   onBackToTerm: (termId: string) => void;
+  /**
+   * 履歴画面「取り込み履歴」タブから、取り込み済みの会話を閲覧のためだけに開いた場合に true。
+   * 入力欄・クイック質問等の操作一式を隠し、会話を読むだけの画面にする（2026-08-06追加、PC版と同一）。
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -55,6 +60,7 @@ export default function ChatScreen({
   onKeyReady,
   onBack,
   onBackToTerm,
+  readOnly,
 }: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState('');
@@ -93,12 +99,12 @@ export default function ChatScreen({
   // キー入力後に回答の無いユーザー発言が宙に浮く。キーが入った時点で改めてこの効果が動く。
   const initialQuestionSent = useRef(false);
   useEffect(() => {
-    if (!keyReady || !initialQuestion || initialQuestionSent.current) return;
+    if (readOnly || !keyReady || !initialQuestion || initialQuestionSent.current) return;
     initialQuestionSent.current = true;
     void handleSend(initialQuestion);
     // handleSend は毎レンダリング作り直されるため依存に入れない（入れると送信のたびに再実行される）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [keyReady, initialQuestion]);
+  }, [keyReady, initialQuestion, readOnly]);
 
   // 「単語の概要を聞く」「さらに詳しく聞く」で送る固定文言（PC版と同一）。どの語について
   // 話しているかは SubjectContext で確定しているため、文言に語名を埋め込む必要はない
@@ -106,7 +112,8 @@ export default function ChatScreen({
   const OVERVIEW_QUESTION = 'この用語の基本的な情報を、初心者にもわかるように教えてください。';
   const DETAIL_QUESTION = 'ここまでの会話と「理解のために調べたこと」の内容を踏まえて、さらに詳しく教えてください。';
 
-  if (!keyReady) {
+  // 閲覧のみ（取り込み済みの会話）ならAPIキーは不要——新しくAIを呼ぶ操作が無いため。
+  if (!readOnly && !keyReady) {
     return <ApiKeyPrompt apiKeyStore={apiKeyStore} onSet={onKeyReady} onBack={onBack} />;
   }
 
@@ -126,20 +133,25 @@ export default function ChatScreen({
 
       <div className="chat-subject-chip">
         <span>「{subject.label}」について質問中</span>
+        {readOnly && <span className="chat-readonly-badge">取り込み済み（閲覧のみ）</span>}
       </div>
 
-      <FeatureHint hintKey="chat-quick-asks">
-        「概要を聞く」「さらに詳しく聞く」を押すと、よくある質問を自分で入力せずに送れます。
-      </FeatureHint>
+      {!readOnly && (
+        <>
+          <FeatureHint hintKey="chat-quick-asks">
+            「概要を聞く」「さらに詳しく聞く」を押すと、よくある質問を自分で入力せずに送れます。
+          </FeatureHint>
 
-      <div className="chat-quick-asks">
-        <button type="button" className="btn-secondary" onClick={() => handleSend(OVERVIEW_QUESTION, true)} disabled={sending}>
-          単語の概要を聞く
-        </button>
-        <button type="button" className="btn-secondary" onClick={() => handleSend(DETAIL_QUESTION, true)} disabled={sending}>
-          さらに詳しく聞く
-        </button>
-      </div>
+          <div className="chat-quick-asks">
+            <button type="button" className="btn-secondary" onClick={() => handleSend(OVERVIEW_QUESTION, true)} disabled={sending}>
+              単語の概要を聞く
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => handleSend(DETAIL_QUESTION, true)} disabled={sending}>
+              さらに詳しく聞く
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="chat-messages">
         {visibleMessages.map((m) => (
@@ -157,62 +169,66 @@ export default function ChatScreen({
 
       {error && <p className="chat-error">{error}</p>}
 
-      <div className="chat-input-row">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            // 日本語入力（IME）で漢字変換を確定するときもEnterキーが飛んでくる。
-            // isComposing を見ずに判定すると、文章を書き終える前に変換確定のたびに
-            // 送信されてしまう（PC版で実際に報告された不具合。docs/ui-pc.md §3バグ4）。
-            // Android端末では外付けキーボード利用時に同じ問題が起き得るため、対策を維持する。
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          placeholder="質問を入力（Enterで送信、Shift+Enterで改行）"
-          disabled={sending}
-        />
-        <button type="button" className="btn-primary" onClick={() => handleSend()} disabled={sending || input.trim() === ''}>
-          {sending ? '送信中…' : '送信'}
-        </button>
-      </div>
-
-      <div className="chat-subject-row">
-        {/*
-          送信ボタン・確定ボタンの間に挟まっているため誤タップしやすい。
-          1回目のタップでは実行せず、確認の一言と共に「送信する」を出す2段階方式にする。
-        */}
-        {confirmingDetailAsk ? (
-          <>
-            <span className="search-status">さらに詳しく聞きますか？</span>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => {
-                setConfirmingDetailAsk(false);
-                handleSend(DETAIL_QUESTION, true);
+      {!readOnly && (
+        <>
+          <div className="chat-input-row">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                // 日本語入力（IME）で漢字変換を確定するときもEnterキーが飛んでくる。
+                // isComposing を見ずに判定すると、文章を書き終える前に変換確定のたびに
+                // 送信されてしまう（PC版で実際に報告された不具合。docs/ui-pc.md §3バグ4）。
+                // Android端末では外付けキーボード利用時に同じ問題が起き得るため、対策を維持する。
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  handleSend();
+                }
               }}
+              placeholder="質問を入力（Enterで送信、Shift+Enterで改行）"
               disabled={sending}
-            >
-              送信する
+            />
+            <button type="button" className="btn-primary" onClick={() => handleSend()} disabled={sending || input.trim() === ''}>
+              {sending ? '送信中…' : '送信'}
             </button>
-            <button type="button" className="btn-text" onClick={() => setConfirmingDetailAsk(false)}>
-              キャンセル
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            className="chat-subject-change btn-text"
-            onClick={() => setConfirmingDetailAsk(true)}
-            disabled={sending}
-          >
-            さらに詳しく聞く
-          </button>
-        )}
-      </div>
+          </div>
+
+          <div className="chat-subject-row">
+            {/*
+              送信ボタン・確定ボタンの間に挟まっているため誤タップしやすい。
+              1回目のタップでは実行せず、確認の一言と共に「送信する」を出す2段階方式にする。
+            */}
+            {confirmingDetailAsk ? (
+              <>
+                <span className="search-status">さらに詳しく聞きますか？</span>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    setConfirmingDetailAsk(false);
+                    handleSend(DETAIL_QUESTION, true);
+                  }}
+                  disabled={sending}
+                >
+                  送信する
+                </button>
+                <button type="button" className="btn-text" onClick={() => setConfirmingDetailAsk(false)}>
+                  キャンセル
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="chat-subject-change btn-text"
+                onClick={() => setConfirmingDetailAsk(true)}
+                disabled={sending}
+              >
+                さらに詳しく聞く
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
       {/* 質問を重ねて会話が伸びると、画面上部の戻るリンクまでスクロールしないと前の画面に
           戻れない不便があった（ユーザー指摘）。同じリンクをここにも複製する。 */}

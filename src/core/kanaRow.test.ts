@@ -13,9 +13,9 @@ describe('bucketOf', () => {
     expect(bucketOf(term('AAC', ['エーエーシー']))).toBe('A');
   });
 
-  it('buckets a digit-first term under 0-9', () => {
-    expect(bucketOf(term('0アドレス方式', ['ゼロアドレスホウシキ']))).toBe('0-9');
-    expect(bucketOf(term('3Dプリンター', ['スリーディープリンター']))).toBe('0-9');
+  it('buckets a digit-first term under 数字', () => {
+    expect(bucketOf(term('0アドレス方式', ['ゼロアドレスホウシキ']))).toBe('数字');
+    expect(bucketOf(term('3Dプリンター', ['スリーディープリンター']))).toBe('数字');
   });
 
   it('buckets a dakuten-first term into its base seion character', () => {
@@ -45,5 +45,22 @@ describe('bucketOf', () => {
 
   it('falls back to readings[0] when the first char is a long vowel mark (ー)', () => {
     expect(bucketOf(term('ー始まりの語', ['アルファ']))).toBe('ア');
+  });
+
+  // 分類できない語は「その他」へ。以前は数字と一緒くたに '0-9' へ落としていたため、
+  // 数字と無関係な語が「0-9」の見出しの下に並んでいた（2026-08-06修正）。
+  describe('分類できない語（その他）', () => {
+    it('falls back to その他 when neither the term nor its reading starts with a classifiable char', () => {
+      expect(bucketOf(term('※注記', ['※チュウキ']))).toBe('その他');
+      expect(bucketOf(term('ー', ['ー']))).toBe('その他');
+    });
+
+    it('falls back to その他 when readings is empty', () => {
+      expect(bucketOf(term('漢字だけの語', []))).toBe('その他');
+    });
+
+    it('never puts a non-digit term into 数字', () => {
+      expect(bucketOf(term('※注記', ['※チュウキ']))).not.toBe('数字');
+    });
   });
 });

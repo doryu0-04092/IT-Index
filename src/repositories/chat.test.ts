@@ -103,4 +103,103 @@ describe('ChatRepository', () => {
       expect(await repo.findOpenSessionBySubjectLabel('')).toBeUndefined();
     });
   });
+
+  // 「登録しない」（2026-08-06追加）。AIの判定に任せず、利用者が明示的に拒否した場合の状態。
+  // 会話は削除しない——履歴タブの「取り込む」ボタンで後から取り込み直せる。
+  describe('declineSession（登録しない）', () => {
+    it('moves an open session to declined and takes it out of the pending list', async () => {
+      const repo = createChatRepository(db);
+      const session = await repo.createSession('cors');
+
+      await repo.declineSession(session.id);
+
+      expect((await repo.getSession(session.id))?.status).toBe('declined');
+      expect(await repo.getOpenSessions()).toHaveLength(0);
+    });
+
+    it('does not touch a session that is not open (e.g. already committing)', async () => {
+      const repo = createChatRepository(db);
+      const session = await repo.createSession('cors');
+      await repo.beginCommit(session.id);
+
+      await repo.declineSession(session.id);
+
+      expect((await repo.getSession(session.id))?.status).toBe('committing');
+    });
+
+    it('a declined session can be committed later via beginCommit (気が変わって取り込み直す)', async () => {
+      const repo = createChatRepository(db);
+      const session = await repo.createSession('cors');
+      await repo.declineSession(session.id);
+
+      expect(await repo.beginCommit(session.id)).toBe(true);
+      expect((await repo.getSession(session.id))?.status).toBe('committing');
+    });
+  });
+
+  describe('getRecentSessions（履歴画面「取り込み履歴」タブ用）', () => {
+    it('returns open, declined and committed sessions, newest lastActiveAt first', async () => {
+      const repo = createChatRepository(db);
+      const first = await repo.createSession('a');
+      await repo.touchSession(first.id, 100);
+      const second = await repo.createSession('b');
+      await repo.touchSession(second.id, 300);
+      const third = await repo.createSession('c');
+      await repo.touchSession(third.id, 200);
+      await repo.declineSession(second.id);
+      await repo.commitSession(third.id);
+
+      const recent = await repo.getRecentSessions(10);
+      expect(recent.map((s) => s.id)).toEqual([second.id, third.id, first.id]);
+    });
+
+    it('excludes committing sessions', async () => {
+      const repo = createChatRepository(db);
+      const session = await repo.createSession('cors');
+      await repo.beginCommit(session.id);
+
+      expect(await repo.getRecentSessions(10)).toHaveLength(0);
+    });
+
+    it('respects the limit', async () => {
+      const repo = createChatRepository(db);
+      for (let i = 0; i < 5; i++) await repo.createSession(`term-${i}`);
+
+      expect(await repo.getRecentSessions(3)).toHaveLength(3);
+    });
+  });
+
+  describe('自動30件制限（登録済みの単語データは対象外）', () => {
+    it('keeps only the 30 most recently active sessions, oldest evicted first', async () => {
+      const repo = createChatRepository(db);
+      const sessions = [];
+      for (let i = 0; i < 32; i++) {
+        const s = await repo.createSession(`term-${i}`);
+        await repo.touchSession(s.id, i); // 作成順にlastActiveAtを単調増加させる
+        sessions.push(s);
+      }
+
+      const all = await repo.getRecentSessions(100);
+      expect(all).toHaveLength(30);
+      // 最も古い2件（term-0, term-1）は削除されている
+      expect(all.map((s) => s.termId)).not.toContain('term-0');
+      expect(all.map((s) => s.termId)).not.toContain('term-1');
+      expect(all.map((s) => s.termId)).toContain('term-31');
+    });
+
+    it('deletes messages of evicted sessions too, but never protects a committing one from staying below the cap check', async () => {
+      const repo = createChatRepository(db);
+      const evicted = await repo.createSession('old-term');
+      await repo.appendMessage(evicted.id, 'user', '古い質問');
+      await repo.touchSession(evicted.id, 0);
+
+      for (let i = 0; i < 30; i++) {
+        const s = await repo.createSession(`term-${i}`);
+        await repo.touchSession(s.id, i + 1);
+      }
+
+      expect(await repo.getSession(evicted.id)).toBeUndefined();
+      expect(await repo.getMessages(evicted.id)).toHaveLength(0);
+    });
+  });
 });

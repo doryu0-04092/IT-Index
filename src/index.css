@@ -376,7 +376,8 @@ button:disabled {
   margin-left: auto;
 }
 
-.search-pending-commit {
+.search-pending-commit,
+.search-pending-decline {
   flex: none;
 }
 
@@ -669,6 +670,14 @@ button:disabled {
   border-radius: 8px;
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+/* 履歴画面「取り込み履歴」タブから取り込み済みの会話を開いた時の閲覧専用表示（2026-08-06追加） */
+.chat-readonly-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  font-size: 0.75rem;
 }
 
 .chat-back-to-term {
@@ -1418,7 +1427,8 @@ button:disabled {
   font-size: 0.92rem;
 }
 
-.android-app .search-pending-commit {
+.android-app .search-pending-commit,
+.android-app .search-pending-decline {
   flex: 1 1 100%;
   text-align: right;
   min-height: 44px;

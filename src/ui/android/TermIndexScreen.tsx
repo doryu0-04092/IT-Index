@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BUCKET_ORDER, GOJUON_GRID, groupIntoBuckets } from '../../core/kanaRow';
+import { BUCKET_ORDER, GOJUON_GRID, groupIntoBuckets, NUMERIC_BUCKET, OTHER_BUCKET } from '../../core/kanaRow';
 import type { TermsRepository } from '../../repositories/terms';
 import type { TermRecord } from '../../types';
 
@@ -31,6 +31,9 @@ export default function TermIndexScreen({ termsRepo, onSelectTerm, onBack }: Ter
   useEffect(() => {
     termsRepo.getAll().then((terms) => setBuckets(groupIntoBuckets(terms)));
   }, [termsRepo]);
+
+  const hasOther = (buckets?.get(OTHER_BUCKET)?.length ?? 0) > 0;
+  const visibleBuckets = hasOther ? BUCKET_ORDER : BUCKET_ORDER.filter((b) => b !== OTHER_BUCKET);
 
   function jumpTo(bucket: string) {
     document.getElementById(sectionId(bucket))?.scrollIntoView({ behavior: 'auto', block: 'start' });
@@ -65,11 +68,21 @@ export default function TermIndexScreen({ termsRepo, onSelectTerm, onBack }: Ter
           ),
         )}
       </div>
+      <nav className="term-index-jump" aria-label="数字・その他へジャンプ">
+        <button type="button" className="term-index-jump-link" onClick={() => jumpTo(NUMERIC_BUCKET)}>
+          {NUMERIC_BUCKET}
+        </button>
+        {hasOther && (
+          <button type="button" className="term-index-jump-link" onClick={() => jumpTo(OTHER_BUCKET)}>
+            {OTHER_BUCKET}
+          </button>
+        )}
+      </nav>
 
       {buckets === null ? (
         <p className="search-status">読み込み中です…</p>
       ) : (
-        BUCKET_ORDER.map((b) => (
+        visibleBuckets.map((b) => (
           <section key={b} id={sectionId(b)} className="term-index-section">
             <h3 className="term-index-heading">{b}</h3>
             {buckets.get(b)!.length === 0 ? (

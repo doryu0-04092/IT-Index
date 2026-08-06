@@ -1,6 +1,14 @@
 import type { ItIndexDB } from '../db';
 import type { ChatMessageRecord, ChatSessionRecord } from '../types';
 
+/**
+ * 履歴画面「取り込み履歴」タブに残す会話の上限（2026-08-06追加）。
+ * 取り込み済み・登録しなかった・取り込み待ちのいずれも合わせた件数で数える
+ * （ユーザー確認済み）。超えた分は古い会話から削除する——**削除されるのは会話（chatMessages/
+ * chatSessions）だけ**で、既に登録済みの単語・AI補足（terms/notes）は別テーブルのため影響しない。
+ */
+const MAX_CHAT_HISTORY = 30;
+
 export interface ChatRepository {
   /** subjectLabel は termId:null（検索欄からの「AIで検索」）のときだけ渡す */
   createSession(termId: string | null, subjectLabel?: string): Promise<ChatSessionRecord>;
@@ -19,16 +27,39 @@ export interface ChatRepository {
   /** id指定での単体取得。リロード時の画面復元（#39）等、既知のsessionIdから状態を再構築する用途 */
   getSession(sessionId: string): Promise<ChatSessionRecord | undefined>;
   /**
-   * 取り込み処理の開始を宣言する（'open' → 'committing'）。**取れたら true**。
+   * 取り込み処理の開始を宣言する（'open'または'declined' → 'committing'）。**取れたら true**。
    * 既に 'committing'（別経路が処理中）や 'committed' なら false を返し、二重取り込みを防ぐ。
    * 「まとめて取り込む」と個別ボタンを続けて押した場合の競合もここで弾ける。
+   * 'declined'（一度「登録しない」を選んだ会話）からも取れる——履歴タブの「取り込む」ボタンで
+   * 気が変わって取り込み直せるようにするため。
    */
   beginCommit(sessionId: string): Promise<boolean>;
   /** 取り込みに失敗したときに 'committing' → 'open' へ戻す（再試行できる状態にする） */
   abortCommit(sessionId: string): Promise<void>;
   /** 冪等。既に committed なら何もしない */
   commitSession(sessionId: string): Promise<void>;
+  /** 利用者が「登録しない」を選んだ（'open' → 'declined'）。会話は削除しない */
+  declineSession(sessionId: string): Promise<void>;
   getMessages(sessionId: string): Promise<ChatMessageRecord[]>;
+  /**
+   * 履歴画面「取り込み履歴」タブ用。取り込み待ち・登録しなかった・取り込み済みを合わせて
+   * 最近やり取りした順（lastActiveAt降順）に返す。処理中（'committing'）は対象外
+   * （表示中に状態が変わる一瞬だけの状態のため、ここに出す意味が無い）。
+   */
+  getRecentSessions(limit: number): Promise<ChatSessionRecord[]>;
+}
+
+/** 上限を超えた古い会話を削除する。登録済みの単語・AI補足（terms/notes）には触れない */
+async function pruneOldSessions(db: ItIndexDB): Promise<void> {
+  await db.transaction('rw', db.chatSessions, db.chatMessages, async () => {
+    const all = await db.chatSessions.toArray();
+    const candidates = all.filter((s) => s.status !== 'committing').sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+    const excess = candidates.slice(MAX_CHAT_HISTORY);
+    for (const s of excess) {
+      await db.chatMessages.where('sessionId').equals(s.id).delete();
+      await db.chatSessions.delete(s.id);
+    }
+  });
 }
 
 export function createChatRepository(db: ItIndexDB): ChatRepository {
@@ -44,6 +75,7 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
         status: 'open',
       };
       await db.chatSessions.add(session);
+      await pruneOldSessions(db);
       return session;
     },
 
@@ -94,7 +126,7 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
       // （settings.ts のバグ1と同じ形の競合）。
       return db.transaction('rw', db.chatSessions, async () => {
         const session = await db.chatSessions.get(sessionId);
-        if (!session || session.status !== 'open') return false;
+        if (!session || (session.status !== 'open' && session.status !== 'declined')) return false;
         await db.chatSessions.update(sessionId, { status: 'committing' });
         return true;
       });
@@ -112,8 +144,22 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
       await db.chatSessions.update(sessionId, { status: 'committed' });
     },
 
+    async declineSession(sessionId) {
+      const session = await db.chatSessions.get(sessionId);
+      if (!session || session.status !== 'open') return;
+      await db.chatSessions.update(sessionId, { status: 'declined' });
+    },
+
     async getMessages(sessionId) {
       return db.chatMessages.where('sessionId').equals(sessionId).sortBy('at');
+    },
+
+    async getRecentSessions(limit) {
+      const all = await db.chatSessions.toArray();
+      return all
+        .filter((s) => s.status !== 'committing')
+        .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+        .slice(0, limit);
     },
   };
 }

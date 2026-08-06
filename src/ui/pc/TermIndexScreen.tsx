@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BUCKET_ORDER, GOJUON_GRID, groupIntoBuckets } from '../../core/kanaRow';
+import { BUCKET_ORDER, GOJUON_GRID, groupIntoBuckets, NUMERIC_BUCKET, OTHER_BUCKET } from '../../core/kanaRow';
 import type { TermsRepository } from '../../repositories/terms';
 import type { TermRecord } from '../../types';
 
@@ -21,6 +21,10 @@ function sectionId(bucket: string): string {
  * （バケット分類は src/core/kanaRow.ts）。該当する語が0件のバケットも見出しだけは表示する
  * ——索引としての一覧性を保つため。かなのジャンプリンクは伝統的な五十音図の形（10列×5行）で表示する。
  *
+ * 並びは英字→かな→数字→その他（2026-08-06）。「その他」はどのバケットにも分類できなかった
+ * 語の受け皿で、本来は空であるべき例外用のため、該当が1件も無いうちはリンク・見出しとも
+ * 出さない（常時見えると索引の見た目を無駄に汚すため）。数字は常に見出しを出す（他のバケットと同じ）。
+ *
  * ジャンプは `<a href="#...">` ではなく `scrollIntoView` で行う。このアプリはURLルーティングを
  * 持たず、戻るボタンでの白紙化を防ぐため画面遷移のたびにダミーのhistoryエントリを積み、
  * popstateで検索画面へ戻すハックが入っている（App.tsx）。`#`リンクへの同一ページ内遷移も
@@ -36,6 +40,9 @@ export default function TermIndexScreen({ termsRepo, onSelectTerm, onBack }: Ter
   useEffect(() => {
     termsRepo.getAll().then((terms) => setBuckets(groupIntoBuckets(terms)));
   }, [termsRepo]);
+
+  const hasOther = (buckets?.get(OTHER_BUCKET)?.length ?? 0) > 0;
+  const visibleBuckets = hasOther ? BUCKET_ORDER : BUCKET_ORDER.filter((b) => b !== OTHER_BUCKET);
 
   function jumpTo(bucket: string) {
     document.getElementById(sectionId(bucket))?.scrollIntoView({ behavior: 'auto', block: 'start' });
@@ -70,11 +77,21 @@ export default function TermIndexScreen({ termsRepo, onSelectTerm, onBack }: Ter
           ),
         )}
       </div>
+      <nav className="term-index-jump" aria-label="数字・その他へジャンプ">
+        <button type="button" className="term-index-jump-link" onClick={() => jumpTo(NUMERIC_BUCKET)}>
+          {NUMERIC_BUCKET}
+        </button>
+        {hasOther && (
+          <button type="button" className="term-index-jump-link" onClick={() => jumpTo(OTHER_BUCKET)}>
+            {OTHER_BUCKET}
+          </button>
+        )}
+      </nav>
 
       {buckets === null ? (
         <p className="search-status">読み込み中です…</p>
       ) : (
-        BUCKET_ORDER.map((b) => (
+        visibleBuckets.map((b) => (
           <section key={b} id={sectionId(b)} className="term-index-section">
             <h3 className="term-index-heading">{b}</h3>
             {buckets.get(b)!.length === 0 ? (

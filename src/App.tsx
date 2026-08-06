@@ -37,7 +37,15 @@ type Screen =
    * 立てた時だけ入る（検索欄に打った文字列そのもの）。再開・リロード復元では入れない
    * ——既にやり取りがあるセッションに同じ質問をもう一度送ってしまうため。
    */
-  | { name: 'chat'; sessionId: string; subject: SubjectContext; returnTermId: string | null; initialQuestion?: string }
+  | {
+      name: 'chat';
+      sessionId: string;
+      subject: SubjectContext;
+      returnTermId: string | null;
+      initialQuestion?: string;
+      /** 履歴画面「取り込み履歴」タブから取り込み済みの会話を開いた場合のみtrue（閲覧専用） */
+      readOnly?: boolean;
+    }
   | { name: 'history'; view: HistoryView }
   | { name: 'index' }
   | { name: 'settings' }
@@ -293,7 +301,13 @@ export default function App({ ui }: { ui: UiSet }) {
           const subject = session ? await subjectForSession(session) : null;
           if (session && subject) {
             setActiveChatSessionId(session.id);
-            setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: persisted.returnTermId });
+            setScreen({
+              name: 'chat',
+              sessionId: session.id,
+              subject,
+              returnTermId: persisted.returnTermId,
+              readOnly: session.status === 'committed',
+            });
           }
           break;
         }
@@ -411,13 +425,30 @@ export default function App({ ui }: { ui: UiSet }) {
 
   // ホームの「取り込み待ち」一覧から、既知のsessionIdでそのまま再開する。
   // startChat()と異なり新規セッションは作らない。
+  // 履歴画面「取り込み履歴」タブからの再開もこの関数を使う。取り込み済み(committed)の
+  // セッションを開いた場合は閲覧専用（readOnly）で開く——入力や再送信で内容を変えられない
+  // ようにするため（ChatScreenのreadOnlyモード参照）。
   async function resumeChatSession(sessionId: string) {
     const session = await chatRepo.getSession(sessionId);
     if (!session) return;
     const subject = await subjectForSession(session);
     if (!subject) return;
     setActiveChatSessionId(session.id);
-    setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: null });
+    setScreen({
+      name: 'chat',
+      sessionId: session.id,
+      subject,
+      returnTermId: null,
+      readOnly: session.status === 'committed',
+    });
+  }
+
+  // 履歴画面「取り込み履歴」タブの「登録しない」相当は既にSearchScreenの「登録しない」で
+  // declineSessionを直接呼んでいるため、ここではSearchScreen用のハンドラだけを用意する。
+  async function declineSession(sessionId: string): Promise<void> {
+    await chatRepo.declineSession(sessionId);
+    if (activeChatSessionId === sessionId) setActiveChatSessionId(null);
+    setPendingRefreshTick((t) => t + 1);
   }
 
   // 確定＝AI要約処理・DB書き込み（commitOrchestrator）。完了後、SearchScreenの
@@ -526,6 +557,7 @@ export default function App({ ui }: { ui: UiSet }) {
             onAiSearch={(query) => void startQueryChat(query)}
             onResumeChatSession={(sessionId) => void resumeChatSession(sessionId)}
             onCommitPending={commitPendingTerm}
+            onDeclineSession={(sessionId) => void declineSession(sessionId)}
             pendingRefreshTick={pendingRefreshTick}
           />
         ) : screen.name === 'detail' ? (
@@ -544,6 +576,7 @@ export default function App({ ui }: { ui: UiSet }) {
             subject={screen.subject}
             returnTermId={screen.returnTermId}
             initialQuestion={screen.initialQuestion}
+            readOnly={screen.readOnly}
             chatRepo={chatRepo}
             termsRepo={termsRepo}
             claude={claude}
@@ -565,8 +598,11 @@ export default function App({ ui }: { ui: UiSet }) {
             asksRepo={asksRepo}
             termsRepo={termsRepo}
             syncEventsRepo={syncEventsRepo}
+            chatRepo={chatRepo}
             initialView={screen.view}
             onSelectTerm={(termId) => openDetail(termId, { screen: 'history', view: screen.view })}
+            onOpenChatSession={(sessionId) => void resumeChatSession(sessionId)}
+            onCommitPending={commitPendingTerm}
             onBack={() => setScreen({ name: 'search' })}
           />
         ) : screen.name === 'index' ? (

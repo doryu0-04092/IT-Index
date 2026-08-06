@@ -197,6 +197,149 @@ describe('proposeDistribution / applyDistribution', () => {
     });
   });
 
+  // 2026-08-06追加: 主題（利用者が明示的に選んだ語）は、AIのaskedByUser判定に関わらず
+  // 必ず登録候補に残す。以前はAIの推測（askedByUser）だけに頼っていたため、AIが
+  // 「利用者は尋ねていない」と誤判定すると主題の語が一件も書き込まれず、会話だけが
+  // 確定扱いになって実質的に失われていた（ユーザー報告の不具合）。
+  describe('主題の強制登録', () => {
+    it('forces askedByUser:true for the subject term even when the AI says false (term mode)', async () => {
+      const chatRepo = createChatRepository(db);
+      const termsRepo = createTermsRepository(db);
+      const notesRepo = createNotesRepository(db);
+      const now = Date.now();
+
+      const existing = buildTermRecord({
+        term: 'TCP/IP',
+        readings: ['ティーシーピーアイピー'],
+        summary: '規約の集まり。',
+        field: 'ネットワーク',
+        origin: 'seed',
+        now,
+      });
+      await termsRepo.bulkPutFromSeed([existing]);
+
+      // 単語詳細画面から「この語についてAIに聞く」で始めたセッション = 主題はTCP/IP
+      const session = await chatRepo.createSession(existing.id);
+      await chatRepo.appendMessage(session.id, 'user', 'TCP/IPって何？');
+
+      const claude = createScriptedAiClient([
+        distributionJson([
+          {
+            term: 'TCP/IP',
+            isTerm: true,
+            askedByUser: false, // AIが誤って「尋ねられていない」と判定したケースを模す
+            summary: '規約の集まり。',
+            readings: ['ティーシーピーアイピー'],
+            field: 'ネットワーク',
+            draftBody: '新しい説明。',
+            diagrams: [],
+          },
+        ]),
+      ]);
+
+      const proposal = await proposeDistribution(session.id, { chatRepo, termsRepo, notesRepo, claude });
+
+      expect(proposal.proposedTerms).toHaveLength(1);
+      expect(proposal.proposedTerms[0]).toMatchObject({ term: 'TCP/IP', askedByUser: true });
+    });
+
+    it('forces the subject into the proposal even when the AI omitted it as a new term (query mode)', async () => {
+      const chatRepo = createChatRepository(db);
+      const termsRepo = createTermsRepository(db);
+      const notesRepo = createNotesRepository(db);
+      // ホーム画面の「AIで検索」で「1」と打ったケースを模す（実際に報告された不具合）
+      const session = await chatRepo.createSession(null, '1');
+      await chatRepo.appendMessage(session.id, 'user', '1');
+
+      const claude = createScriptedAiClient([
+        distributionJson([
+          {
+            term: '1',
+            isTerm: true,
+            askedByUser: false, // 修正前はこれが原因で proposedTerms が空になっていた
+            summary: '進数や真偽値の文脈で使われる数値。',
+            readings: ['イチ'],
+            field: '基礎理論',
+            draftBody: '2進数における1、あるいは真偽値のtrueを表す値として使われる。',
+            diagrams: [],
+          },
+        ]),
+      ]);
+
+      const proposal = await proposeDistribution(session.id, { chatRepo, termsRepo, notesRepo, claude });
+
+      expect(proposal.proposedTerms).toHaveLength(1);
+      expect(proposal.proposedTerms[0]).toMatchObject({ term: '1', isNewTerm: true, askedByUser: true });
+    });
+
+    it('tells the AI what the subject is in the distribution prompt', async () => {
+      const chatRepo = createChatRepository(db);
+      const termsRepo = createTermsRepository(db);
+      const notesRepo = createNotesRepository(db);
+      const session = await chatRepo.createSession(null, 'ゼロトラスト');
+      await chatRepo.appendMessage(session.id, 'user', 'ゼロトラスト');
+
+      const claude = createScriptedAiClient([distributionJson([])]);
+      await proposeDistribution(session.id, { chatRepo, termsRepo, notesRepo, claude });
+
+      const sentText = claude.calls[0].messages.map((m) => m.content).join('\n');
+      expect(sentText).toContain('ゼロトラスト');
+      expect(sentText).toContain('主題');
+    });
+
+    it('still cannot force-include a subject the AI marked isTerm:false (no content to write)', async () => {
+      const chatRepo = createChatRepository(db);
+      const termsRepo = createTermsRepository(db);
+      const notesRepo = createNotesRepository(db);
+      const session = await chatRepo.createSession(null, 'こんにちは');
+      await chatRepo.appendMessage(session.id, 'user', 'こんにちは');
+
+      const claude = createScriptedAiClient([distributionJson([{ term: 'こんにちは', isTerm: false, diagrams: [] }])]);
+      const proposal = await proposeDistribution(session.id, { chatRepo, termsRepo, notesRepo, claude });
+
+      // isTerm:falseの項目はdraftBody等を持たないため、主題であっても書き込む内容が無い
+      // （既知の限界。会話自体は消えず、履歴タブに残って後から取り込み直せる）
+      expect(proposal.proposedTerms).toEqual([]);
+    });
+
+    it('does not force-include unrelated terms the subject rule should not affect', async () => {
+      const chatRepo = createChatRepository(db);
+      const termsRepo = createTermsRepository(db);
+      const notesRepo = createNotesRepository(db);
+      const session = await chatRepo.createSession(null, 'TCP/IP');
+      await chatRepo.appendMessage(session.id, 'user', 'TCP/IPって何？ルーティングも絡む？');
+
+      const claude = createScriptedAiClient([
+        distributionJson([
+          {
+            term: 'TCP/IP',
+            isTerm: true,
+            askedByUser: true,
+            summary: '層に分けた通信規約の集まり。',
+            readings: ['ティーシーピーアイピー'],
+            field: 'ネットワーク',
+            draftBody: '層に分けた通信規約の集まり。',
+            diagrams: [],
+          },
+          {
+            term: 'ルーティング',
+            isTerm: true,
+            askedByUser: false, // 主題ではないので、これまで通り除外される
+            summary: '経路を選ぶ仕組み。',
+            readings: ['ルーティング'],
+            field: 'ネットワーク',
+            draftBody: '経路を選ぶ仕組み。',
+            diagrams: [],
+          },
+        ]),
+      ]);
+
+      const proposal = await proposeDistribution(session.id, { chatRepo, termsRepo, notesRepo, claude });
+
+      expect(proposal.proposedTerms.map((t) => t.term)).toEqual(['TCP/IP']);
+    });
+  });
+
   it('falls back to draftBody when the merge call returns unparsable output', async () => {
     const chatRepo = createChatRepository(db);
     const termsRepo = createTermsRepository(db);
