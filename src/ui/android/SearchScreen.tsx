@@ -10,7 +10,10 @@ const MAX_RESULTS = 30;
 
 interface PendingUpdate {
   sessionId: string;
-  term: TermRecord;
+  /** 語ひも付きなら見出し語、「AIで検索」なら入力した文字列 */
+  label: string;
+  /** 語ひも付きの場合のみ。読み仮名 */
+  reading: string | null;
 }
 
 export interface SearchScreenProps {
@@ -18,10 +21,10 @@ export interface SearchScreenProps {
   chatRepo: ChatRepository;
   onSelectTerm: (termId: string) => void;
   /**
-   * その語についてAIチャットを開始する。**利用者が明示的に選んだ語だけが主題になる**
-   * ——最上位検索候補への自動ひも付けはしない（要件定義書§5.3）。
+   * 検索欄に入力した文字列そのものをAIに聞く（2026-08-06追加）。辞書に無い語こそAIに
+   * 聞きたいという要望に応えるための導線で、**検索結果の特定の語ではなく入力文字列が主題**になる。
    */
-  onStartChat: (termId: string) => void;
+  onAiSearch: (query: string) => void;
   /** 「取り込み待ち」一覧から、そのセッションのチャット画面を開いて再開する */
   onResumeChatSession: (sessionId: string) => void;
   /** 「取り込み待ち」一覧から、チャット画面を開かずその場で単語帳へ取り込む */
@@ -46,13 +49,12 @@ export interface SearchScreenProps {
  * 検索画面（Android版）。PC版と同じprops・同じロジック・同じCSSクラス名を使う
  * （見た目を大きく変えない方針。docs/ui-pc.md §1参照）。狭幅での折り返しは
  * `.android-app .search-result-row` 側のCSS（src/index.css 末尾）で対応する。
- * 各行の「この語について聞く」もPC版と同じく表示する（2026-08-06、誤って消えていたのを復元）。
  */
 export default function SearchScreen({
   termsRepo,
   chatRepo,
   onSelectTerm,
-  onStartChat,
+  onAiSearch,
   onResumeChatSession,
   onCommitPending,
   seedError,
@@ -76,13 +78,18 @@ export default function SearchScreen({
       const sessions = await chatRepo.getOpenSessions();
       const items: PendingUpdate[] = [];
       for (const session of sessions) {
-        // 自由モード（termId:null）は廃止済み。過去バージョンで作られたセッションが
-        // 残っている場合があるため、ここで除外する（取り込む対象の語が無く扱えない）。
-        if (!session.termId) continue;
         const messages = await chatRepo.getMessages(session.id);
         if (messages.length === 0) continue; // まだ何もやり取りしていないセッションは表示不要
-        const term = await termsRepo.getById(session.termId);
-        if (term) items.push({ sessionId: session.id, term });
+
+        if (session.termId) {
+          const term = await termsRepo.getById(session.termId);
+          if (term) items.push({ sessionId: session.id, label: term.term, reading: term.readings[0] ?? null });
+        } else if (session.subjectLabel) {
+          // 検索欄からの「AIで検索」。辞書の語ではないので読み仮名は無い
+          items.push({ sessionId: session.id, label: session.subjectLabel, reading: null });
+        }
+        // termIdもsubjectLabelも無いのは廃止済みの旧「自由モード」のセッション。
+        // 主題を復元できず取り込む対象も決められないため、ここでは出さない。
       }
       if (!cancelled) setPendingUpdates(items);
     }
@@ -125,6 +132,17 @@ export default function SearchScreen({
            入力したい人が検索欄をタップした時点で出れば足りる。 */
       />
 
+      {/*
+        入力した文字列そのものをAIに聞く導線（2026-08-06追加）。検索欄のすぐ下に置く——
+        辞書に無い語を打った時に「見つかりません」で行き止まりにせず、そのままAIへ繋ぐのが狙い。
+        主題は検索結果の語ではなく**入力した文字列**（src/ai/subjectContext.ts の mode:'query'）。
+      */}
+      {query.trim() !== '' && (
+        <button type="button" className="search-ai-search btn-primary btn-block" onClick={() => onAiSearch(query)}>
+          「{query.trim()}」をAIで検索
+        </button>
+      )}
+
       <p className="search-status">
         {terms.length > 0 ? `登録単語数（${terms.length}語）` : seedError ? '辞書の取り込みに失敗しました' : '辞書を読み込み中です…'}
       </p>
@@ -154,8 +172,8 @@ export default function SearchScreen({
             {pendingUpdates.map((p) => (
               <li key={p.sessionId} className="search-result-row">
                 <button type="button" className="search-pending-item" onClick={() => onResumeChatSession(p.sessionId)}>
-                  <span className="search-result-term">{p.term.term}</span>
-                  <span className="search-result-reading">{p.term.readings[0]}</span>
+                  <span className="search-result-term">{p.label}</span>
+                  {p.reading && <span className="search-result-reading">{p.reading}</span>}
                   {failedCommitSessionIds.has(p.sessionId) && (
                     <span className="search-pending-failed chat-error">前回の取り込みに失敗しました</span>
                   )}
@@ -185,13 +203,6 @@ export default function SearchScreen({
               <span className="search-result-reading">{term.readings[0]}</span>
               <span className="search-result-field">{term.field}</span>
               {import.meta.env.DEV && <span className="search-result-score">{s.toFixed(2)}</span>}
-            </button>
-            {/*
-              最上位候補への自動ひも付けはしない（要件定義書§5.3）。この語についてAIに聞きたい
-              場合は、利用者が行ごとに明示的に選ぶ（PC版と同じ）。
-            */}
-            <button type="button" className="search-result-ask-ai btn-text" onClick={() => onStartChat(term.id)}>
-              この語について聞く
             </button>
           </li>
         ))}

@@ -67,4 +67,40 @@ describe('ChatRepository', () => {
 
     expect(await repo.getOpenSessions()).toHaveLength(0);
   });
+
+  // 検索欄からの「AIで検索」（termId:null + subjectLabel）。辞書に無い語も聞けるようにするため、
+  // 語ではなく入力文字列を主題にする。取り込み待ち一覧に何のチャットか出すために label が要る。
+  describe('AIで検索（termId:null のセッション）', () => {
+    it('stores the typed string as subjectLabel', async () => {
+      const repo = createChatRepository(db);
+      const session = await repo.createSession(null, '量子もつれ');
+
+      expect(await repo.getSession(session.id)).toMatchObject({ termId: null, subjectLabel: '量子もつれ' });
+    });
+
+    it('findOpenSessionBySubjectLabel reuses an open session for the same query', async () => {
+      const repo = createChatRepository(db);
+      const session = await repo.createSession(null, '量子もつれ');
+
+      expect((await repo.findOpenSessionBySubjectLabel('量子もつれ'))?.id).toBe(session.id);
+      expect(await repo.findOpenSessionBySubjectLabel('別の語')).toBeUndefined();
+    });
+
+    it('findOpenSessionBySubjectLabel ignores committed sessions and term-linked ones', async () => {
+      const repo = createChatRepository(db);
+      const committed = await repo.createSession(null, '量子もつれ');
+      await repo.commitSession(committed.id);
+      // 同じ文字列がたまたま見出し語のセッションにも使われている場合、そちらは拾わない
+      await repo.createSession('量子もつれ');
+
+      expect(await repo.findOpenSessionBySubjectLabel('量子もつれ')).toBeUndefined();
+    });
+
+    it('legacy free-mode sessions (no subjectLabel) are never matched', async () => {
+      const repo = createChatRepository(db);
+      await repo.createSession(null);
+
+      expect(await repo.findOpenSessionBySubjectLabel('')).toBeUndefined();
+    });
+  });
 });

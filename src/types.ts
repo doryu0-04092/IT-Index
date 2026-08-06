@@ -117,7 +117,15 @@ export interface AskRecord {
 /** Drive 同期対象外（過程は共有しない） */
 export interface ChatSessionRecord {
   id: string;
-  termId: string | null; // null = 自由チャット
+  /** 登録済みの語にひも付くチャットならそのid。検索欄からの「AIで検索」では null */
+  termId: string | null;
+  /**
+   * `termId: null`（検索欄からの「AIで検索」）のとき、利用者が入力した文字列。
+   * ホームの「取り込み待ち」一覧に何のチャットか表示するために要る——これが無いと
+   * 取り込む前に画面を離れた会話が、一覧に出せず取り込めない孤児になる（2026-08-06追加）。
+   * 廃止済みの旧「自由モード」で作られたセッションには存在しないため optional。
+   */
+  subjectLabel?: string;
   startedAt: number;
   lastActiveAt: number;
   /**

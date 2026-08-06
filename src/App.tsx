@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createDynamicAiClient } from './ai/providers';
 import { createCommitOrchestrator } from './ai/commitOrchestrator';
 import { logAiError } from './ai/logError';
-import { buildSubjectContext, type SubjectContext } from './ai/subjectContext';
+import { buildQuerySubject, buildSubjectContext, type SubjectContext } from './ai/subjectContext';
 import { isUnsupportedBrowser } from './browserSupport';
 import { db } from './db';
 import { getSessionCredential } from './keystore/apiKeyStore';
@@ -21,6 +21,7 @@ import { createSettingsRepository } from './repositories/settings';
 import { createSyncEventsRepository } from './repositories/syncEvents';
 import { createTermsRepository } from './repositories/terms';
 import { fetchSeedFile, importSeed } from './seedImport';
+import type { ChatSessionRecord } from './types';
 import type { HistoryView } from './ui/pc/HistoryScreen';
 import type { TopNavCurrent } from './ui/pc/TopNav';
 import type { UiSet } from './ui/uiSet';
@@ -31,7 +32,12 @@ type DetailFrom = 'search' | 'index' | { screen: 'history'; view: HistoryView };
 type Screen =
   | { name: 'search' }
   | { name: 'detail'; termId: string; from: DetailFrom }
-  | { name: 'chat'; sessionId: string; subject: SubjectContext; returnTermId: string | null }
+  /**
+   * initialQuestion: 画面を開いた直後に自動送信する質問。「AIで検索」で新しいセッションを
+   * 立てた時だけ入る（検索欄に打った文字列そのもの）。再開・リロード復元では入れない
+   * ——既にやり取りがあるセッションに同じ質問をもう一度送ってしまうため。
+   */
+  | { name: 'chat'; sessionId: string; subject: SubjectContext; returnTermId: string | null; initialQuestion?: string }
   | { name: 'history'; view: HistoryView }
   | { name: 'index' }
   | { name: 'settings' }
@@ -284,12 +290,10 @@ export default function App({ ui }: { ui: UiSet }) {
           // resumeChatSession()はreturnTermIdを常にnullにする（一覧からの再開はnullで問題ないため）。
           // ここはリロード前の状態（returnTermIdの有無）をそのまま復元する必要があるため使わない。
           const session = await chatRepo.getSession(persisted.sessionId);
-          if (session && session.termId !== null) {
-            const subject = await buildSubjectContext(session.termId, { termsRepo, notesRepo });
-            if (subject) {
-              setActiveChatSessionId(session.id);
-              setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: persisted.returnTermId });
-            }
+          const subject = session ? await subjectForSession(session) : null;
+          if (session && subject) {
+            setActiveChatSessionId(session.id);
+            setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: persisted.returnTermId });
           }
           break;
         }
@@ -346,8 +350,18 @@ export default function App({ ui }: { ui: UiSet }) {
     }
   }
 
-  // 要件定義書§5.3「チャットの主題（SubjectContext）」。チャットは必ずいずれかの語にひも付く
-  // （主題を確定させない「自由モード」は2026-08-05に廃止した）。最上位検索候補への自動ひも付けは
+  /**
+   * 既存セッションから主題を組み立て直す（リロード復元・一覧からの再開で共通）。
+   * 語ひも付きなら辞書から引き直し（要約等が古くなっている可能性があるため）、
+   * 「AIで検索」なら保存しておいた入力文字列から作る。
+   */
+  async function subjectForSession(session: ChatSessionRecord): Promise<SubjectContext | null> {
+    if (session.termId !== null) return buildSubjectContext(session.termId, { termsRepo, notesRepo });
+    // 廃止済みの旧「自由モード」のセッションは subjectLabel を持たない。主題を作れないので開かない
+    return session.subjectLabel ? buildQuerySubject(session.subjectLabel) : null;
+  }
+
+  // 要件定義書§5.3「チャットの主題（SubjectContext）」。最上位検索候補への自動ひも付けは
   // しない——利用者が明示的に選んだ語だけが主題になる。
   // returnTermId: 単語詳細画面の「この語についてAIに聞く」から来た場合のみ、その詳細画面へ
   // 戻れるようにする（検索結果一覧から直接開始した場合はnullのまま）。
@@ -369,12 +383,38 @@ export default function App({ ui }: { ui: UiSet }) {
     setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId });
   }
 
+  /**
+   * ホーム画面の検索欄からの「AIで検索」。入力した文字列をそのまま主題にする
+   * （2026-08-06追加）。辞書に無い語でも聞けるのが目的なので、ここでは語を登録しない
+   * ——登録は従来どおり「取り込み」時にAIが判断する。
+   * 同じ語で取り込み待ちが残っていれば、それを再開して重複を避ける（startChatと同じ考え方）。
+   */
+  async function startQueryChat(query: string) {
+    const subject = buildQuerySubject(query);
+    if (subject.label === '') return;
+
+    const existing = await chatRepo.findOpenSessionBySubjectLabel(subject.label);
+    const session = existing ?? (await chatRepo.createSession(null, subject.label));
+
+    setActiveChatSessionId(session.id);
+    setScreen({
+      name: 'chat',
+      sessionId: session.id,
+      subject,
+      returnTermId: null,
+      // 新規セッションのときだけ、打った文字列をそのまま最初の質問として自動送信する
+      // （「検索」と名付けた導線なので、押したら答えが出るのが自然。既存セッションを
+      // 再開した場合は同じ質問の二重送信になるため送らない）。
+      initialQuestion: existing ? undefined : subject.label,
+    });
+  }
+
   // ホームの「取り込み待ち」一覧から、既知のsessionIdでそのまま再開する。
   // startChat()と異なり新規セッションは作らない。
   async function resumeChatSession(sessionId: string) {
     const session = await chatRepo.getSession(sessionId);
-    if (!session || session.termId === null) return;
-    const subject = await buildSubjectContext(session.termId, { termsRepo, notesRepo });
+    if (!session) return;
+    const subject = await subjectForSession(session);
     if (!subject) return;
     setActiveChatSessionId(session.id);
     setScreen({ name: 'chat', sessionId: session.id, subject, returnTermId: null });
@@ -483,7 +523,7 @@ export default function App({ ui }: { ui: UiSet }) {
             onRetrySeed={runSeedImport}
             failedCommitSessionIds={failedCommitSessionIds}
             onSelectTerm={(termId) => openDetail(termId, 'search')}
-            onStartChat={(termId) => void startChat(termId)}
+            onAiSearch={(query) => void startQueryChat(query)}
             onResumeChatSession={(sessionId) => void resumeChatSession(sessionId)}
             onCommitPending={commitPendingTerm}
             pendingRefreshTick={pendingRefreshTick}
@@ -503,6 +543,7 @@ export default function App({ ui }: { ui: UiSet }) {
             sessionId={screen.sessionId}
             subject={screen.subject}
             returnTermId={screen.returnTermId}
+            initialQuestion={screen.initialQuestion}
             chatRepo={chatRepo}
             termsRepo={termsRepo}
             claude={claude}

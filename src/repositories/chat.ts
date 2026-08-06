@@ -2,13 +2,20 @@ import type { ItIndexDB } from '../db';
 import type { ChatMessageRecord, ChatSessionRecord } from '../types';
 
 export interface ChatRepository {
-  createSession(termId: string | null): Promise<ChatSessionRecord>;
+  /** subjectLabel は termId:null（検索欄からの「AIで検索」）のときだけ渡す */
+  createSession(termId: string | null, subjectLabel?: string): Promise<ChatSessionRecord>;
   appendMessage(sessionId: string, role: 'user' | 'assistant', content: string, options?: { hidden?: boolean }): Promise<void>;
   touchSession(sessionId: string, at: number): Promise<void>;
   /** ホーム画面の「取り込み待ち」一覧用。取り込み待ち（status:'open'）のセッション全件 */
   getOpenSessions(): Promise<ChatSessionRecord[]>;
   /** ある単語について取り込まずに残っているセッションがあれば返す。無ければundefined */
   findOpenSessionByTermId(termId: string): Promise<ChatSessionRecord | undefined>;
+  /**
+   * 同じ検索語で取り込まずに残っている「AIで検索」のセッションがあれば返す。
+   * findOpenSessionByTermId と同じ考え方で、同じ語を続けて検索したときに
+   * セッションが増殖して「取り込み待ち」一覧に同じ見出しが並ぶのを防ぐ。
+   */
+  findOpenSessionBySubjectLabel(label: string): Promise<ChatSessionRecord | undefined>;
   /** id指定での単体取得。リロード時の画面復元（#39）等、既知のsessionIdから状態を再構築する用途 */
   getSession(sessionId: string): Promise<ChatSessionRecord | undefined>;
   /**
@@ -26,11 +33,12 @@ export interface ChatRepository {
 
 export function createChatRepository(db: ItIndexDB): ChatRepository {
   return {
-    async createSession(termId) {
+    async createSession(termId, subjectLabel) {
       const now = Date.now();
       const session: ChatSessionRecord = {
         id: crypto.randomUUID(),
         termId,
+        ...(subjectLabel === undefined ? {} : { subjectLabel }),
         startedAt: now,
         lastActiveAt: now,
         status: 'open',
@@ -69,6 +77,11 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
     async findOpenSessionByTermId(termId) {
       const openSessions = await db.chatSessions.where('status').equals('open').toArray();
       return openSessions.find((s) => s.termId === termId);
+    },
+
+    async findOpenSessionBySubjectLabel(label) {
+      const openSessions = await db.chatSessions.where('status').equals('open').toArray();
+      return openSessions.find((s) => s.termId === null && s.subjectLabel === label);
     },
 
     async getSession(sessionId) {

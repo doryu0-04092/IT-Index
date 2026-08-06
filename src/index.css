@@ -318,6 +318,13 @@ button:disabled {
   margin-top: 10px;
 }
 
+/* 検索欄のすぐ下に出す「◯◯をAIで検索」。入力した文字列そのものをAIに聞く導線 */
+.search-ai-search {
+  margin-bottom: var(--space-2);
+  /* 長い入力でもボタンが横に伸びて画面をはみ出さないようにする */
+  overflow-wrap: anywhere;
+}
+
 .search-pending {
   margin-top: 16px;
   padding: 10px 12px;
@@ -1456,6 +1463,11 @@ button:disabled {
 /* 検索欄。文字サイズを下げるとタッチ環境で読みづらく、拡大操作を誘発する */
 .android-app .search-input {
   font-size: var(--font-size-md);
+  min-height: 48px;
+}
+
+/* 「◯◯をAIで検索」もタップ領域を確保する */
+.android-app .search-ai-search {
   min-height: 48px;
 }
 

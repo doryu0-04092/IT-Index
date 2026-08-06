@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AiClient } from '../../ai/aiClient';
 import { sendChatTurn } from '../../ai/chat';
 import { logAiError } from '../../ai/logError';
@@ -17,6 +17,11 @@ export interface ChatScreenProps {
   subject: SubjectContext;
   /** 単語詳細画面の「この語についてAIに聞く」から来た場合のみ、その単語のtermId。それ以外はnull */
   returnTermId: string | null;
+  /**
+   * 画面を開いた直後に一度だけ自動送信する質問（ホーム画面の「AIで検索」で入力した文字列）。
+   * 押した時点で答えが返り始めるようにするためのもの。APIキー未設定の場合は入力が済むまで待つ。
+   */
+  initialQuestion?: string;
   chatRepo: ChatRepository;
   termsRepo: TermsRepository;
   claude: AiClient;
@@ -43,6 +48,7 @@ export default function ChatScreen({
   sessionId,
   subject,
   returnTermId,
+  initialQuestion,
   chatRepo,
   termsRepo,
   claude,
@@ -85,8 +91,21 @@ export default function ChatScreen({
     }
   }
 
+  // ホーム画面の「AIで検索」から来た場合、打った文字列を最初の質問として1回だけ自動送信する。
+  // APIキー未設定のうちは送らない——送ると失敗した発言だけがDBに残り、キー入力後に
+  // 回答の無いユーザー発言が宙に浮く。キーが入った時点で改めてこの効果が動く。
+  // 二重送信の防止に ref を使う（StrictModeの二重effect実行・再レンダリング両方に効かせるため）。
+  const initialQuestionSent = useRef(false);
+  useEffect(() => {
+    if (!keyReady || !initialQuestion || initialQuestionSent.current) return;
+    initialQuestionSent.current = true;
+    void handleSend(initialQuestion);
+    // handleSend は毎レンダリング作り直されるため依存に入れない（入れると送信のたびに再実行される）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyReady, initialQuestion]);
+
   // 「単語の概要を聞く」「さらに詳しく聞く」で送る固定文言。どの語について話しているかは
-  // SubjectContext で確定しているため（自由モードは廃止済み）、文言に語名を埋め込む必要はない
+  // SubjectContext で確定しているため、文言に語名を埋め込む必要はない
   // ——システムプロンプト側で主題を渡してある（src/ai/prompts.ts）。
   const OVERVIEW_QUESTION = 'この用語の基本的な情報を、初心者にもわかるように教えてください。';
   const DETAIL_QUESTION = 'ここまでの会話と「理解のために調べたこと」の内容を踏まえて、さらに詳しく教えてください。';
