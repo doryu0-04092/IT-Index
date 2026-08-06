@@ -16,6 +16,7 @@ import { getInitialTheme, persistTheme, readStoredTheme } from './ui/theme';
 import { createAsksRepository } from './repositories/asks';
 import { createChatRepository } from './repositories/chat';
 import { createKeyStoreRepository } from './repositories/keyStore';
+import { createNoteConflictsRepository } from './repositories/noteConflicts';
 import { createNotesRepository } from './repositories/notes';
 import { createSettingsRepository } from './repositories/settings';
 import { createSyncEventsRepository } from './repositories/syncEvents';
@@ -206,6 +207,7 @@ export default function App({ ui }: { ui: UiSet }) {
   const notesRepo = useMemo(() => createNotesRepository(db), []);
   const asksRepo = useMemo(() => createAsksRepository(db), []);
   const syncEventsRepo = useMemo(() => createSyncEventsRepository(db), []);
+  const conflictsRepo = useMemo(() => createNoteConflictsRepository(db), []);
   const chatRepo = useMemo(() => createChatRepository(db), []);
   const settingsRepo = useMemo(() => createSettingsRepository(db), []);
   const keyStoreRepo = useMemo(() => createKeyStoreRepository(db), []);
@@ -224,8 +226,8 @@ export default function App({ ui }: { ui: UiSet }) {
   // （manualSync/sync.ts の各関数が書き込みに実在の deviceId を要するため）。
   const manualSyncDeps = useMemo<ManualSyncDeps | null>(() => {
     if (deviceId === null) return null;
-    return { termsRepo, notesRepo, asksRepo, deviceId };
-  }, [termsRepo, notesRepo, asksRepo, deviceId]);
+    return { termsRepo, notesRepo, asksRepo, deviceId, conflictsRepo };
+  }, [termsRepo, notesRepo, asksRepo, deviceId, conflictsRepo]);
 
   // deviceId が読み込まれるまでは作らない——commitOrchestrator は書き込みに実在の
   // deviceId を要するため（要件定義書§5.3、2026-07-30改訂で承認画面を廃止し常に自動反映するようにした）。
@@ -597,8 +599,12 @@ export default function App({ ui }: { ui: UiSet }) {
           <HistoryScreen
             asksRepo={asksRepo}
             termsRepo={termsRepo}
+            notesRepo={notesRepo}
             syncEventsRepo={syncEventsRepo}
             chatRepo={chatRepo}
+            conflictsRepo={conflictsRepo}
+            claude={claude}
+            deviceId={deviceId ?? ''}
             initialView={screen.view}
             onSelectTerm={(termId) => openDetail(termId, { screen: 'history', view: screen.view })}
             onOpenChatSession={(sessionId) => void resumeChatSession(sessionId)}

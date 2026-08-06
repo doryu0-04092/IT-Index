@@ -1,24 +1,32 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { AiClient } from '../../ai/aiClient';
 import { computeWeights } from '../../core/computeWeights';
 import type { AsksRepository } from '../../repositories/asks';
 import type { ChatRepository } from '../../repositories/chat';
+import type { NoteConflictsRepository } from '../../repositories/noteConflicts';
+import type { NotesRepository } from '../../repositories/notes';
 import type { SyncEventsRepository } from '../../repositories/syncEvents';
 import type { TermsRepository } from '../../repositories/terms';
-import type { AskRecord, ChatSessionRecord, SyncEventRecord, TermRecord } from '../../types';
+import { ConflictItem } from '../shared/ConflictResolver';
+import type { AskRecord, ChatSessionRecord, NoteConflictRecord, SyncEventRecord, TermRecord } from '../../types';
 
 export type HistoryView = 'weighted' | 'timeline' | 'sync' | 'commits';
 
-interface ChatHistoryRow {
-  session: ChatSessionRecord;
-  /** 語ひも付きなら見出し語、「AIで検索」なら入力した文字列 */
-  label: string;
-}
+/** 「取り込み履歴」タブに並ぶ1行。AIチャットの記録と、連携で検出された競合を時系列で混ぜて表示する */
+type CommitRow =
+  | { kind: 'chat'; at: number; session: ChatSessionRecord; label: string }
+  | { kind: 'conflict'; at: number; conflict: NoteConflictRecord };
 
 export interface HistoryScreenProps {
   asksRepo: AsksRepository;
   termsRepo: TermsRepository;
+  notesRepo: NotesRepository;
   syncEventsRepo: SyncEventsRepository;
   chatRepo: ChatRepository;
+  conflictsRepo: NoteConflictsRepository;
+  /** 競合の「AIで統合する」に使う。ConflictItemへそのまま渡す */
+  claude: AiClient;
+  deviceId: string;
   initialView: HistoryView;
   onSelectTerm: (termId: string) => void;
   /** 「取り込み履歴」タブの語を選ぶと、単語詳細ではなく取り込み前後のチャットを開く */
@@ -41,25 +49,37 @@ function chatStatusLabel(status: ChatSessionRecord['status']): string {
   }
 }
 
+function conflictStatusLabel(conflict: NoteConflictRecord): string {
+  if (conflict.resolution === null) return '競合：未解決';
+  const how = conflict.resolution === 'local' ? 'この端末の内容' : conflict.resolution === 'remote' ? '相手の端末の内容' : 'AIで統合';
+  return `競合：${how}を採用`;
+}
+
 /**
- * 要件定義書§5.4「重み付けビュー／時系列ビュー」（Android版）。
- * PC版と同じprops・同じロジック・同じCSSクラス名。狭幅でのタブ折り返しは
- * `.android-app .history-tabs` 側のCSS（src/index.css 末尾）で対応する。
+ * 要件定義書§5.4「重み付けビュー／時系列ビュー」。元は別画面だったが、
+ * 1画面でタブ切り替えできるように統合した（2026-07-28）。
+ * データ取得（asks・term引き当て）は共通化し、並べ替え・表示だけをタブごとに分ける。
  *
  * 「連携履歴」タブ（2026-08-05追加、2026-08-06改名）は連携（QR）で新しく受け取った／渡した
  * 単語の記録。デバイスに名前を付ける機能が無いため、相手を「端末XXXX」のように名指しはせず、
  * 「この連携で受け取った／渡した」という関係性だけで表記する（ユーザー指示）。
  *
- * 「取り込み履歴」タブ（2026-08-06新設）はAIチャットの記録。取り込み済み・登録しなかった・
- * 取り込み待ちのいずれも時系列（最近やり取りした順）で並べる。押すと単語詳細ではなく
- * そのチャットを開く——取り込んでいないものはそこから改めて取り込め、登録しなかったものも
- * 後から気が変わって取り込み直せる（`ChatRepository`の30件上限・declined状態を参照）。
+ * 「取り込み履歴」タブ（2026-08-06新設、2026-08-07に競合の行も統合）はAIチャットの記録と
+ * 連携（QR）の競合解消の記録を、時系列でまとめて表示する。チャット行は取り込み済み・
+ * 登録しなかった・取り込み待ちのいずれも押すとそのチャットを開く（`ChatRepository`の
+ * 30件上限・declined状態を参照）。競合行は押すとその場で展開し、`ConflictItem`
+ * （`ui/shared/ConflictResolver.tsx`と共通）でいつでも選び直せる——選ばずに画面を
+ * 離れても`noteConflicts`テーブルに残るため、ここから後で必ず見返せる。
  */
 export default function HistoryScreen({
   asksRepo,
   termsRepo,
+  notesRepo,
   syncEventsRepo,
   chatRepo,
+  conflictsRepo,
+  claude,
+  deviceId,
   initialView,
   onSelectTerm,
   onOpenChatSession,
@@ -70,7 +90,8 @@ export default function HistoryScreen({
   const [asks, setAsks] = useState<AskRecord[]>([]);
   const [termsById, setTermsById] = useState<Map<string, TermRecord>>(new Map());
   const [syncEvents, setSyncEvents] = useState<SyncEventRecord[]>([]);
-  const [chatRows, setChatRows] = useState<ChatHistoryRow[] | null>(null);
+  const [commitRows, setCommitRows] = useState<CommitRow[] | null>(null);
+  const [expandedConflictId, setExpandedConflictId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -81,7 +102,7 @@ export default function HistoryScreen({
       setSyncEvents(events);
 
       const sessions = await chatRepo.getRecentSessions(30);
-      const rows: ChatHistoryRow[] = [];
+      const conflicts = await conflictsRepo.getAllOrdered();
       const uniqueTermIds = new Set(allAsks.map((a) => a.termId));
       for (const e of events) {
         e.receivedTermIds.forEach((id) => uniqueTermIds.add(id));
@@ -96,19 +117,24 @@ export default function HistoryScreen({
       for (const t of terms) if (t) map.set(t.id, t);
       setTermsById(map);
 
+      const rows: CommitRow[] = [];
       for (const session of sessions) {
         const messages = await chatRepo.getMessages(session.id);
         if (messages.length === 0) continue; // 何もやり取りしていないセッションは表示不要
         if (session.termId) {
           const term = map.get(session.termId);
-          if (term) rows.push({ session, label: term.term });
+          if (term) rows.push({ kind: 'chat', at: session.lastActiveAt, session, label: term.term });
         } else if (session.subjectLabel) {
-          rows.push({ session, label: session.subjectLabel });
+          rows.push({ kind: 'chat', at: session.lastActiveAt, session, label: session.subjectLabel });
         }
       }
-      setChatRows(rows);
+      for (const conflict of conflicts) {
+        rows.push({ kind: 'conflict', at: conflict.resolvedAt ?? conflict.detectedAt, conflict });
+      }
+      rows.sort((a, b) => b.at - a.at);
+      setCommitRows(rows);
     })();
-  }, [asksRepo, termsRepo, syncEventsRepo, chatRepo]);
+  }, [asksRepo, termsRepo, syncEventsRepo, chatRepo, conflictsRepo]);
 
   const weightedRows = useMemo(
     () =>
@@ -143,6 +169,20 @@ export default function HistoryScreen({
       })),
     [syncEvents, termsById],
   );
+
+  function handleConflictResolved(updated: NoteConflictRecord) {
+    setCommitRows((prev) =>
+      prev
+        ? prev
+            .map((row) =>
+              row.kind === 'conflict' && row.conflict.id === updated.id
+                ? { ...row, at: updated.resolvedAt ?? updated.detectedAt, conflict: updated }
+                : row,
+            )
+            .sort((a, b) => b.at - a.at)
+        : prev,
+    );
+  }
 
   return (
     <div className="history-screen">
@@ -237,27 +277,50 @@ export default function HistoryScreen({
       ) : (
         <>
           <p className="search-status">
-            AIチャットの記録です。最大30件まで残ります（超えた分は古いものから削除されますが、既に単語帳へ取り込んだ内容は消えません）。
+            AIチャットと連携（QR）の競合解消の記録です。チャットは最大30件まで残ります
+            （超えた分は古いものから削除されますが、既に単語帳へ取り込んだ内容は消えません）。
           </p>
-          {chatRows !== null && chatRows.length === 0 && <p className="search-status">まだ記録がありません。</p>}
+          {commitRows !== null && commitRows.length === 0 && <p className="search-status">まだ記録がありません。</p>}
           <ul className="search-results">
-            {chatRows?.map(({ session, label }) => (
-              <li key={session.id} className="search-result-row">
-                <button type="button" className="search-result" onClick={() => onOpenChatSession(session.id)}>
-                  <span className="search-result-term">{label}</span>
-                  <span className="search-result-field">{chatStatusLabel(session.status)}</span>
-                </button>
-                {(session.status === 'open' || session.status === 'declined') && (
+            {commitRows?.map((row) =>
+              row.kind === 'chat' ? (
+                <li key={`chat-${row.session.id}`} className="search-result-row">
+                  <button type="button" className="search-result" onClick={() => onOpenChatSession(row.session.id)}>
+                    <span className="search-result-term">{row.label}</span>
+                    <span className="search-result-field">{chatStatusLabel(row.session.status)}</span>
+                  </button>
+                  {(row.session.status === 'open' || row.session.status === 'declined') && (
+                    <button
+                      type="button"
+                      className="search-pending-commit btn-secondary"
+                      onClick={() => onCommitPending(row.session.id)}
+                    >
+                      取り込む
+                    </button>
+                  )}
+                </li>
+              ) : (
+                <li key={`conflict-${row.conflict.id}`} className="search-result-row link-conflict-history-row">
                   <button
                     type="button"
-                    className="search-pending-commit btn-secondary"
-                    onClick={() => onCommitPending(session.id)}
+                    className="search-result"
+                    onClick={() => setExpandedConflictId((prev) => (prev === row.conflict.id ? null : row.conflict.id))}
                   >
-                    取り込む
+                    <span className="search-result-term">{row.conflict.termId}</span>
+                    <span className="search-result-field">{conflictStatusLabel(row.conflict)}</span>
                   </button>
-                )}
-              </li>
-            ))}
+                  {expandedConflictId === row.conflict.id && (
+                    <div className="link-conflict">
+                      <ConflictItem
+                        conflict={row.conflict}
+                        deps={{ notesRepo, conflictsRepo, deviceId, claude }}
+                        onResolved={handleConflictResolved}
+                      />
+                    </div>
+                  )}
+                </li>
+              ),
+            )}
           </ul>
         </>
       )}

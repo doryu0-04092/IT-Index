@@ -136,7 +136,12 @@ function ResultView({ outcome, deps, claude }: { outcome: Outcome; deps: ManualS
           読み込めなかったファイルが{outcome.skippedFiles.length}件あります: {outcome.skippedFiles.join('、')}
         </p>
       )}
-      {outcome.conflicts.length > 0 && deps && <ConflictResolver conflicts={outcome.conflicts} deps={deps} claude={claude} />}
+      {outcome.conflicts.length > 0 && deps && (
+        <ConflictResolver
+          conflicts={outcome.conflicts}
+          deps={{ notesRepo: deps.notesRepo, conflictsRepo: deps.conflictsRepo, deviceId: deps.deviceId, claude }}
+        />
+      )}
     </div>
   );
 }

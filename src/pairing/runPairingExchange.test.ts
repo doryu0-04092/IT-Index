@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ItIndexDB } from '../db';
 import { createAsksRepository } from '../repositories/asks';
+import { createNoteConflictsRepository } from '../repositories/noteConflicts';
 import { createNotesRepository } from '../repositories/notes';
 import { createTermsRepository } from '../repositories/terms';
 import { generatePairingKey, importPairingKey } from './crypto';
@@ -26,6 +27,7 @@ describe('sealSnapshot / openAndMerge', () => {
       notesRepo: createNotesRepository(db),
       asksRepo: createAsksRepository(db),
       termsRepo: createTermsRepository(db),
+      conflictsRepo: createNoteConflictsRepository(db),
     };
   }
 

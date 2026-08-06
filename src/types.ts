@@ -190,6 +190,32 @@ export interface SyncEventRecord {
 }
 
 /**
+ * Drive 同期対象外（端末ローカルの記録）。QR連携で「両端末が独自に編集した」と判定された
+ * 語（`mergeSnapshot.ts`のisRealConflict）1件ぶんの記録（2026-08-07追加）。
+ *
+ * 検出した瞬間の元データ2つ（local/remote）を不変のスナップショットとして保存する——
+ * 以前はこの場（`ConflictResolver.tsx`）で選ばずに離れると、選ばれなかった側の内容が
+ * この端末のどこにも残らず、選び直すこともできなかった。取り込み履歴タブから後で見返し、
+ * 何度でも選び直せるようにするための保存先。
+ */
+export interface NoteConflictRecord {
+  id: string;
+  termId: string;
+  detectedAt: number;
+  /** 相手端末のdeviceId。表示には使わず、どの連携で検出したかの記録用 */
+  peerDeviceId: string;
+  /** 検出時点のこの端末側の内容（不変）。noteHistory等の同期対象外フィールドは含まない */
+  local: NoteRecord;
+  /** 検出時点の相手端末側の内容（不変） */
+  remote: NoteRecord;
+  /** 現在採用中の選択。未解決ならnull。解決後もいつでも選び直せる */
+  resolution: 'local' | 'remote' | 'merged' | null;
+  /** AIで統合した結果のキャッシュ。1度統合すれば、選び直す際に再度AIを呼ばず再利用する */
+  merged: { body: string; diagrams: string[] } | null;
+  resolvedAt: number | null;
+}
+
+/**
  * Drive 同期対象外。APIキーの暗号化保存が明示的にオプトインされた場合のみ1行できる
  * （既定はセッションのみでこのテーブル自体が空のまま）。
  * `credentialId`/`iv`は元々WebAuthnのパスキー(PRF拡張)向けのフィールドだったが、現在は

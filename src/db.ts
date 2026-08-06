@@ -4,6 +4,7 @@ import type {
   ChatMessageRecord,
   ChatSessionRecord,
   KeyStoreRecord,
+  NoteConflictRecord,
   NoteRecord,
   SettingsRecord,
   SyncEventRecord,
@@ -24,6 +25,7 @@ export class ItIndexDB extends Dexie {
   settings!: Table<SettingsRecord, string>;
   keyStore!: Table<KeyStoreRecord, string>;
   syncEvents!: Table<SyncEventRecord, string>;
+  noteConflicts!: Table<NoteConflictRecord, string>;
 
   constructor(name = 'it-index') {
     super(name);
@@ -52,6 +54,11 @@ export class ItIndexDB extends Dexie {
     // v5: 連携（QR）の取り込み履歴。端末ローカルのみ・同期対象外
     this.version(5).stores({
       syncEvents: 'id, at',
+    });
+    // v6: 連携（QR）で検出された「両端末が独自に編集した」競合の記録。端末ローカルのみ・
+    // 同期対象外。選ばずに離れると選ばれなかった側が失われていた不具合の修正（2026-08-07）
+    this.version(6).stores({
+      noteConflicts: 'id, termId, detectedAt',
     });
   }
 }

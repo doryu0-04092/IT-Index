@@ -9,6 +9,23 @@ export interface NotesRepository {
   applyCommit(termId: string, body: string, diagrams: string[], deviceId: string, at: number): Promise<void>;
   /** updatedAt 比較は行わない。mergeSnapshot() が決定した結果をそのまま書く */
   upsertFromSync(note: NoteRecord): Promise<void>;
+  /**
+   * 競合解消（`ConflictResolver`・履歴タブ）専用。`applyCommit`と同様に上書き前の内容を
+   * noteHistoryへ積むのに加えて、**採用しなかった側**（`rejected`）の内容も積む。
+   *
+   * これが無いと、次回また同じ相手と連携した時に isRealConflict()（mergeSnapshot.ts）が
+   * 「相手の内容が自分の履歴に無い」と判定し、同じ2版が再び競合として検出されてしまう
+   * （2026-08-07修正）。`rejected`は「相手を採用」を選んだ場合は自分の元の内容、
+   * それ以外（この端末を採用／AIで統合）を選んだ場合は相手の内容を渡す。
+   */
+  applyConflictResolution(
+    termId: string,
+    body: string,
+    diagrams: string[],
+    deviceId: string,
+    at: number,
+    rejected: { body: string; diagrams: string[] },
+  ): Promise<void>;
 }
 
 export function createNotesRepository(db: ItIndexDB): NotesRepository {
@@ -27,6 +44,32 @@ export function createNotesRepository(db: ItIndexDB): NotesRepository {
         const noteHistory = existing
           ? [...existing.noteHistory, { body: existing.body, diagrams: existing.diagrams, updatedAt: existing.updatedAt }]
           : [];
+
+        const next: NoteRecord = {
+          termId,
+          body,
+          diagrams,
+          updatedAt: at,
+          lastEditedBy: deviceId,
+          noteHistory,
+        };
+        await db.notes.put(next);
+      });
+    },
+
+    async applyConflictResolution(termId, body, diagrams, deviceId, at, rejected) {
+      await db.transaction('rw', db.notes, async () => {
+        const existing = await db.notes.get(termId);
+        const noteHistory = existing
+          ? [...existing.noteHistory, { body: existing.body, diagrams: existing.diagrams, updatedAt: existing.updatedAt }]
+          : [];
+
+        const alreadyRecorded = noteHistory.some(
+          (h) => h.body === rejected.body && JSON.stringify(h.diagrams) === JSON.stringify(rejected.diagrams),
+        );
+        if (!alreadyRecorded) {
+          noteHistory.push({ body: rejected.body, diagrams: rejected.diagrams, updatedAt: at });
+        }
 
         const next: NoteRecord = {
           termId,

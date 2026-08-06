@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ItIndexDB } from '../db';
 import { createAsksRepository } from '../repositories/asks';
+import { createNoteConflictsRepository } from '../repositories/noteConflicts';
 import { createNotesRepository } from '../repositories/notes';
 import { buildTermRecord, createTermsRepository, makeTermId } from '../repositories/terms';
 import { exportFullSnapshot, exportOwnSyncFile, importSyncFiles } from './sync';
@@ -20,13 +21,14 @@ describe('exportOwnSyncFile / importSyncFiles', () => {
     const notesRepo = createNotesRepository(db);
     const asksRepo = createAsksRepository(db);
     const termsRepo = createTermsRepository(db);
+    const conflictsRepo = createNoteConflictsRepository(db);
     const deviceId = 'device-A';
     const now = Date.now();
 
     await notesRepo.applyCommit('tcp/ip', '説明', [], deviceId, now);
     await asksRepo.addMany([{ termId: 'tcp/ip', sessionId: 's1', at: now, deviceId, source: 'ai' }]);
 
-    const exported = await exportOwnSyncFile({ deviceId, notesRepo, asksRepo, termsRepo });
+    const exported = await exportOwnSyncFile({ deviceId, notesRepo, asksRepo, termsRepo, conflictsRepo });
 
     expect(exported.name).toBe('device-device-A.json');
     const parsed = JSON.parse(exported.content);
@@ -39,6 +41,7 @@ describe('exportOwnSyncFile / importSyncFiles', () => {
     const notesRepo = createNotesRepository(db);
     const asksRepo = createAsksRepository(db);
     const termsRepo = createTermsRepository(db);
+    const conflictsRepo = createNoteConflictsRepository(db);
 
     const remoteFile = {
       name: 'device-device-B.json',
@@ -52,7 +55,7 @@ describe('exportOwnSyncFile / importSyncFiles', () => {
       }),
     };
 
-    const result = await importSyncFiles([remoteFile], { deviceId: 'device-A', notesRepo, asksRepo, termsRepo });
+    const result = await importSyncFiles([remoteFile], { deviceId: 'device-A', notesRepo, asksRepo, termsRepo, conflictsRepo });
 
     expect(result.receivedDelta.noteTermIds).toEqual(['udp']);
     expect(result.peerDeviceIds).toEqual(['device-B']);
@@ -64,6 +67,7 @@ describe('exportOwnSyncFile / importSyncFiles', () => {
     const notesRepo = createNotesRepository(db);
     const asksRepo = createAsksRepository(db);
     const termsRepo = createTermsRepository(db);
+    const conflictsRepo = createNoteConflictsRepository(db);
 
     const goodFile = {
       name: 'device-device-B.json',
@@ -83,16 +87,18 @@ describe('exportOwnSyncFile / importSyncFiles', () => {
       notesRepo,
       asksRepo,
       termsRepo,
+      conflictsRepo,
     });
 
     expect(result.skippedFiles).toEqual(['broken.json']);
     expect((await notesRepo.getByTermId('udp'))?.body).toBe('説明');
   });
 
-  it('reports a conflict when both this device and the imported file updated the same term', async () => {
+  it('reports a conflict when both this device and the imported file updated the same term, and persists it', async () => {
     const notesRepo = createNotesRepository(db);
     const asksRepo = createAsksRepository(db);
     const termsRepo = createTermsRepository(db);
+    const conflictsRepo = createNoteConflictsRepository(db);
     const deviceId = 'device-A';
 
     await notesRepo.applyCommit('tcp/ip', 'Aの説明', [], deviceId, 5);
@@ -109,22 +115,60 @@ describe('exportOwnSyncFile / importSyncFiles', () => {
       }),
     };
 
-    const result = await importSyncFiles([remoteFile], { deviceId, notesRepo, asksRepo, termsRepo });
+    const result = await importSyncFiles([remoteFile], { deviceId, notesRepo, asksRepo, termsRepo, conflictsRepo });
 
     expect(result.conflicts).toHaveLength(1);
     expect((await notesRepo.getByTermId('tcp/ip'))?.body).toBe('Aの説明'); // 決定的マージは新しい方を採用
+
+    // 2026-08-07: 検出した瞬間にnoteConflictsへ保存され、選ばずに画面を離れても後から見返せる
+    const persisted = await conflictsRepo.getAllOrdered();
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].termId).toBe('tcp/ip');
+    expect(persisted[0].resolution).toBeNull();
+  });
+
+  it('does not re-report the same conflict after it was resolved via applyConflictResolution', async () => {
+    const notesRepo = createNotesRepository(db);
+    const asksRepo = createAsksRepository(db);
+    const termsRepo = createTermsRepository(db);
+    const conflictsRepo = createNoteConflictsRepository(db);
+    const deviceId = 'device-A';
+
+    await notesRepo.applyCommit('tcp/ip', 'Aの説明', [], deviceId, 5);
+    const remoteFile = {
+      name: 'device-device-B.json',
+      content: JSON.stringify({
+        syncSchemaVersion: 1,
+        deviceId: 'device-B',
+        writtenAt: 1,
+        notes: [{ termId: 'tcp/ip', body: 'Bの説明', diagrams: [], updatedAt: 3, lastEditedBy: 'device-B', noteHistory: [] }],
+        asks: [],
+        aiTerms: [],
+      }),
+    };
+
+    const first = await importSyncFiles([remoteFile], { deviceId, notesRepo, asksRepo, termsRepo, conflictsRepo });
+    expect(first.conflicts).toHaveLength(1);
+
+    // 「この端末を採用」を選んだ場合。不採用側（Bの説明）を履歴に積む必要がある
+    await notesRepo.applyConflictResolution('tcp/ip', 'Aの説明', [], deviceId, 6, { body: 'Bの説明', diagrams: [] });
+
+    // 同じ相手ファイルをもう一度取り込んでも、同じ2版なので再競合しない
+    const second = await importSyncFiles([remoteFile], { deviceId, notesRepo, asksRepo, termsRepo, conflictsRepo });
+    expect(second.conflicts).toHaveLength(0);
   });
 
   it('a full export -> import round trip carries ai-origin terms across', async () => {
     const notesRepo = createNotesRepository(db);
     const asksRepo = createAsksRepository(db);
     const termsRepo = createTermsRepository(db);
+    const conflictsRepo = createNoteConflictsRepository(db);
     const now = Date.now();
 
     const aiTerm = buildTermRecord({ term: 'MTU', readings: ['エムティーユー'], summary: null, field: 'ネットワーク', origin: 'ai', now });
     await termsRepo.upsertFromAi(aiTerm);
 
-    const exported = await exportOwnSyncFile({ deviceId: 'device-A', notesRepo, asksRepo, termsRepo });
+    const exported = await exportOwnSyncFile({ deviceId: 'device-A', notesRepo, asksRepo, termsRepo, conflictsRepo });
 
     // 別のまっさらな端末に見立てて取り込む
     const otherDb = new ItIndexDB(`test-manual-sync-other-${crypto.randomUUID()}`);
@@ -132,12 +176,14 @@ describe('exportOwnSyncFile / importSyncFiles', () => {
       const otherNotesRepo = createNotesRepository(otherDb);
       const otherAsksRepo = createAsksRepository(otherDb);
       const otherTermsRepo = createTermsRepository(otherDb);
+      const otherConflictsRepo = createNoteConflictsRepository(otherDb);
 
       await importSyncFiles([exported], {
         deviceId: 'device-B',
         notesRepo: otherNotesRepo,
         asksRepo: otherAsksRepo,
         termsRepo: otherTermsRepo,
+        conflictsRepo: otherConflictsRepo,
       });
 
       expect(await otherTermsRepo.getById(makeTermId('MTU'))).toBeDefined();
@@ -167,12 +213,14 @@ describe('exportFullSnapshot (PC-as-relay scenario for devices without shared-fo
       notesRepo: createNotesRepository(pcDb),
       asksRepo: createAsksRepository(pcDb),
       termsRepo: createTermsRepository(pcDb),
+      conflictsRepo: createNoteConflictsRepository(pcDb),
     };
     const androidDeps = {
       deviceId: 'device-Android',
       notesRepo: createNotesRepository(androidDb),
       asksRepo: createAsksRepository(androidDb),
       termsRepo: createTermsRepository(androidDb),
+      conflictsRepo: createNoteConflictsRepository(androidDb),
     };
 
     // 前提: PCは以前、共有フォルダ経由で device-C の分をすでに取り込み済み
@@ -208,12 +256,14 @@ describe('exportFullSnapshot (PC-as-relay scenario for devices without shared-fo
       notesRepo: createNotesRepository(pcDb),
       asksRepo: createAsksRepository(pcDb),
       termsRepo: createTermsRepository(pcDb),
+      conflictsRepo: createNoteConflictsRepository(pcDb),
     };
     const androidDeps = {
       deviceId: 'device-Android',
       notesRepo: createNotesRepository(androidDb),
       asksRepo: createAsksRepository(androidDb),
       termsRepo: createTermsRepository(androidDb),
+      conflictsRepo: createNoteConflictsRepository(androidDb),
     };
 
     const androidDiff = await exportOwnSyncFile(androidDeps); // 何も無い状態でエクスポート

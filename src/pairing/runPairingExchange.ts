@@ -14,10 +14,11 @@
  * 不正確になる非対称構造だった）。順序を入れ替えても mergeSnapshot は冪等なため、
  * 最終的な同期結果自体は変わらない。
  */
-import type { NoteConflict, SyncFile } from '../core/mergeSnapshot';
+import type { SyncFile } from '../core/mergeSnapshot';
 import { computeSyncDelta, type SyncDelta } from '../core/syncDelta';
 import { parseSyncFile } from '../core/validateSyncFile';
 import { buildFullSnapshot, importSyncFiles, type ManualSyncDeps } from '../manualSync/sync';
+import type { NoteConflictRecord } from '../types';
 import { open, seal } from './crypto';
 
 export interface SealedSnapshot {
@@ -37,7 +38,7 @@ export interface PairingStats {
 }
 
 export type PairingResult =
-  | ({ ok: true; conflicts: NoteConflict[]; skippedFiles: string[] } & PairingStats)
+  | ({ ok: true; conflicts: NoteConflictRecord[]; skippedFiles: string[] } & PairingStats)
   | { ok: false; reason: string };
 
 /** 自分が知っている全部を暗号化して送出用の封筒にする */
