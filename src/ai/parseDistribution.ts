@@ -23,6 +23,13 @@ export type DistributionItem =
 export type ParseDistributionResult = { ok: true; items: DistributionItem[] } | { ok: false; reason: string };
 
 /**
+ * termは見出し語・熟語であることが前提（プロンプト側の指示。src/ai/prompts.ts）。
+ * この長さを超える場合、ユーザーの質問文をそのまま複写した誤りである可能性が高いため拒否する
+ * （実際に報告された不具合: 自由な質問の検索語がそのまま新規用語のタイトルになっていた）。
+ */
+const MAX_TERM_LENGTH = 40;
+
+/**
  * docs/requirements.md §5.3「用語でないものを登録しないための2段の絞り込み」の1段目。
  * ここでAI出力の形式を検証する（2段目はUIでの承認）。
  */
@@ -49,6 +56,9 @@ export function parseDistributionResponse(raw: string): ParseDistributionResult 
     if (typeof e.term !== 'string' || e.term === '') {
       return { ok: false, reason: `items[${i}].term がありません` };
     }
+    if (e.term.length > MAX_TERM_LENGTH) {
+      return { ok: false, reason: `items[${i}].term が長すぎます（見出し語ではなく質問文になっている可能性があります）: ${e.term}` };
+    }
     if (typeof e.isTerm !== 'boolean') {
       return { ok: false, reason: `${e.term}: isTerm が boolean ではありません` };
     }
@@ -69,8 +79,17 @@ export function parseDistributionResponse(raw: string): ParseDistributionResult 
     if (typeof e.summary !== 'string' || e.summary === '') {
       return { ok: false, reason: `${e.term}: summary がありません` };
     }
-    if (!Array.isArray(e.readings) || e.readings.length === 0 || !e.readings.every((r) => typeof r === 'string')) {
-      return { ok: false, reason: `${e.term}: readings が不正です（1要素以上の文字列配列が必要）` };
+    // 空文字の読みも弾く（2026-08-07追加）。以前は `typeof r === 'string'` しか見ていなかったため
+    // `[""]` が通り、読みが実質無い語がDBに入り得た。単語一覧はバケット内を読み順に並べるため、
+    // そうした語が他の語と同じバケットに入ると並べ替えで例外になり、**索引の画面全体が
+    // 「読み込み中です…」のまま停止する**（実データで再現）。表示側（core/kanaRow.ts）でも
+    // 落ちないようにしてあるが、そもそも不正な読みを作らないことをここで担保する。
+    if (
+      !Array.isArray(e.readings) ||
+      e.readings.length === 0 ||
+      !e.readings.every((r) => typeof r === 'string' && r.trim() !== '')
+    ) {
+      return { ok: false, reason: `${e.term}: readings が不正です（空でない文字列を1要素以上含む配列が必要）` };
     }
     if (typeof e.field !== 'string' || !(FIELDS as readonly string[]).includes(e.field)) {
       return { ok: false, reason: `${e.term}: field が一覧にありません: ${String(e.field)}` };

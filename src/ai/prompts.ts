@@ -1,4 +1,4 @@
-import { buildQualityRules } from '../localData/editRules';
+import { buildQualityRules } from './qualityRules';
 import { FIELDS } from '../types';
 import type { AiMessage } from './aiClient';
 import type { SubjectContext } from './subjectContext';
@@ -15,10 +15,14 @@ export const CHAT_SYSTEM_PROMPT = `あなたはIT-Indexという学習アプリ�
  * 必要になる・会話履歴を汚染する、という理由で廃止した。docs/prompts.md 回帰ケース1参照）。
  */
 export function buildSubjectContextBlock(subject: SubjectContext): string {
-  if (subject.mode === 'free') {
-    return subject.seedQuery
-      ? `利用者は検索で「${subject.seedQuery}」を探していましたが、確定した用語ではありません。`
-      : '(自由な質問)';
+  // 検索欄からの「AIで検索」。辞書に無い語のこともあるので、既存の説明は一切渡せない。
+  // 入力がそのまま主題である旨だけを伝え、語の解釈はAIに委ねる（質問文で入力される場合もある）。
+  if (subject.mode === 'query') {
+    return [
+      `利用者がホーム画面の検索欄に入力した言葉:「${subject.label}」`,
+      `この言葉について説明してください。IT用語であればその用語の説明を、質問文であればその質問への回答を返してください。`,
+      `この対話中「これ」「この」などの指示語は、断りが無い限り「${subject.label}」自身を指すものとして読んでください。`,
+    ].join('\n');
   }
 
   const parts = [`${subject.label}（分野: ${subject.field}、読み: ${subject.readings.join('/')}）`];
@@ -57,6 +61,8 @@ export const DISTRIBUTION_SYSTEM_PROMPT = `あなたはIT-Indexという学習�
 ]
 
 ルール:
+- term は簡潔な見出し語・熟語のみにしてください（例: TCP/IP、SQLインジェクション）。ユーザーが検索欄に入力した質問文や、会話中の質問の文言をそのまま複写しないでください。文や疑問形になっている場合は、それが指している用語・熟語だけを抜き出してください。
+- term は**その用語の一般的な正式表記**にしてください。ユーザーの入力に打ち間違い・かな書き・表記の揺れがあっても、それをそのまま写さず正しい表記に直してください（例:「SQLインジェクッション」→「SQLインジェクション」、「ティーシーピーアイピー」→「TCP/IP」、「ぜろとらすと」→「ゼロトラスト」）。ユーザーが用語名そのものを取り違えている場合も、会話の中で実際に説明した用語の正式名を term にしてください。
 - 会話中でIT用語ではないもの（雑談など）を項目に含める場合は isTerm を false にしてください。isTerm が false の項目は term と diagrams（空配列でよい）だけを書き、readings・field・draftBody・askedByUser・summary は書かないでください。
 - isTerm が true の項目には必ず askedByUser を含めてください。**ユーザー自身がその語について説明・意味・詳細を尋ねる発言をした場合のみ true** にしてください。あなた（AI）が別の語を説明する過程で、ユーザーから特に聞かれていないのに触れただけの語は false にしてください。ユーザーが「これ」「この」等の指示語で尋ねた場合、指し先の語（会話冒頭の文脈で示された語、または直前にAIが説明した語）も true として扱ってください。
 - summary は一文の要約であり、draftBody（前提知識・具体例を含む詳しい説明）とは役割が違います。**summary に draftBody の内容を重複して長く書かないでください。** summary はこの語が辞書に新規登録される場合にのみ使われ、既に辞書にある語では（AIが何を書いても）無視されます。
@@ -64,11 +70,23 @@ export const DISTRIBUTION_SYSTEM_PROMPT = `あなたはIT-Indexという学習�
 - 同じ用語が会話中に何度も出てきても、1項目にまとめてください（一度でもユーザーに聞かれていれば askedByUser は true）。
 - 用語が1つも無い会話なら、空配列 [] を返してください。
 
-summary・draftBody に共通の品質基準（docs/local-data.md。Claude Code によるファイル編集にも同じ基準を課している）:
+summary・draftBody に共通の品質基準:
 ${buildQualityRules()}`;
 
-export function buildDistributionMessages(history: AiMessage[]): AiMessage[] {
-  return [...history, { role: 'user', content: DISTRIBUTION_INSTRUCTION }];
+/**
+ * subjectLabel: セッションの主題（利用者が選んだ語、または「AIで検索」に打った文字列）。
+ * 渡すと、この語を分配統合の判定（isTerm・askedByUser）から独立して必ず含めるよう指示する。
+ *
+ * 2026-08-06追加: 以前はここでAIに主題を一切伝えておらず、「利用者が明示的に尋ねた語か」の
+ * 判定を会話文からの**AIの推測**だけに委ねていた。主題はアプリ側が既に確定させている情報
+ * （要件定義書§5.3「AIに推測させず、利用者が選ぶ」）なので、それをAIにも教えたうえで、
+ * さらにJS側でも強制する（distribution.ts）——AIの判定だけに頼らない二重の防御にする。
+ */
+export function buildDistributionMessages(history: AiMessage[], subjectLabel?: string | null): AiMessage[] {
+  const instruction = subjectLabel
+    ? `${DISTRIBUTION_INSTRUCTION}\nなお、この会話の主題は「${subjectLabel}」です。話題として成立するかどうかの判断に関わらず、必ずこの語を1項目として含め、isTermをtrue、askedByUserをtrueにしてください（termは表記の揺れを正した正式名にしてよい）。`
+    : DISTRIBUTION_INSTRUCTION;
+  return [...history, { role: 'user', content: instruction }];
 }
 
 /**
@@ -88,7 +106,7 @@ export const MERGE_SYSTEM_PROMPT = `あなたはIT-Indexという学習アプリ
 - 既存の説明にある情報を勝手に削らないでください。重複は整理してよいですが、要約して薄めないでください。
 - 新しい説明で判明した情報（つまずきやすい点、具体例など）を優先的に残してください。
 
-品質基準（docs/local-data.md。Claude Code によるファイル編集にも同じ基準を課している）:
+品質基準:
 ${buildQualityRules()}`;
 
 export function buildMergeMessages(

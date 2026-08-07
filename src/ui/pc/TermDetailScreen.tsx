@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { NotesRepository } from '../../repositories/notes';
 import type { TermsRepository } from '../../repositories/terms';
 import type { NoteRecord, TermRecord } from '../../types';
+import MermaidDiagram from '../shared/MermaidDiagram';
 import Skeleton from './Skeleton';
 
 export interface TermDetailScreenProps {
@@ -9,27 +10,72 @@ export interface TermDetailScreenProps {
   termsRepo: TermsRepository;
   notesRepo: NotesRepository;
   onBack: () => void;
+  /** 履歴・単語一覧経由で来た場合のみ、遷移元へ戻るリンクを「← 検索に戻る」の下にもう1本出す */
+  secondaryBack?: { label: string; onClick: () => void };
   onStartChat: (termId: string) => void;
+  /**
+   * 削除した後の後始末（未取り込みチャットの整理・検索画面への遷移）。呼び出し元（App）の責務。
+   * 削除後にこの語を表示し続けても意味が無いため、必ず画面を離れる。
+   */
+  onDeleted: (termId: string) => void;
 }
 
-export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack, onStartChat }: TermDetailScreenProps) {
+export default function TermDetailScreen({
+  termId,
+  termsRepo,
+  notesRepo,
+  onBack,
+  secondaryBack,
+  onStartChat,
+  onDeleted,
+}: TermDetailScreenProps) {
   const [term, setTerm] = useState<TermRecord | null | undefined>(undefined); // undefined = 読み込み中
   const [note, setNote] = useState<NoteRecord | undefined>(undefined);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     setTerm(undefined);
     setNote(undefined);
+    setConfirmingDelete(false);
     Promise.all([termsRepo.getById(termId), notesRepo.getByTermId(termId)]).then(([t, n]) => {
       setTerm(t ?? null);
       setNote(n);
     });
   }, [termId, termsRepo, notesRepo]);
 
+  async function handleDelete() {
+    await termsRepo.softDelete(termId, Date.now());
+    onDeleted(termId);
+  }
+
   return (
     <div className="term-detail">
-      <button type="button" className="term-detail-back" onClick={onBack}>
-        ← 検索に戻る
-      </button>
+      <div className="term-detail-top-row">
+        <button type="button" className="term-detail-back" onClick={onBack}>
+          ← 検索に戻る
+        </button>
+        {term && !confirmingDelete && (
+          <button type="button" className="btn-text term-detail-delete" onClick={() => setConfirmingDelete(true)}>
+            この語を削除
+          </button>
+        )}
+        {term && confirmingDelete && (
+          <span className="term-detail-delete-confirm">
+            本当に削除しますか？
+            <button type="button" className="btn-secondary" onClick={() => void handleDelete()}>
+              削除する
+            </button>
+            <button type="button" className="btn-text" onClick={() => setConfirmingDelete(false)}>
+              キャンセル
+            </button>
+          </span>
+        )}
+      </div>
+      {secondaryBack && (
+        <button type="button" className="term-detail-back" onClick={secondaryBack.onClick}>
+          {secondaryBack.label}
+        </button>
+      )}
 
       {term === undefined && <Skeleton lines={4} />}
       {term === null && <p className="search-status">この語は見つかりませんでした。</p>}
@@ -58,9 +104,8 @@ export default function TermDetailScreen({ termId, termsRepo, notesRepo, onBack,
                 <p className="term-detail-body">{note.body}</p>
                 {note.diagrams.length > 0 && (
                   <div className="term-detail-diagrams">
-                    <p className="search-status">図（Mermaid、未描画）:</p>
                     {note.diagrams.map((d, i) => (
-                      <pre key={i}>{d}</pre>
+                      <MermaidDiagram key={i} code={d} />
                     ))}
                   </div>
                 )}

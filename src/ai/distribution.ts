@@ -40,8 +40,24 @@ export async function proposeDistribution(
   sessionId: string,
   deps: { chatRepo: ChatRepository; termsRepo: TermsRepository; notesRepo: NotesRepository; claude: AiClient },
 ): Promise<DistributionProposal> {
+  // この会話の主題（利用者が選んだ語、または「AIで検索」に打った文字列）。要件定義書§5.3
+  // 「AIに推測させず、利用者が選ぶ」の対象はチャットの主題選びだけでなく、ここ（分配統合の
+  // 判定）にも及ぶべき——という2026-08-06の方針転換。以前はここでAIに主題を伝えておらず、
+  // 「利用者が明示的に尋ねた語か」をAIの推測（askedByUser）だけで決めていたため、AIが
+  // 「IT用語ではない／尋ねられていない」と誤判定すると、主題の語が一件も登録されないまま
+  // セッションだけ確定し、会話が実質的に失われる不具合があった（ユーザー報告）。
+  const session = await deps.chatRepo.getSession(sessionId);
+  const subjectTerm = session?.termId ? await deps.termsRepo.getById(session.termId) : null;
+  const subjectLabel = subjectTerm?.term ?? session?.subjectLabel ?? null;
+  // 主題の語かどうかの突き合わせはtermId基準（正規化済み）で行う。AIがterm名の表記を
+  // 正式表記に直すこと（上記プロンプトのルール）自体は妨げない——直した結果も同じtermIdになる。
+  const subjectMatchId = session?.termId ?? (subjectLabel ? makeTermId(subjectLabel) : null);
+
   const history = await deps.chatRepo.getMessages(sessionId);
-  const messages: AiMessage[] = buildDistributionMessages(history.map((m) => ({ role: m.role, content: m.content })));
+  const messages: AiMessage[] = buildDistributionMessages(
+    history.map((m) => ({ role: m.role, content: m.content })),
+    subjectLabel,
+  );
 
   const raw = await deps.claude.send({ system: DISTRIBUTION_SYSTEM_PROMPT, messages });
   const parsed = parseDistributionResponse(raw);
@@ -51,9 +67,14 @@ export async function proposeDistribution(
 
   const proposedTerms: ProposedTerm[] = [];
   for (const item of parsed.items) {
+    // isTerm:false の項目は draftBody 等を一切持たない（parseDistribution.ts の判別共用体）ため、
+    // たとえ主題であっても書き込む内容が無い。プロンプト側の指示（主題は必ずisTerm:trueにする）で
+    // このケースを避けているが、AIがそれでも従わなかった場合はここで諦めるしかない
+    // ——ただし会話自体は消えない（履歴画面「取り込み履歴」タブに残り、後から取り込み直せる）。
     if (!item.isTerm) continue;
 
     const termId = makeTermId(item.term);
+    const isSubject = subjectMatchId !== null && termId === subjectMatchId;
     const existingTerm = await deps.termsRepo.getById(termId);
 
     // 辞書に無い語（＝新規登録になる語）は、ユーザー自身が明示的に尋ねた場合のみ候補にする。
@@ -62,7 +83,8 @@ export async function proposeDistribution(
     // autoUpdateExistingTerms設定の対象外——新規登録は常にこのルール1本で決まる。
     // 既存語への追記（統合）はこの絞り込みの対象外（MERGE_SYSTEM_PROMPTの非破壊ルールで安全性を担保済み。
     // 自動反映するかどうかは commitProposal() 側の autoUpdateExistingTerms 設定で決める）。
-    if (!existingTerm && !item.askedByUser) continue;
+    // **主題の語だけはこの絞り込みの対象外**——AIのaskedByUser判定に関わらず必ず候補に残す。
+    if (!existingTerm && !item.askedByUser && !isSubject) continue;
 
     const existingNote = existingTerm ? await deps.notesRepo.getByTermId(termId) : undefined;
 
@@ -88,7 +110,10 @@ export async function proposeDistribution(
       term: item.term,
       termId,
       isNewTerm: !existingTerm,
-      askedByUser: item.askedByUser,
+      // 主題の語は、AIがaskedByUser:falseと判定していても強制的にtrueにする。
+      // これが無いと、既存語モード（autoUpdateExistingTerms:'askedOnly'）や新規登録の
+      // 絞り込みで主題の語自体が弾かれてしまう（上のisSubject判定と対になる強制）。
+      askedByUser: item.askedByUser || isSubject,
       summary: item.summary,
       readings: item.readings,
       field: item.field,

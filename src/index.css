@@ -129,19 +129,10 @@ button:disabled {
   color: white;
 }
 
-.btn-primary:hover {
-  background: color-mix(in srgb, var(--accent-solid) 85%, black);
-}
-
 .btn-secondary {
   border: 1px solid var(--border);
   background: transparent;
   color: var(--fg);
-}
-
-.btn-secondary:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 .btn-text {
@@ -151,8 +142,22 @@ button:disabled {
   padding: 8px 4px;
 }
 
-.btn-text:hover {
-  color: var(--accent);
+/* hover は「本当にホバーできるポインタがある場合」だけに限定する。
+   タッチ端末では :hover がタップ後も残り続け、押していないボタンが
+   押されているように見えてしまうため（マウスのPC版の見た目は変わらない）。 */
+@media (hover: hover) {
+  .btn-primary:hover {
+    background: color-mix(in srgb, var(--accent-solid) 85%, black);
+  }
+
+  .btn-secondary:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .btn-text:hover {
+    color: var(--accent);
+  }
 }
 
 .btn-block {
@@ -236,8 +241,10 @@ button:disabled {
   cursor: pointer;
 }
 
-.top-nav-item:hover {
-  color: var(--accent);
+@media (hover: hover) {
+  .top-nav-item:hover {
+    color: var(--accent);
+  }
 }
 
 .top-nav-item.active {
@@ -277,7 +284,6 @@ button:disabled {
   box-shadow: 0 1px 4px color-mix(in srgb, var(--fg) 20%, transparent);
 }
 
-.seed-status,
 .search-status {
   color: var(--muted);
   font-size: 0.85rem;
@@ -312,9 +318,11 @@ button:disabled {
   margin-top: 10px;
 }
 
-.search-hint {
-  color: var(--muted);
-  font-size: 0.85rem;
+/* 検索欄のすぐ下に出す「◯◯をAIで検索」。入力した文字列そのものをAIに聞く導線 */
+.search-ai-search {
+  margin-bottom: var(--space-2);
+  /* 長い入力でもボタンが横に伸びて画面をはみ出さないようにする */
+  overflow-wrap: anywhere;
 }
 
 .search-pending {
@@ -354,8 +362,10 @@ button:disabled {
   font-size: 1rem;
 }
 
-.search-pending-item:hover {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+@media (hover: hover) {
+  .search-pending-item:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
 }
 
 .search-pending-list .search-result-row .search-pending-item {
@@ -366,7 +376,8 @@ button:disabled {
   margin-left: auto;
 }
 
-.search-pending-commit {
+.search-pending-commit,
+.search-pending-decline {
   flex: none;
 }
 
@@ -397,8 +408,10 @@ button:disabled {
   font-size: 1rem;
 }
 
-.search-result:hover {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+@media (hover: hover) {
+  .search-result:hover {
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
 }
 
 .search-result-term {
@@ -443,6 +456,14 @@ button:disabled {
   flex: none;
 }
 
+.term-detail-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
 .term-detail-back {
   background: none;
   border: none;
@@ -451,6 +472,22 @@ button:disabled {
   padding: 0;
   font-size: 0.9rem;
   margin-bottom: 16px;
+}
+
+.term-detail-top-row .term-detail-back {
+  margin-bottom: 0;
+}
+
+.term-detail-delete {
+  color: var(--error);
+}
+
+.term-detail-delete-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--error);
 }
 
 .term-detail h2 {
@@ -488,18 +525,89 @@ button:disabled {
   line-height: 1.7;
 }
 
-.term-detail-diagrams pre {
+.term-detail-diagrams {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.term-index-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.term-index-jump-link {
+  background: none;
+  border: none;
+  color: var(--accent-text);
+  font-size: 0.85rem;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.term-index-gojuon-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(24px, 1fr));
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  max-width: 420px;
+}
+
+.term-index-gojuon-blank {
+  display: block;
+}
+
+.term-index-scroll-top {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--fg) 20%, transparent);
+  z-index: 5;
+}
+
+.term-index-section {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  scroll-margin-top: var(--space-3);
+}
+
+.term-index-heading {
+  font-size: 1.1rem;
+  margin: 0 0 8px;
+}
+
+.mermaid-diagram {
+  background: white;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 構文エラー等でMermaidとして描画できなかった場合のフォールバック */
+.mermaid-fallback {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
   padding: 12px;
   border-radius: 6px;
   overflow-x: auto;
   font-size: 0.8rem;
-}
-
-.search-nav {
-  display: flex;
-  gap: var(--space-2);
-  margin-bottom: var(--space-4);
 }
 
 /* API key prompt */
@@ -562,6 +670,14 @@ button:disabled {
   border-radius: 8px;
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+/* 履歴画面「取り込み履歴」タブから取り込み済みの会話を開いた時の閲覧専用表示（2026-08-06追加） */
+.chat-readonly-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  font-size: 0.75rem;
 }
 
 .chat-back-to-term {
@@ -695,11 +811,11 @@ button:disabled {
   white-space: nowrap;
 }
 
-.chat-commit-button {
-  margin-top: 16px;
+/* History screen */
+.history-screen .term-detail-back {
+  margin-bottom: 24px;
 }
 
-/* History screen */
 .history-tabs {
   display: flex;
   gap: var(--space-2);
@@ -720,6 +836,24 @@ button:disabled {
   border-color: var(--accent-solid);
   background: var(--accent-solid);
   color: white;
+}
+
+.sync-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sync-history-event {
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.sync-history-label {
+  font-size: var(--font-size-xs);
+  color: var(--muted);
+  margin: var(--space-2) 0 var(--space-1);
 }
 
 .modal-overlay {
@@ -944,4 +1078,613 @@ button:disabled {
 
 .skeleton-line:nth-child(3) {
   width: 70%;
+}
+
+/* Link modal（連携。docs/manual-sync.md のLAN直結ペアリング・ファイル方式のUI） */
+.link-menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.link-menu-item {
+  text-align: left;
+  width: 100%;
+}
+
+.link-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.link-qr {
+  align-self: center;
+  width: 100%;
+  max-width: 260px;
+  background: white;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+}
+
+.link-qr svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.link-camera {
+  width: 100%;
+  max-width: 320px;
+  align-self: center;
+  border-radius: var(--radius-md);
+  background: black;
+}
+
+/* 接続中: QR表示・カメラ映像のどちらの側もこの形に切り替え、
+   「つながっている」ことを同じ見た目で伝える（.chat-spinnerを流用、色は青で統一済み） */
+.link-connecting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5) 0;
+}
+
+.link-connecting .chat-spinner {
+  width: 36px;
+  height: 36px;
+}
+
+.link-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* 両端末で同じ語を更新していた場合の確認・解決（要件定義書§5.5） */
+.link-conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.link-conflict-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* 履歴画面「競合選択」タブの一覧。見出しの行を押すと下に解決UIが開く。
+   当初は検索結果と同じ .search-result-row を流用していたが、あちらは「ボタンを横に並べる」
+   ための display:flex（折り返し無し）で、開いた解決UIまで横に押し込まれてPC幅で崩れていた
+   （Android版は .android-app .search-result-row の flex-wrap で偶然縦積みになっていただけ）。
+   縦に積むのが正しいので専用のクラスを持たせる（2026-08-07修正）。 */
+.conflict-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.conflict-history-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.link-conflict-term {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+/* 2案を左右に並べて見比べる。狭い画面では自然に縦へ折り返す */
+.link-conflict-sides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.link-conflict-side {
+  flex: 1 1 240px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.link-conflict-side-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+/* 「どちらかを採る」の下に「2つをAIで統合する」を置く（どちらも捨てたくない場合の第3の選択肢） */
+.link-conflict-merge {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+}
+
+/* 長い説明文でカードが縦に伸びすぎないよう、スクロールに閉じ込める */
+.link-conflict-body {
+  margin: 0;
+  max-height: 12em;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+/* ============================================================
+   Android版（src/ui/android/）専用のスマホ幅・タップ操作対応。
+   PC版（src/ui/pc/）と同じCSSクラス名を再利用しつつ、すべて
+   `.android-app`（Android版オーケストレータのルート要素）配下に
+   スコープすることで、PC版の見た目には一切影響しない。
+   既存セレクタの本体は書き換えず、ここから下は追記のみ。
+   ============================================================ */
+
+/* --- タッチ操作の基礎（縦持ち前提） --- */
+
+/* タップの度に出る青い矩形を消し、ダブルタップ拡大による約300msの遅延をなくす。
+   選択は本文だけに許し、ボタンやナビを長押ししても文字選択が始まらないようにする。 */
+.android-app,
+.android-app button,
+.android-app a,
+.android-app [role='button'] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.android-app button,
+.android-app .top-nav-item,
+.android-app .drawer-item {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 画面端まで引っ張ったときに、親（WebView）側のスクロールや引っ張って更新へ
+   連鎖しないようにする。モーダル内スクロールが背後の画面を動かすのも防ぐ。 */
+.android-app {
+  overscroll-behavior: contain;
+}
+
+/* .app { max-width: 720px } は中央寄せのPC版前提。Android実機は画面幅そのものが
+   コンテンツ幅なので、中央寄せの余白をやめて画面幅いっぱいに使う。
+   下端はジェスチャーバー（セーフエリア）の分を足して確保する。 */
+.android-app.app {
+  max-width: none;
+  padding: calc(var(--space-3) + env(safe-area-inset-top)) var(--space-3)
+    calc(96px + env(safe-area-inset-bottom));
+  padding-left: calc(var(--space-3) + env(safe-area-inset-left));
+  padding-right: calc(var(--space-3) + env(safe-area-inset-right));
+}
+
+/* --- ナビゲーション（左ドロワー） ---
+   PC版は5項目を最上部に横並びにしているが、縦持ちのスマホでは画面上部に親指が
+   届かず、5項目を横に並べると1項目あたりの幅も足りない。左端から縦のドロワーを
+   出す形にして、ラベルを省略せず1項目あたり十分な高さを取る。 */
+.android-app .drawer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.android-app .drawer-toggle {
+  min-width: 48px;
+  min-height: 48px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.android-app .drawer-current {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
+.android-app .drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+/* 背景。button要素なので既定の見た目を消してから全面に敷く */
+.android-app .drawer-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: none;
+  padding: 0;
+  background: rgb(0 0 0 / 45%);
+  animation: modal-fade-in var(--transition-fast);
+}
+
+.android-app .drawer-panel {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: min(78vw, 320px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  box-shadow: 2px 0 16px rgb(0 0 0 / 25%);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  animation: drawer-slide-in var(--transition-base);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* 動きを減らす設定の利用者にはスライドさせない */
+@media (prefers-reduced-motion: reduce) {
+  .android-app .drawer-panel {
+    animation: none;
+  }
+}
+
+.android-app .drawer-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+  color: var(--muted);
+}
+
+.android-app .drawer-close {
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-size: 1rem;
+}
+
+.android-app .drawer-list {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2);
+  gap: var(--space-1);
+}
+
+.android-app .drawer-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  /* 縦に積めるので高さを厚めに取れる。片手で押し間違えない大きさにする */
+  min-height: 52px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--fg);
+  font-size: var(--font-size-base);
+  text-align: left;
+}
+
+.android-app .drawer-item.active {
+  color: var(--accent-text);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.android-app .drawer-item:active {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.android-app .drawer-item-icon {
+  font-size: 1.1rem;
+  width: 1.5rem;
+  text-align: center;
+}
+
+/* .app-toolbar は position: fixed で右上に貼り付く。狭幅では .app-header の見出しと
+   重なり得るため、見出し側に右余白を確保しておく。 */
+.android-app .app-header {
+  padding-right: 56px;
+}
+
+/* 素のtop: 12pxのままだとセーフエリア（ノッチ・通知バーのスライド操作領域）に
+   食い込んでしまうため、セーフエリア分を足したうえで、上部のメニュー・検索欄の
+   行と高さが揃う位置まで下げる */
+.android-app .app-toolbar {
+  top: calc(env(safe-area-inset-top) + var(--space-3));
+  right: var(--space-3);
+}
+
+/* 2) .search-result-row: 「確定する」「この語について聞く」ボタンとの横並びが狭幅で潰れる。
+   折り返し、各ボタンは折り返した行で全幅にしてタップしやすくする。 */
+.android-app .search-result-row {
+  flex-wrap: wrap;
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 10%, transparent);
+  padding-bottom: var(--space-2);
+}
+
+.android-app .search-result-row .search-result {
+  min-width: 0;
+}
+
+.android-app .search-result-ask-ai {
+  min-height: 44px;
+  flex: 1 1 100%;
+}
+
+/* 検索結果の用語名だけをやや小さくする（一覧の密度を上げるため） */
+.android-app .search-result {
+  font-size: 0.92rem;
+}
+
+.android-app .search-pending-commit,
+.android-app .search-pending-decline {
+  flex: 1 1 100%;
+  text-align: right;
+  min-height: 44px;
+}
+
+/* 3) .api-key-actions: ボタン2〜3個の横並びが狭幅で潰れる。折り返し、
+   各ボタンをタップしやすい最小高さにする。 */
+.android-app .api-key-actions {
+  flex-wrap: wrap;
+}
+
+.android-app .api-key-actions button {
+  min-height: 44px;
+  flex: 1 1 auto;
+}
+
+/* 4) .chat-input-row: テキストエリアと送信ボタンの横並びは、狭幅では
+   ソフトウェアキーボード表示時に特に窮屈になる。縦積みに変更する。 */
+.android-app .chat-input-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.android-app .chat-input-row button {
+  min-height: 44px;
+}
+
+/* ソフトキーボードが出ると可視領域が半分近くまで縮む。textarea が固定の高さで
+   場所を取り続けると、直前のやり取りが1行も見えない状態になるため上限を抑える。
+   index.html の interactive-widget=resizes-content でレイアウト自体は縮むので、
+   ここは「縮んだ後に何行残るか」を決めている。 */
+.android-app .chat-input-row textarea {
+  max-height: 30dvh;
+  font-size: var(--font-size-base);
+}
+
+/* 入力欄は画面下端に来る。ジェスチャーバーと重ならないよう余白を足す */
+.android-app .chat-input-row {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* 検索欄。文字サイズを下げるとタッチ環境で読みづらく、拡大操作を誘発する */
+.android-app .search-input {
+  font-size: var(--font-size-md);
+  min-height: 48px;
+}
+
+/* 「◯◯をAIで検索」もタップ領域を確保する */
+.android-app .search-ai-search {
+  min-height: 48px;
+}
+
+/* 5) .history-tabs: タブボタンの横並びが狭幅で潰れる。折り返し、
+   タップ領域を確保する。 */
+.android-app .history-tabs {
+  flex-wrap: wrap;
+}
+
+.android-app .history-tabs button {
+  min-height: 44px;
+}
+
+/* --- モーダル（下から出るシート） ---
+   PC版は画面中央に浮くダイアログだが、縦持ちのスマホでは中央のダイアログは
+   閉じる操作も内容も親指から遠い。下から出せば操作の起点も内容も手の届く範囲に集まる。
+   実体は src/ui/android/Sheet.tsx（Android版は共通の枠に寄せてある）。 */
+.android-app .sheet-root,
+.sheet-root {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.sheet-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: none;
+  padding: 0;
+  background: rgb(0 0 0 / 45%);
+  animation: modal-fade-in var(--transition-fast);
+}
+
+.sheet-panel {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  /* 上端は必ず残して「一時的な層」だと分かるようにする。
+     dvh を使うのは、ソフトキーボードが出た時に実際の可視高さへ追従させるため。 */
+  max-height: 88dvh;
+  background: var(--bg);
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  box-shadow: 0 -2px 20px rgb(0 0 0 / 30%);
+  padding-bottom: env(safe-area-inset-bottom);
+  animation: sheet-slide-up var(--transition-base);
+}
+
+@keyframes sheet-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-panel {
+    animation: none;
+  }
+}
+
+/* 上端のつまみ。「下から出ている」ことを一目で伝える */
+.sheet-grabber {
+  width: 40px;
+  height: 4px;
+  margin: var(--space-2) auto var(--space-1);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--fg) 25%, transparent);
+  flex: none;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+.sheet-close {
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-size: 1rem;
+}
+
+.sheet-body {
+  padding: var(--space-3);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Mermaid描画・フォールバックの生テキスト、どちらも横スクロールで読める。
+   タッチ端末での慣性スクロールのみ補強する。 */
+.android-app .mermaid-diagram,
+.android-app .mermaid-fallback {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* auth-banner・feature-hint 等、ボタンを含む横並び要素全般のタップ領域も
+   Android版では最低44pxを満たすようにする。 */
+.android-app .auth-banner button,
+.android-app .feature-hint button,
+.android-app .chat-quick-asks button,
+.android-app .chat-subject-row button {
+  min-height: 44px;
+}
+
+/* 検索結果・履歴・用語ピッカーの行そのもの。「用語を選ぶ」はこのアプリで最も頻度の高い
+   操作だが、元のpaddingだけでは高さが40px弱にしかならず44pxに届かない。
+   .top-nav-item だけ直してここを見落としていた。 */
+.android-app .search-result,
+.android-app .search-pending-item {
+  min-height: 44px;
+  align-items: center;
+}
+
+/* Toast など、シート以外で使う閉じる（✕）。元は padding 0 2px / font-size 0.8rem で
+   実質20px角しかない。シートの閉じるボタンは .sheet-close 側で確保済み。 */
+.android-app .dismiss-error {
+  min-height: 44px;
+  min-width: 44px;
+  font-size: 1rem;
+}
+
+/* 単語詳細の削除ボタン・削除確認（本当に削除しますか？ 削除する キャンセル）。
+   タップ領域が狭いままだと誤操作しやすい操作なので44px以上に広げる。長い文言でも
+   折り返せるよう、行自体もwrapを許す（PC版は横一列に収まる想定で組んでいる）。 */
+.android-app .term-detail-top-row {
+  flex-wrap: wrap;
+}
+
+.android-app .term-detail-delete,
+.android-app .term-detail-delete-confirm button {
+  min-height: 44px;
+}
+
+/* 単語一覧（索引）画面。A〜Zのジャンプリンク・五十音図の各マスは元の見た目だと
+   タップ領域が44pxに届かないため広げる。五十音図はグリッドの列幅そのものを
+   広げて対応する（PC版は10列固定でも十分な余白があるが、狭幅ではそれが窮屈になる）。 */
+.android-app .term-index-jump-link {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.android-app .term-index-gojuon-grid {
+  grid-template-columns: repeat(10, minmax(28px, 1fr));
+}
+
+/* 五十音図のマスは.term-index-jump-linkのmin-width:44pxをそのまま引き継ぐと、
+   狭幅の画面では上のgrid-template-columnsで割り当てた列幅（28px前後）より
+   ボタンの最小幅の方が大きくなり、ページ全体が横にはみ出す（実バグ）。
+   タップ領域の高さ（min-height:44px）はそのまま残し、幅だけ列幅に委ねる。 */
+.android-app .term-index-gojuon-grid .term-index-jump-link {
+  min-width: 0;
+}
+
+/* 横スクロールが起きる不具合の安全網。上のgojuon-grid修正で根本原因は無くしたが、
+   他の要因（長い読み仮名等）による将来のはみ出しでも横スクロール自体を発生させない
+   （ユーザー指摘: 横スクロールが「不要」ではなく「できない」状態にする）。
+   下端の余白は「一番上へ戻る」ボタン分——スクロールし切っても最後の単語が
+   ボタンに隠れないようにする。 */
+.android-app .term-index {
+  overflow-x: hidden;
+  padding-bottom: calc(44px + var(--space-4) * 2 + env(safe-area-inset-bottom));
+}
+
+/* ジェスチャーバー（セーフエリア）に食い込まないよう、下端の余白を足す */
+.android-app .term-index-scroll-top {
+  bottom: calc(env(safe-area-inset-bottom) + var(--space-4));
+  right: calc(var(--space-3) + env(safe-area-inset-right));
 }

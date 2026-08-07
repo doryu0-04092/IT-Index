@@ -1,8 +1,12 @@
-import type { NoteConflict, SyncFile } from '../core/mergeSnapshot';
+import type { LocalSnapshot, SyncFile } from '../core/mergeSnapshot';
 import { mergeSnapshot } from '../core/mergeSnapshot';
+import { computeSyncDelta, type SyncDelta } from '../core/syncDelta';
+import { isSyncTarget } from '../core/syncTarget';
 import { parseSyncFile } from '../core/validateSyncFile';
+import type { NoteConflictsRepository } from '../repositories/noteConflicts';
 import { buildLocalSnapshot, type LocalSnapshotDeps } from '../sync/localSnapshot';
-import { buildOutboundSyncFile, syncFileName } from '../sync/syncFile';
+import { buildOutboundSyncFile, stripNoteHistory, syncFileName } from '../sync/syncFile';
+import type { NoteConflictRecord } from '../types';
 
 export interface RawFile {
   name: string;
@@ -10,16 +14,27 @@ export interface RawFile {
 }
 
 export interface ImportResult {
-  /** マージ後にローカルへ反映した notes の件数（自分の分・取り込んだ分どちらも含む） */
-  mergedNoteCount: number;
-  /** 決定的コードでは判断できず、AIによる統合案の提示が必要な語（要件定義書§5.5） */
-  conflicts: NoteConflict[];
+  /** この import で新しく増えた/変わった単語・ノート（取り込み前のローカル状態との差分） */
+  receivedDelta: SyncDelta;
+  /** 差分計算の基準にした、取り込み前のローカルスナップショット */
+  baseline: LocalSnapshot;
+  /** 取り込んだ相手ファイルの deviceId 一覧 */
+  peerDeviceIds: string[];
+  /**
+   * 決定的コードでは判断できず、選び直し（`ConflictResolver`・取り込み履歴タブ）が必要な語
+   * （要件定義書§5.5）。検出した瞬間に`conflictsRepo`へ保存済みのレコードをそのまま返す
+   * ——`ConflictResolver`と取り込み履歴タブが同じ保存済みレコードを見ることで、片方で選んだ
+   * 結果がもう片方にも正しく反映される（2026-08-07。以前はその場限りの値で、選ばずに
+   * 画面を離れると選ばれなかった側がどこにも残らなかった）。
+   */
+  conflicts: NoteConflictRecord[];
   /** JSON構文エラー・syncSchemaVersion検証NG等で読み飛ばしたファイル名 */
   skippedFiles: string[];
 }
 
 export interface ManualSyncDeps extends LocalSnapshotDeps {
   deviceId: string;
+  conflictsRepo: NoteConflictsRepository;
 }
 
 /**
@@ -62,7 +77,23 @@ export async function importSyncFiles(files: RawFile[], deps: ManualSyncDeps): P
     await deps.termsRepo.upsertFromSync(term);
   }
 
-  return { mergedNoteCount: result.notes.length, conflicts: result.conflicts, skippedFiles };
+  const now = Date.now();
+  const conflictRecords: NoteConflictRecord[] = [];
+  for (const conflict of result.conflicts) {
+    // remote.lastEditedBy はその内容を最後に書いた端末——中継（PC経由でAndroidへ等）で
+    // 3台目の分がやって来た場合も、実際にその内容を編集した端末を指す
+    conflictRecords.push(await deps.conflictsRepo.add(conflict, conflict.remote.lastEditedBy, now));
+  }
+
+  const receivedDelta = computeSyncDelta(local, { notes: result.notes, aiTerms: result.terms });
+
+  return {
+    receivedDelta,
+    baseline: local,
+    peerDeviceIds: remoteFiles.map((f) => f.deviceId),
+    conflicts: conflictRecords,
+    skippedFiles,
+  };
 }
 
 /**
@@ -90,20 +121,23 @@ export async function exportOwnSyncFile(deps: ManualSyncDeps): Promise<RawFile> 
  * SyncFile 形式・検証（parseSyncFile）はそのまま使えるので、受け取り側は
  * 普通に importSyncFiles() でマージすればよい（上書きではない。理由は同docs参照）。
  */
-export async function exportFullSnapshot(deps: ManualSyncDeps): Promise<RawFile> {
+export async function buildFullSnapshot(deps: ManualSyncDeps): Promise<SyncFile> {
   const [allNotes, allAsks, allTerms] = await Promise.all([
     deps.notesRepo.getAll(),
     deps.asksRepo.getAllOrdered(),
-    deps.termsRepo.getAll(),
+    deps.termsRepo.getAllForSync(),
   ]);
-  const full: SyncFile = {
+  return {
     syncSchemaVersion: 1,
     deviceId: deps.deviceId,
     writtenAt: Date.now(),
-    notes: allNotes,
+    notes: stripNoteHistory(allNotes),
     asks: allAsks,
-    aiTerms: allTerms.filter((t) => t.origin === 'ai'),
+    aiTerms: allTerms.filter(isSyncTarget),
   };
+}
 
+export async function exportFullSnapshot(deps: ManualSyncDeps): Promise<RawFile> {
+  const full = await buildFullSnapshot(deps);
   return { name: `full-${syncFileName(deps.deviceId)}`, content: JSON.stringify(full, null, 2) };
 }

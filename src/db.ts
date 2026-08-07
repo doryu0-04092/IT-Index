@@ -4,9 +4,10 @@ import type {
   ChatMessageRecord,
   ChatSessionRecord,
   KeyStoreRecord,
+  NoteConflictRecord,
   NoteRecord,
   SettingsRecord,
-  SyncFolderRecord,
+  SyncEventRecord,
   TermRecord,
 } from './types';
 
@@ -23,7 +24,8 @@ export class ItIndexDB extends Dexie {
   chatMessages!: Table<ChatMessageRecord, string>;
   settings!: Table<SettingsRecord, string>;
   keyStore!: Table<KeyStoreRecord, string>;
-  syncFolder!: Table<SyncFolderRecord, string>;
+  syncEvents!: Table<SyncEventRecord, string>;
+  noteConflicts!: Table<NoteConflictRecord, string>;
 
   constructor(name = 'it-index') {
     super(name);
@@ -39,9 +41,24 @@ export class ItIndexDB extends Dexie {
     this.version(2).stores({
       keyStore: 'key',
     });
-    // v3: 手動同期「共有フォルダ方式」で選んだフォルダの参照を保持（docs/manual-sync.md）。同期対象外
+    // v3: 手動同期「共有フォルダ方式」で選んだフォルダの参照を保持。同期対象外
     this.version(3).stores({
       syncFolder: 'key',
+    });
+    // v4: syncFolder を削除。Claude Code によるローカルフォルダ編集機能を廃止したため
+    // （2026-08-03）、このテーブルを読み書きするコードがどこにも無くなった。
+    // 既存定義を書き換えず、新しい version で null を指定して落とす（Dexieの作法）。
+    this.version(4).stores({
+      syncFolder: null,
+    });
+    // v5: 連携（QR）の取り込み履歴。端末ローカルのみ・同期対象外
+    this.version(5).stores({
+      syncEvents: 'id, at',
+    });
+    // v6: 連携（QR）で検出された「両端末が独自に編集した」競合の記録。端末ローカルのみ・
+    // 同期対象外。選ばずに離れると選ばれなかった側が失われていた不具合の修正（2026-08-07）
+    this.version(6).stores({
+      noteConflicts: 'id, termId, detectedAt',
     });
   }
 }

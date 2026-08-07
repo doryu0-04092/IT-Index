@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AiClient } from '../../ai/aiClient';
 import { sendChatTurn } from '../../ai/chat';
 import { logAiError } from '../../ai/logError';
@@ -7,6 +7,7 @@ import type { ApiKeyStore } from '../../keystore/apiKeyStore';
 import type { ChatRepository } from '../../repositories/chat';
 import type { TermsRepository } from '../../repositories/terms';
 import type { ChatMessageRecord } from '../../types';
+import ChatMessageBody from '../shared/ChatMessageBody';
 import ApiKeyPrompt from './ApiKeyPrompt';
 import FeatureHint from './FeatureHint';
 import TermPicker from './TermPicker';
@@ -16,6 +17,11 @@ export interface ChatScreenProps {
   subject: SubjectContext;
   /** 単語詳細画面の「この語についてAIに聞く」から来た場合のみ、その単語のtermId。それ以外はnull */
   returnTermId: string | null;
+  /**
+   * 画面を開いた直後に一度だけ自動送信する質問（ホーム画面の「AIで検索」で入力した文字列）。
+   * 押した時点で答えが返り始めるようにするためのもの。APIキー未設定の場合は入力が済むまで待つ。
+   */
+  initialQuestion?: string;
   chatRepo: ChatRepository;
   termsRepo: TermsRepository;
   claude: AiClient;
@@ -31,37 +37,41 @@ export interface ChatScreenProps {
   keyReady: boolean;
   /** この画面内でAPIキーが（初めて、または再度）使えるようになったときに呼ぶ。App.tsx側のkeyReadyを更新する */
   onKeyReady: () => void;
-  /** 確定処理（バックグラウンド起動）と、ローカル検索画面への遷移の両方を行う。呼び出し元（App）の責務 */
-  onCommit: (sessionId: string) => void;
   /** 「話題を変える」で用語を選んだ。トリガー①相当（自動確定してから新しい話題で続ける）は呼び出し元（App）の責務 */
   onChangeSubject: (termId: string) => void;
   onBack: () => void;
   /** returnTermIdが非nullの時だけ表示するリンクから呼ばれる。元の単語詳細画面へ戻る */
   onBackToTerm: (termId: string) => void;
+  /**
+   * 履歴画面「取り込み履歴」タブから、取り込み済みの会話を閲覧のためだけに開いた場合に true。
+   * 入力欄・クイック質問等の操作一式を隠し、会話を読むだけの画面にする（2026-08-06追加）。
+   * 取り込み済みセッションは再度「取り込む」対象にできない（重複して書き込まれるため）ので、
+   * 続きを話せるように見せると「話した内容が保存される」という誤解を招く。
+   */
+  readOnly?: boolean;
 }
 
 export default function ChatScreen({
   sessionId,
   subject,
   returnTermId,
+  initialQuestion,
   chatRepo,
   termsRepo,
   claude,
   apiKeyStore,
   keyReady,
   onKeyReady,
-  onCommit,
   onChangeSubject,
   onBack,
   onBackToTerm,
+  readOnly,
 }: ChatScreenProps) {
   const [messages, setMessages] = useState<ChatMessageRecord[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  // クイック質問（概要/詳しく）が送った質問文はチャットに表示しない。表示するのはAIの返答のみ
-  const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     chatRepo.getMessages(sessionId).then(setMessages);
@@ -71,11 +81,10 @@ export default function ChatScreen({
     const text = overrideText ?? input;
     if (text.trim() === '') return;
     if (overrideText === undefined) setInput('');
-    const beforeCount = messages.length;
     setSending(true);
     setError(null);
     try {
-      await sendChatTurn(sessionId, text, { chatRepo, claude, subject });
+      await sendChatTurn(sessionId, text, { chatRepo, claude, subject }, hideQuestion);
     } catch (err) {
       logAiError('ChatScreen.handleSend', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -85,49 +94,36 @@ export default function ChatScreen({
       // 画面を最新状態に合わせる。ここを try 内だけに限定すると、失敗時に
       // 送信したはずのメッセージが画面から消えて見える（実機検証で発見した実バグ）。
       const updated = await chatRepo.getMessages(sessionId);
-      if (hideQuestion) {
-        const userMsg = updated.slice(beforeCount).find((m) => m.role === 'user');
-        if (userMsg) setHiddenMessageIds((prev) => new Set(prev).add(userMsg.id));
-      }
       setMessages(updated);
       setSending(false);
     }
   }
 
-  // 「単語の概要を聞く」「さらに詳しく聞く」で送る固定文言。用語モードでは対象が明確だが、
-  // 自由モードには「単語」という単位が無いため、検索語（seedQuery）があればそれを対象にし、
-  // 無ければ「ここまでの話題」を対象にする。「理解のために調べたこと」は用語ごとのAI補足
-  // （notesRepo）であり自由モードには存在しないので、詳しく聞く文言からも外す。
-  function buildOverviewQuestion(): string {
-    if (subject.mode === 'term') {
-      return 'この用語の基本的な情報を、初心者にもわかるように教えてください。';
-    }
-    if (subject.seedQuery) {
-      return `「${subject.seedQuery}」の基本的な情報を、初心者にもわかるように教えてください。`;
-    }
-    return 'ここまでの話題の基本的な情報を、初心者にもわかるように教えてください。';
-  }
+  // ホーム画面の「AIで検索」から来た場合、打った文字列を最初の質問として1回だけ自動送信する。
+  // APIキー未設定のうちは送らない——送ると失敗した発言だけがDBに残り、キー入力後に
+  // 回答の無いユーザー発言が宙に浮く。キーが入った時点で改めてこの効果が動く。
+  // 二重送信の防止に ref を使う（StrictModeの二重effect実行・再レンダリング両方に効かせるため）。
+  const initialQuestionSent = useRef(false);
+  useEffect(() => {
+    if (readOnly || !keyReady || !initialQuestion || initialQuestionSent.current) return;
+    initialQuestionSent.current = true;
+    void handleSend(initialQuestion);
+    // handleSend は毎レンダリング作り直されるため依存に入れない（入れると送信のたびに再実行される）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyReady, initialQuestion, readOnly]);
 
-  function buildDetailQuestion(): string {
-    if (subject.mode === 'term') {
-      return 'ここまでの会話と「理解のために調べたこと」の内容を踏まえて、さらに詳しく教えてください。';
-    }
-    return 'ここまでの会話を踏まえて、さらに詳しく教えてください。';
-  }
+  // 「単語の概要を聞く」「さらに詳しく聞く」で送る固定文言。どの語について話しているかは
+  // SubjectContext で確定しているため、文言に語名を埋め込む必要はない
+  // ——システムプロンプト側で主題を渡してある（src/ai/prompts.ts）。
+  const OVERVIEW_QUESTION = 'この用語の基本的な情報を、初心者にもわかるように教えてください。';
+  const DETAIL_QUESTION = 'ここまでの会話と「理解のために調べたこと」の内容を踏まえて、さらに詳しく教えてください。';
 
-  function handleCommit() {
-    // 確定処理（AI呼び出し）はバックグラウンドで進み、クリックした時点でローカル検索画面へ
-    // 戻る（App.tsx の commitAndReturnToSearch）。成否のフィードバックはこの画面のローカル
-    // 状態ではなく既存のグローバルな経路に委ねる: 成功時は commitOrchestrator の
-    // onProposalReady が承認画面へ遷移させ、失敗時は onError が App.tsx の globalError に表示する。
-    onCommit(sessionId);
-  }
-
-  if (!keyReady) {
+  // 閲覧のみ（取り込み済みの会話）ならAPIキーは不要——新しくAIを呼ぶ操作が無いため。
+  if (!readOnly && !keyReady) {
     return <ApiKeyPrompt apiKeyStore={apiKeyStore} onSet={onKeyReady} onBack={onBack} />;
   }
 
-  const visibleMessages = messages.filter((m) => !hiddenMessageIds.has(m.id));
+  const visibleMessages = messages.filter((m) => !m.hidden);
 
   return (
     <div className="chat-screen">
@@ -137,35 +133,36 @@ export default function ChatScreen({
 
       {returnTermId && (
         <button type="button" className="chat-back-to-term" onClick={() => onBackToTerm(returnTermId)}>
-          ← 「{subject.mode === 'term' ? subject.label : ''}」の詳細に戻る
+          ← 「{subject.label}」の詳細に戻る
         </button>
       )}
 
       <div className="chat-subject-chip">
-        {subject.mode === 'term' ? (
-          <span>「{subject.label}」について質問中</span>
-        ) : (
-          <span>自由な質問{subject.seedQuery ? `（検索語: ${subject.seedQuery}）` : ''}</span>
-        )}
+        <span>「{subject.label}」について質問中</span>
+        {readOnly && <span className="chat-readonly-badge">取り込み済み（閲覧のみ）</span>}
       </div>
 
-      <FeatureHint hintKey="chat-quick-asks">
-        「概要を聞く」「さらに詳しく聞く」を押すと、よくある質問を自分で入力せずに送れます。
-      </FeatureHint>
+      {!readOnly && (
+        <>
+          <FeatureHint hintKey="chat-quick-asks">
+            「概要を聞く」「さらに詳しく聞く」を押すと、よくある質問を自分で入力せずに送れます。
+          </FeatureHint>
 
-      <div className="chat-quick-asks">
-        <button type="button" className="btn-secondary" onClick={() => handleSend(buildOverviewQuestion(), true)} disabled={sending}>
-          {subject.mode === 'free' && !subject.seedQuery ? '話題の概要を聞く' : '単語の概要を聞く'}
-        </button>
-        <button type="button" className="btn-secondary" onClick={() => handleSend(buildDetailQuestion(), true)} disabled={sending}>
-          さらに詳しく聞く
-        </button>
-      </div>
+          <div className="chat-quick-asks">
+            <button type="button" className="btn-secondary" onClick={() => handleSend(OVERVIEW_QUESTION, true)} disabled={sending}>
+              単語の概要を聞く
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => handleSend(DETAIL_QUESTION, true)} disabled={sending}>
+              さらに詳しく聞く
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="chat-messages">
         {visibleMessages.map((m) => (
           <div key={m.id} className={`chat-message chat-message-${m.role}`}>
-            <p>{m.content}</p>
+            {m.role === 'assistant' ? <ChatMessageBody content={m.content} /> : <p>{m.content}</p>}
           </div>
         ))}
         {sending && (
@@ -178,40 +175,55 @@ export default function ChatScreen({
 
       {error && <p className="chat-error">{error}</p>}
 
-      <div className="chat-input-row">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            // 日本語入力（IME）で漢字変換を確定するときもEnterキーが飛んでくる。
-            // isComposing を見ずに判定すると、文章を書き終える前に変換確定のたびに
-            // 送信されてしまう（実際に報告された不具合）。変換中のEnterは無視する。
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          placeholder="質問を入力（Enterで送信、Shift+Enterで改行）"
-          disabled={sending}
-        />
-        <button type="button" className="btn-primary" onClick={() => handleSend()} disabled={sending || input.trim() === ''}>
-          {sending ? '送信中…' : '送信'}
-        </button>
-      </div>
+      {!readOnly && (
+        <>
+          <div className="chat-input-row">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                // 日本語入力（IME）で漢字変換を確定するときもEnterキーが飛んでくる。
+                // isComposing を見ずに判定すると、文章を書き終える前に変換確定のたびに
+                // 送信されてしまう（実際に報告された不具合）。変換中のEnterは無視する。
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              placeholder="質問を入力（Enterで送信、Shift+Enterで改行）"
+              disabled={sending}
+            />
+            <button type="button" className="btn-primary" onClick={() => handleSend()} disabled={sending || input.trim() === ''}>
+              {sending ? '送信中…' : '送信'}
+            </button>
+          </div>
 
-      <div className="chat-subject-row">
-        <button type="button" className="chat-subject-change btn-text" onClick={() => setPickerOpen(true)}>
-          {subject.mode === 'term' ? '話題を変える' : '用語を選ぶ'}
+          <div className="chat-subject-row">
+            <button type="button" className="chat-subject-change btn-text" onClick={() => setPickerOpen(true)}>
+              {subject.mode === 'term' ? '話題を変える' : '用語を選ぶ'}
+            </button>
+            <button
+              type="button"
+              className="chat-subject-change btn-text"
+              onClick={() => handleSend(DETAIL_QUESTION, true)}
+              disabled={sending}
+            >
+              さらに詳しく聞く
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* 質問を重ねて会話が伸びると、画面上部の戻るリンクまでスクロールしないと前の画面に
+          戻れない不便があった（ユーザー指摘）。同じリンクをここにも複製する。 */}
+      <button type="button" className="term-detail-back" onClick={onBack}>
+        ← 検索に戻る
+      </button>
+      {returnTermId && (
+        <button type="button" className="chat-back-to-term" onClick={() => onBackToTerm(returnTermId)}>
+          ← 「{subject.label}」の詳細に戻る
         </button>
-        <button
-          type="button"
-          className="chat-subject-change btn-text"
-          onClick={() => handleSend(buildDetailQuestion(), true)}
-          disabled={sending}
-        >
-          さらに詳しく聞く
-        </button>
-      </div>
+      )}
 
       {pickerOpen && (
         <TermPicker
@@ -223,15 +235,6 @@ export default function ChatScreen({
           onCancel={() => setPickerOpen(false)}
         />
       )}
-
-      <button
-        type="button"
-        className="chat-commit-button btn-primary btn-block"
-        onClick={handleCommit}
-        disabled={messages.length === 0}
-      >
-        この会話を確定する
-      </button>
     </div>
   );
 }

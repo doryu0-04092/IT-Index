@@ -12,10 +12,12 @@ export async function sendChatTurn(
   sessionId: string,
   userText: string,
   deps: { chatRepo: ChatRepository; claude: AiClient; subject?: SubjectContext },
+  /** クイック質問の定型文かどうか。trueならチャット画面に表示しない（DBへ永続化する。#44対応） */
+  hideQuestion?: boolean,
 ): Promise<string> {
   // ユーザーが実際に入力したテキストには文脈付与の文字列を一切混ぜない。
   // 文脈は毎ターン system 側で動的に組み立てる（docs/ai-client.md §2）。
-  await deps.chatRepo.appendMessage(sessionId, 'user', userText);
+  await deps.chatRepo.appendMessage(sessionId, 'user', userText, { hidden: hideQuestion });
 
   const history = await deps.chatRepo.getMessages(sessionId);
   const messages: AiMessage[] = history.map((m) => ({ role: m.role, content: m.content }));

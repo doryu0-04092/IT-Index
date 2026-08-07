@@ -19,5 +19,5 @@
     "noFallthroughCasesInSwitch": true,
     "resolveJsonModule": true
   },
-  "include": ["src"]
+  "include": ["src", "electron/desktopApi.d.ts"]
 }

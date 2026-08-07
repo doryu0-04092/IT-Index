@@ -55,6 +55,16 @@ describe('parseDistributionResponse', () => {
     expect(result.ok).toBe(false);
   });
 
+  // 空文字の読みが通ると、単語一覧のバケット内並べ替えで例外になり索引全体が停止する
+  // （2026-08-07に実データで再現。src/core/kanaRow.ts の compareByReading 参照）。
+  it('rejects isTerm:true items whose readings contain a blank string', () => {
+    for (const blank of [[''], ['   '], ['ティーシーピーアイピー', '']]) {
+      const items = JSON.parse(validJson());
+      items[0].readings = blank;
+      expect(parseDistributionResponse(JSON.stringify(items)).ok).toBe(false);
+    }
+  });
+
   it('rejects isTerm:true items missing askedByUser', () => {
     const items = JSON.parse(validJson());
     delete items[0].askedByUser;
@@ -80,6 +90,13 @@ describe('parseDistributionResponse', () => {
   it('rejects isTerm:true items with an empty summary', () => {
     const items = JSON.parse(validJson());
     items[0].summary = '';
+    const result = parseDistributionResponse(JSON.stringify(items));
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects a term that is actually a full question (likely a raw seedQuery echo, not a term)', () => {
+    const items = JSON.parse(validJson());
+    items[0].term = 'Kubernetesのオートスケーリングは具体的にどういう仕組みで動作するのか教えてください？';
     const result = parseDistributionResponse(JSON.stringify(items));
     expect(result.ok).toBe(false);
   });

@@ -2,7 +2,15 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      viewport-fit=cover … ノッチ／ジェスチャーバーの領域まで描画し、余白はCSSの env(safe-area-inset-*) で制御する
+      interactive-widget=resizes-content … ソフトキーボードが出たときにレイアウトを縮める（内容に被せない）
+      拡大は意図的に禁止しない（user-scalable=no は弱視の利用者を締め出すため使わない）
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <!--
       CSP。connect-srcは3種のAIプロバイダ・Google Drive/GIS（休眠中機能）・Google Fontsのみ許可する。
       サーバーレスの静的ホスティングのためHTTPヘッダーでの付与ができず、metaタグで代用する（#34対応）。

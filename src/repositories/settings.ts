@@ -6,7 +6,6 @@ export interface SettingsRepository {
   get(): Promise<SettingsRecord>;
   setSeedVersion(version: string): Promise<void>;
   setAutoUpdateExistingTerms(mode: SettingsRecord['autoUpdateExistingTerms']): Promise<void>;
-  setLocalTermsLastModified(lastModified: number | null): Promise<void>;
 }
 
 export function createSettingsRepository(db: ItIndexDB): SettingsRepository {
@@ -25,7 +24,6 @@ export function createSettingsRepository(db: ItIndexDB): SettingsRepository {
           deviceId: crypto.randomUUID(),
           seedVersion: null,
           autoUpdateExistingTerms: 'askedOnly',
-          localTermsLastModified: null,
         };
         await db.settings.put(created);
         return created;
@@ -38,10 +36,6 @@ export function createSettingsRepository(db: ItIndexDB): SettingsRepository {
 
     async setAutoUpdateExistingTerms(mode) {
       await db.settings.update('singleton', { autoUpdateExistingTerms: mode });
-    },
-
-    async setLocalTermsLastModified(lastModified) {
-      await db.settings.update('singleton', { localTermsLastModified: lastModified });
     },
   };
 }

@@ -32,6 +32,18 @@ describe('sendChatTurn', () => {
     expect(claude.calls[0].messages).toEqual([{ role: 'user', content: 'TCP/IPって何？' }]);
   });
 
+  it('persists hidden:true on the user message when hideQuestion is passed (#44 対応)', async () => {
+    const chatRepo = createChatRepository(db);
+    const session = await chatRepo.createSession('tcp');
+    const claude = createScriptedAiClient(['TCP/IPとは...']);
+
+    await sendChatTurn(session.id, 'この用語の基本的な情報を教えてください。', { chatRepo, claude }, true);
+
+    const messages = await chatRepo.getMessages(session.id);
+    expect(messages[0]).toMatchObject({ role: 'user', hidden: true });
+    expect(messages[1]).toMatchObject({ role: 'assistant', hidden: false });
+  });
+
   it('sends the full conversation history on the next turn', async () => {
     const chatRepo = createChatRepository(db);
     const session = await chatRepo.createSession('tcp');
@@ -126,15 +138,23 @@ describe('sendChatTurn', () => {
     expect(messages[2].content).toBe('2つ目の質問'); // メッセージ本文は変わらず
   });
 
-  it('mentions the seed query as reference-only context in free mode', async () => {
+  // 検索欄からの「AIで検索」。辞書に無い語のこともあるので、既存の説明は一切渡せない。
+  // 入力した文字列がそのまま主題になる点だけをsystem側で伝える。
+  it('adds a query-mode subject block using the typed string as the topic', async () => {
     const chatRepo = createChatRepository(db);
-    const session = await chatRepo.createSession(null);
-    const claude = createScriptedAiClient(['回答']);
-    const subject: SubjectContext = { mode: 'free', seedQuery: 'TCP/PI' };
+    const session = await chatRepo.createSession(null, '量子もつれ');
+    const claude = createScriptedAiClient(['量子もつれとは...']);
+    const subject: SubjectContext = { mode: 'query', label: '量子もつれ' };
 
-    await sendChatTurn(session.id, '何ですか？', { chatRepo, claude, subject });
+    await sendChatTurn(session.id, '量子もつれ', { chatRepo, claude, subject });
 
-    expect(claude.calls[0].system).toContain('TCP/PI');
-    expect(claude.calls[0].system).toContain('確定した用語ではありません');
+    const system = claude.calls[0].system ?? '';
+    expect(system).toContain('現在の話題');
+    expect(system).toContain('量子もつれ');
+    expect(system).toContain('検索欄に入力した言葉');
+    expect(system).toContain('「量子もつれ」自身を指すものとして読んでください');
+    // 辞書由来の情報は無いので、term モード用の項目は出さない
+    expect(system).not.toContain('分野:');
+    expect(system).not.toContain('既存の初期説明');
   });
 });

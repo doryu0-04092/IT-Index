@@ -10,7 +10,10 @@ const MAX_RESULTS = 30;
 
 interface PendingUpdate {
   sessionId: string;
-  term: TermRecord;
+  /** 語ひも付きなら見出し語、「AIで検索」なら入力した文字列 */
+  label: string;
+  /** 語ひも付きの場合のみ。読み仮名 */
+  reading: string | null;
 }
 
 export interface SearchScreenProps {
@@ -18,28 +21,32 @@ export interface SearchScreenProps {
   chatRepo: ChatRepository;
   onSelectTerm: (termId: string) => void;
   /**
-   * AIチャットを開始する。termId を渡すと用語モード（利用者が明示的に選んだ語）、
-   * null なら自由モード（seedQuery は参考情報にすぎず、確定した主題ではない）。
-   * 最上位検索候補への自動ひも付けはしない（要件定義書§5.3）。
+   * 検索欄に入力した文字列そのものをAIに聞く（2026-08-06追加）。辞書に無い語こそAIに
+   * 聞きたいという要望に応えるための導線で、**検索結果の特定の語ではなく入力文字列が主題**になる。
    */
-  onStartChat: (termId: string | null, seedQuery: string | null) => void;
-  /** 「AIによる単語更新待ち」一覧から再開する。既存の未確定セッションがあればそれを再開する（App.tsx側の責務） */
-  onOpenPendingTerm: (termId: string) => void;
-  /** 「AIによる単語更新待ち」一覧から、チャット画面を開かずその場で確定する */
+  onAiSearch: (query: string) => void;
+  /** 「取り込み待ち」一覧から、そのセッションのチャット画面を開いて再開する */
+  onResumeChatSession: (sessionId: string) => void;
+  /** 「取り込み待ち」一覧から、チャット画面を開かずその場で単語帳へ取り込む */
   onCommitPending: (sessionId: string) => void;
-  onOpenHistory: (view: 'weighted' | 'timeline') => void;
+  /**
+   * 「登録しない」（2026-08-06追加）。AIの判定に登録可否を委ねず、利用者が明示的に
+   * 拒否できるようにするための操作。会話は削除しない——履歴画面の「取り込み履歴」タブに
+   * 残り、後から取り込み直せる（データが消えるわけではないため確認は1回のクリックのみ）。
+   */
+  onDeclineSession: (sessionId: string) => void;
   /** シード取り込み・ローカル取り込みが異常終了した場合のみ渡される。通常時は null */
   seedError: string | null;
   /** シード取り込み（再試行含む）が完了するたびに増分される。termsの再読み込みトリガー */
   seedRefreshTick: number;
   /** シード取り込みを再試行する（App.tsx側のrunSeedImportを呼ぶ） */
   onRetrySeed: () => void;
-  /** 前回の確定処理に失敗したセッションIDの集合。一覧に失敗マークを表示するために使う（#41対応） */
+  /** 前回の取り込みに失敗したセッションIDの集合。一覧に失敗マークを表示するために使う（#41対応） */
   failedCommitSessionIds: Set<string>;
   /**
-   * ローカルフォルダ同期がセッションを裏側で自動commitした可能性がある度に増分する
-   * （docs/local-data.md §6.1）。このコンポーネント自身の操作（確定ボタン）では上がらない
-   * ——そちらは `handleCommitPending` が直接 state を更新するので不要。
+   * この画面の外でセッションの状態が変わった度に増分する（取り込みの完了、単語削除に伴う
+   * セッションの close 等）。一覧の再取得トリガー。このコンポーネント自身の操作
+   * （取り込みボタン）では上がらない——そちらは直接 state を更新するので不要。
    */
   pendingRefreshTick: number;
 }
@@ -48,10 +55,10 @@ export default function SearchScreen({
   termsRepo,
   chatRepo,
   onSelectTerm,
-  onStartChat,
-  onOpenPendingTerm,
+  onAiSearch,
+  onResumeChatSession,
   onCommitPending,
-  onOpenHistory,
+  onDeclineSession,
   seedError,
   seedRefreshTick,
   onRetrySeed,
@@ -73,11 +80,18 @@ export default function SearchScreen({
       const sessions = await chatRepo.getOpenSessions();
       const items: PendingUpdate[] = [];
       for (const session of sessions) {
-        if (!session.termId) continue; // 自由な質問はどの単語の更新待ちか特定できないため対象外
         const messages = await chatRepo.getMessages(session.id);
         if (messages.length === 0) continue; // まだ何もやり取りしていないセッションは表示不要
-        const term = await termsRepo.getById(session.termId);
-        if (term) items.push({ sessionId: session.id, term });
+
+        if (session.termId) {
+          const term = await termsRepo.getById(session.termId);
+          if (term) items.push({ sessionId: session.id, label: term.term, reading: term.readings[0] ?? null });
+        } else if (session.subjectLabel) {
+          // 検索欄からの「AIで検索」。辞書の語ではないので読み仮名は無い
+          items.push({ sessionId: session.id, label: session.subjectLabel, reading: null });
+        }
+        // termIdもsubjectLabelも無いのは廃止済みの旧「自由モード」のセッション。
+        // 主題を復元できず取り込む対象も決められないため、ここでは出さない。
       }
       if (!cancelled) setPendingUpdates(items);
     }
@@ -87,11 +101,24 @@ export default function SearchScreen({
     };
   }, [chatRepo, termsRepo, pendingRefreshTick]);
 
-  // 確定処理はバックグラウンドで進む（ChatScreenの「この会話を確定する」と同様）。
-  // 押した時点でこの一覧からは消してよい——結果を待たせない。
+  // 取り込みはバックグラウンドで進む。押した時点でこの一覧からは消してよい——結果を待たせない。
   function handleCommitPending(sessionId: string) {
     onCommitPending(sessionId);
     setPendingUpdates((prev) => prev.filter((p) => p.sessionId !== sessionId));
+  }
+
+  // 「登録しない」。会話は消えず「取り込み履歴」タブに残るので、ここでは一覧から消すだけでよい。
+  function handleDeclineSession(sessionId: string) {
+    onDeclineSession(sessionId);
+    setPendingUpdates((prev) => prev.filter((p) => p.sessionId !== sessionId));
+  }
+
+  // 「まとめて単語帳に取り込む」。チャット画面から確定ボタンを無くし、取り込みの操作を
+  // このホーム画面1箇所に集約したため（2026-08-04改訂）、溜まった分を一度に片付けられる
+  // 導線をここに置く。個別の「取り込む」も残してある——1件だけ入れたい場合があるため。
+  function handleCommitAll() {
+    for (const p of pendingUpdates) onCommitPending(p.sessionId);
+    setPendingUpdates([]);
   }
 
   const results = useMemo(() => {
@@ -103,15 +130,6 @@ export default function SearchScreen({
 
   return (
     <div className="search-screen">
-      <nav className="search-nav">
-        <button type="button" className="btn-text" onClick={() => onOpenHistory('weighted')}>
-          重み付けビュー
-        </button>
-        <button type="button" className="btn-text" onClick={() => onOpenHistory('timeline')}>
-          時系列ビュー
-        </button>
-      </nav>
-
       <input
         type="text"
         className="search-input"
@@ -120,6 +138,17 @@ export default function SearchScreen({
         onChange={(e) => setQuery(e.target.value)}
         autoFocus
       />
+
+      {/*
+        入力した文字列そのものをAIに聞く導線（2026-08-06追加）。検索欄のすぐ下に置く——
+        辞書に無い語を打った時に「見つかりません」で行き止まりにせず、そのままAIへ繋ぐのが狙い。
+        主題は検索結果の語ではなく**入力した文字列**（src/ai/subjectContext.ts の mode:'query'）。
+      */}
+      {query.trim() !== '' && (
+        <button type="button" className="search-ai-search btn-primary btn-block" onClick={() => onAiSearch(query)}>
+          「{query.trim()}」をAIで検索
+        </button>
+      )}
 
       <p className="search-status">
         {terms.length > 0 ? `登録単語数（${terms.length}語）` : seedError ? '辞書の取り込みに失敗しました' : '辞書を読み込み中です…'}
@@ -139,18 +168,21 @@ export default function SearchScreen({
       */}
       {debouncedQuery.trim() === '' && pendingUpdates.length > 0 && (
         <div className="search-pending">
-          <h3 className="search-pending-title">AIによる単語更新待ち</h3>
+          <h3 className="search-pending-title">単語帳への取り込み待ち（{pendingUpdates.length}件）</h3>
           <FeatureHint hintKey="search-pending">
-            AIと会話した内容は自動では保存されません。「確定する」を押すと、その内容がAI補足として保存されます。
+            AIと会話した内容は自動では保存されません。ここで取り込むと、その内容がAI補足として単語帳に保存されます。
           </FeatureHint>
+          <button type="button" className="btn-primary btn-block search-pending-commit-all" onClick={handleCommitAll}>
+            まとめて単語帳に取り込む（{pendingUpdates.length}件）
+          </button>
           <ul className="search-pending-list">
             {pendingUpdates.map((p) => (
               <li key={p.sessionId} className="search-result-row">
-                <button type="button" className="search-pending-item" onClick={() => onOpenPendingTerm(p.term.id)}>
-                  <span className="search-result-term">{p.term.term}</span>
-                  <span className="search-result-reading">{p.term.readings[0]}</span>
+                <button type="button" className="search-pending-item" onClick={() => onResumeChatSession(p.sessionId)}>
+                  <span className="search-result-term">{p.label}</span>
+                  {p.reading && <span className="search-result-reading">{p.reading}</span>}
                   {failedCommitSessionIds.has(p.sessionId) && (
-                    <span className="search-pending-failed chat-error">前回の確定に失敗しました</span>
+                    <span className="search-pending-failed chat-error">前回の取り込みに失敗しました</span>
                   )}
                 </button>
                 <button
@@ -158,29 +190,18 @@ export default function SearchScreen({
                   className="search-pending-commit btn-secondary"
                   onClick={() => handleCommitPending(p.sessionId)}
                 >
-                  確定する
+                  取り込む
+                </button>
+                <button
+                  type="button"
+                  className="search-pending-decline btn-text"
+                  onClick={() => handleDeclineSession(p.sessionId)}
+                >
+                  登録しない
                 </button>
               </li>
             ))}
           </ul>
-        </div>
-      )}
-
-      {/*
-        要件定義書§5.1: スコアリングは何かしら返すため「候補ゼロ」は構造的にほぼ発生しない
-        （長いクエリほど、3510語のどれかと部分一致するため）。よって [AIに聞く] は
-        「結果が0件のときだけ出す」のではなく、クエリがある間は常に出しておく
-        （「求める語が無かったらここを押す」という導線として）。
-      */}
-      {debouncedQuery.trim() !== '' && terms.length > 0 && (
-        <div className="search-ai-hint">
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => onStartChat(null, query.trim() === '' ? null : query.trim())}
-          >
-            求める語が見つからない場合 → AIに聞く（自由な質問）
-          </button>
         </div>
       )}
 
@@ -196,13 +217,6 @@ export default function SearchScreen({
               <span className="search-result-reading">{term.readings[0]}</span>
               <span className="search-result-field">{term.field}</span>
               {import.meta.env.DEV && <span className="search-result-score">{s.toFixed(2)}</span>}
-            </button>
-            {/*
-              最上位候補への自動ひも付けはしない（要件定義書§5.3）。この語についてAIに聞きたい
-              場合は、利用者が行ごとに明示的に選ぶ。
-            */}
-            <button type="button" className="search-result-ask-ai btn-text" onClick={() => onStartChat(term.id, null)}>
-              この語について聞く
             </button>
           </li>
         ))}

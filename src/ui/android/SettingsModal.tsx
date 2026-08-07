@@ -1,0 +1,173 @@
+import { useEffect, useState } from 'react';
+import { getProviderInfo } from '../../ai/providers/types';
+import { listModelsForProvider } from '../../ai/providers';
+import { logAiError } from '../../ai/logError';
+import type { ApiKeyStore } from '../../keystore/apiKeyStore';
+import { getSessionCredential, setSessionCredential } from '../../keystore/apiKeyStore';
+import ApiKeyPrompt from './ApiKeyPrompt';
+import FactoryResetSection from './FactoryResetSection';
+
+export interface SettingsModalProps {
+  apiKeyStore: ApiKeyStore;
+  onClose: () => void;
+  /** APIキーが（再）設定された、または保存済み資格情報を復元できたときに呼ぶ */
+  onCredentialReady: () => void;
+}
+
+/**
+ * 設定（Android版）。propsとロジックはPC版と同じ。以前は下から出るシート
+ * （`Sheet.tsx`）で見せていたが、トップナビ（ドロワー）からの遷移先という点で他の
+ * 画面（検索・履歴・単語一覧）と変わらないのにここだけモーダルなのは違和感がある
+ * というユーザー指摘により、PC版と同じ通常の画面表示に変更した
+ * （`src/ui/pc/SettingsModal.tsx` と同じ扱い）。
+ */
+export default function SettingsModal({ apiKeyStore, onClose, onCredentialReady }: SettingsModalProps) {
+  const [editingKey, setEditingKey] = useState(false);
+  const [hasPersisted, setHasPersisted] = useState(false);
+  const [authenticating, setAuthenticating] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [models, setModels] = useState<string[] | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [changingModel, setChangingModel] = useState(false);
+  const credential = getSessionCredential();
+
+  useEffect(() => {
+    apiKeyStore.hasPersistedCredential().then(setHasPersisted);
+  }, [apiKeyStore]);
+
+  // APIキーが登録済みの場合のみ、その場でモデル一覧を取って自由に切り替えられるようにする
+  // （「APIキーを変更」からだと毎回キーの再入力・再確認が要って手間なため。ユーザー指摘）。
+  useEffect(() => {
+    if (!credential) {
+      setModels(null);
+      setModelsError(null);
+      return;
+    }
+    let cancelled = false;
+    setModels(null);
+    setModelsError(null);
+    listModelsForProvider(credential.provider, credential.apiKey)
+      .then((list) => {
+        if (!cancelled) setModels(list);
+      })
+      .catch((err) => {
+        if (!cancelled) setModelsError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [credential?.provider, credential?.apiKey]);
+
+  async function handleChangeModel(model: string) {
+    if (!credential || model === credential.model) return;
+    setChangingModel(true);
+    setSessionCredential({ ...credential, model });
+    await apiKeyStore.updatePersistedModel(model);
+    setChangingModel(false);
+  }
+
+  async function handleAuthenticate() {
+    setAuthenticating(true);
+    setAuthError(null);
+    try {
+      const restored = await apiKeyStore.tryRestore();
+      if (restored) {
+        onCredentialReady();
+      } else {
+        setAuthError('復元できませんでした（キャンセルされたか、保存内容が壊れている可能性があります）。');
+      }
+    } catch (err) {
+      logAiError('SettingsModal.handleAuthenticate', err);
+      setAuthError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAuthenticating(false);
+    }
+  }
+
+  async function handleForget() {
+    await apiKeyStore.disablePersistence();
+    setHasPersisted(false);
+  }
+
+  if (editingKey) {
+    return (
+      <div className="settings-screen">
+        <ApiKeyPrompt
+          apiKeyStore={apiKeyStore}
+          backLabel="← 設定に戻る"
+          onBack={() => setEditingKey(false)}
+          onSet={() => {
+            setEditingKey(false);
+            onCredentialReady();
+            apiKeyStore.hasPersistedCredential().then(setHasPersisted);
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-screen">
+      <button type="button" className="term-detail-back" onClick={onClose}>
+        ← 検索に戻る
+      </button>
+
+      <section className="settings-section">
+        <h3>AIプロバイダ・APIキー</h3>
+        <p className="search-status">
+          {credential ? `${getProviderInfo(credential.provider).label}（${credential.model}）を使用中` : '未設定'}
+        </p>
+        <button type="button" className="btn-secondary" onClick={() => setEditingKey(true)}>
+          {credential ? 'APIキーを変更' : 'APIキーを設定'}
+        </button>
+
+        {credential && (
+          <>
+            {modelsError && (
+              <p className="search-status">モデル一覧を取得できませんでした（{modelsError}）。「APIキーを変更」から再設定してください。</p>
+            )}
+            {!modelsError && (
+              <label className="api-key-field">
+                <span>モデル</span>
+                <select
+                  value={credential.model}
+                  onChange={(e) => void handleChangeModel(e.target.value)}
+                  disabled={models === null || changingModel}
+                >
+                  {models === null ? (
+                    <option value={credential.model}>読み込み中…</option>
+                  ) : (
+                    (models.includes(credential.model) ? models : [credential.model, ...models]).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+            )}
+          </>
+        )}
+      </section>
+
+      {hasPersisted && (
+        <section className="settings-section">
+          <h3>この端末への保存</h3>
+          <p className="search-status">この端末のセキュアな保存領域(Android Keystore)に暗号化保存されています。</p>
+          <div className="api-key-actions">
+            <button type="button" className="btn-secondary" onClick={handleAuthenticate} disabled={authenticating || credential !== null}>
+              {authenticating ? '認証中…' : credential ? '認証済み' : '認証して復元'}
+            </button>
+            <button type="button" className="btn-text" onClick={handleForget}>
+              この端末の保存を削除
+            </button>
+          </div>
+          {authError && <p className="chat-error">{authError}</p>}
+        </section>
+      )}
+
+      <FactoryResetSection />
+    </div>
+  );
+}

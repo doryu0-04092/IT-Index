@@ -1,5 +1,6 @@
-import { FIELDS, type Field } from '../types';
+import { FIELDS, type Field, type TermRecord } from '../types';
 import type { SyncFile } from './mergeSnapshot';
+import { isSyncTarget } from './syncTarget';
 
 export type ParseSyncFileResult = { ok: true; file: SyncFile } | { ok: false; reason: string };
 
@@ -68,7 +69,11 @@ function isValidAskShape(x: unknown): boolean {
   return (
     typeof a.id === 'string' &&
     typeof a.termId === 'string' &&
-    typeof a.sessionId === 'string' &&
+    // ローカル検索の確定（asksRepo.addSearchConfirm。要件定義書§5.4）は sessionId を持たない
+    // ——AIチャット由来ではないため。`AskRecord.sessionId` の型も `string | null`。
+    // ここで null を弾いていたため、検索結果から用語詳細を一度でも開いた端末が送る同期ファイルは
+    // 必ず検証に落ち、**ファイルごと読み飛ばされて連携が何も取り込めなくなっていた**（実バグ）。
+    (a.sessionId === null || typeof a.sessionId === 'string') &&
     typeof a.at === 'number' &&
     typeof a.deviceId === 'string'
   );
@@ -86,7 +91,11 @@ function isValidAiTermShape(x: unknown): boolean {
     typeof t.field === 'string' &&
     (FIELDS as readonly string[]).includes(t.field as Field) &&
     Array.isArray(t.tags) &&
-    t.origin === 'ai' && // 同期対象は origin:'ai' の語のみ（architecture.md §2 の例外規定）
+    // 同期対象は原則 origin:'ai' の語のみ（architecture.md §2 の例外規定）だが、
+    // **削除（tombstone）だけは origin を問わず受け入れる**。内蔵シードの語を削除した場合も
+    // その削除を相手へ伝える必要があるため（判定は src/core/syncTarget.ts に集約）。
+    isSyncTarget({ origin: t.origin as TermRecord['origin'], deletedAt: t.deletedAt as number | null }) &&
+    (t.origin === 'ai' || t.origin === 'seed') &&
     typeof t.createdAt === 'number' &&
     typeof t.updatedAt === 'number' &&
     (t.deletedAt === null || typeof t.deletedAt === 'number')

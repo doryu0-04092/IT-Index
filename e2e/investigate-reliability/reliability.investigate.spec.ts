@@ -144,17 +144,19 @@ test.describe('信頼性・データ整合性 調査', () => {
     const resultCount = await page.locator('.search-result').count();
     console.log('マイグレーション後の"API"検索結果件数:', resultCount);
 
-    // 設定画面が開ける（keyStore/syncFolderストアを使う機能）ことを確認
+    // 設定画面が開ける（keyStoreストアを使う機能）ことを確認。
+    // 設定は2026-08-04にモーダルから通常の画面遷移へ変更した（.modal-content ではない）。
     await page.getByRole('button', { name: '設定', exact: true }).click();
-    const modalVisible = await page.locator('.modal-content').isVisible().catch(() => false);
-    console.log('マイグレーション後に設定モーダルが開けるか:', modalVisible);
-    await page.screenshot({ path: `${SHOT_DIR}/q1-settings-modal-after-migration.png`, fullPage: true });
+    const settingsVisible = await page.locator('.settings-screen').isVisible().catch(() => false);
+    console.log('マイグレーション後に設定画面が開けるか:', settingsVisible);
+    await page.screenshot({ path: `${SHOT_DIR}/q1-settings-screen-after-migration.png`, fullPage: true });
 
     // Dexieは内部的にversion番号を×10で管理する（version(1)→raw IndexedDB version 10、
-    // version(3)→30）ため、rawバージョンは30になるのが正しい（3ではない）。
-    expect(after.version).toBe(30);
+    // version(4)→40）ため、rawバージョンは40になるのが正しい（4ではない）。
+    // v4 で syncFolder を削除した（ローカルフォルダ編集機能の廃止に伴い未使用になったため）。
+    expect(after.version).toBe(40);
     expect(after.storeNames).toEqual(
-      ['asks', 'chatMessages', 'chatSessions', 'keyStore', 'notes', 'settings', 'syncFolder', 'terms'].sort(),
+      ['asks', 'chatMessages', 'chatSessions', 'keyStore', 'notes', 'settings', 'terms'].sort(),
     );
   });
 

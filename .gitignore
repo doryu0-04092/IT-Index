@@ -21,6 +21,10 @@ dist/
 dist-ssr/
 *.local
 
+# Electronビルド成果物
+dist-electron/
+release/
+
 # 検証ツールの実行成果物（ログ・レポート自体は docs/review 配下でコミット対象、生成物のみ除外）
 test-results/
 docs/review/logs/playwright-report/

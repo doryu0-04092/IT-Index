@@ -141,10 +141,43 @@ TS標準の `dom` ライブラリには File System Access API の拡張部分�
 
 ---
 
+## 6.5 LAN直結ペアリング（2026-08-02追加。現在の主手段）
+
+§2〜§5 は「ファイルの中身をどうやって相手に渡すか」を人手に頼っていた。2026-08-02、**PC版をElectronアプリ化したことで、両端末がローカルHTTPサーバーを立てられるようになり、同一LAN内で直接やり取りできるようになった。**
+
+```
+src/pairing/
+  pairingCodec.ts       … QRペイロード { v, url, k } の符号化・復号。接続先はプライベートアドレスに限定
+  crypto.ts             … AES-256-GCM の封筒（src/keystore/crypto.ts と同方式）
+  runPairingExchange.ts … sealSnapshot() / openAndMerge()。**表示側・読取側の両方がこの2つだけを呼ぶ**
+  syncStatus.ts         … 待ち受け側が返すHTTPステータスの日本語化（PC版・Android版で共用）
+
+electron/pairingServer.ts  … PC側の待ち受け（Node標準 http）
+electron/pairingClient.ts  … PC側の送信。CSP `connect-src 'self'` を回避するためメインプロセスから送る
+android/.../PairingServerPlugin.java … Android側の待ち受け（ServerSocket。搬送のみ担い暗号もマージもしない）
+```
+
+### 対称であること
+
+QRを表示した側が待ち受け役、読み取った側が接続役になる。**役割は端末の種類ではなく操作で決まる。** 両側とも `exportFullSnapshot()`（自分が知っている全部）を送り合うため役割に非対称性がなく、`mergeSnapshot()` の newest-wins によって**どちらが表示側でも同一の和集合に収束する**（`runPairingExchange.test.ts` の対称性テストで固定）。
+
+このため §5 のPC中継フローのように手順を4ステップに分ける必要がなく、**1往復で完結する**。
+
+### 容量の問題が消えた理由
+
+§3 の「QRは1〜数語が限界」という制約は、**QRに本文を載せる前提**でのものだった。現在QRが運ぶのは `{ url, 32バイトの鍵 }` の約80バイトだけで、本文はLAN内のHTTPで送る。したがってアニメーションQRも不要のままでよい。
+
+### カメラが無い端末でも成立する
+
+スマホには必ずカメラがあるため、**PCにカメラが無くても「PC表示 → スマホ読取」で必ず連携できる。** カメラの有無は `hasCameraDevice()`（`qrScanner.ts`）で実デバイスの有無まで見て選択肢を出し分ける（`getUserMedia` の存在チェックだけでは、カメラ非搭載のPCでも選択肢が出てしまう）。
+
+---
+
 ## 7. 未決定・要検討
 
-- **UI自体が無い**: エクスポート・インポートのボタン、QR表示・スキャン画面、PC中継フローの画面、`skippedFiles`/`conflicts`の表示、承認画面。すべて未実装
-  - **共有フォルダの設定画面のみ、2026-07-30に実装した**（[LocalFolderPanel.tsx](../src/ui/pc/LocalFolderPanel.tsx)）。ただし用途は本節の「端末間同期」ではなく、[local-data.md](./local-data.md) の「Claude Code 連携」——輸送層（`folderTransport.ts`のFile System Access API部分）は共有するが、輸送する中身（`device-*.json` ではなく `data/terms.json` + `data/notes/*.md`）と目的が異なる。`device-*.json` 経由の端末間同期（本節§2〜§5）自体のUIは依然として未実装のまま
+- **UI実装済み（2026-08-02）**: 連携画面（`src/ui/pc/LinkModal.tsx` / `src/ui/android/LinkModal.tsx`）から、QR表示・カメラ読取・ファイル書き出し／取り込みの3経路と、`skippedFiles`/`conflicts` の件数表示までを配線した。**残る未実装はAI競合解決（`resolveConflict.ts`）の承認画面のみ**（現状は件数を表示するだけ）
+- **PC中継フロー（§5）の画面は作っていない**。LAN直結（§6.5）が1往復で済むため、4ステップの中継手順を使う場面が実質なくなった
+  - 共有フォルダの設定画面は2026-07-30に一度実装したが（Claude Code 連携用。本節の「端末間同期」とは別用途）、**その機能ごと2026-08-03に廃止した**（`LocalFolderPanel.tsx`・`folderTransport.ts`ともに削除済み）。`device-*.json` 経由の端末間同期（本節§2〜§5）自体のUIは依然として未実装のまま。現在動いている端末間同期はQRペアリング方式のみ（§6）
 - **「双方向」の運用が利用者任せ**（ファイル書き出し・QR・PC中継）: 決まった手順書やUIガイドが無いと、エクスポート・インポートの順序を間違えやすい（例: 古いファイルを誤って再インポートしても`mergeSnapshot()`の冪等性により実害は無いはずだが、実機での使い勝手は未検証）
 - **通知・リマインダーが無い**: 「最後にいつ同期したか」を可視化する仕組みが無く、同期を忘れがちになる可能性がある
 - **QRのアニメーション分割は未実装**（§3）。大きなデータのやり取りにはファイル書き出しか共有フォルダを使うしかない

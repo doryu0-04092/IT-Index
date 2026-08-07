@@ -1,4 +1,5 @@
 import type { LocalSnapshot } from '../core/mergeSnapshot';
+import { isSyncTarget } from '../core/syncTarget';
 import type { AsksRepository } from '../repositories/asks';
 import type { NotesRepository } from '../repositories/notes';
 import type { TermsRepository } from '../repositories/terms';
@@ -14,7 +15,7 @@ export async function buildLocalSnapshot(deps: LocalSnapshotDeps): Promise<Local
   const [notes, asks, terms] = await Promise.all([
     deps.notesRepo.getAll(),
     deps.asksRepo.getAllOrdered(),
-    deps.termsRepo.getAll(),
+    deps.termsRepo.getAllForSync(),
   ]);
-  return { notes, asks, aiTerms: terms.filter((t) => t.origin === 'ai') };
+  return { notes, asks, aiTerms: terms.filter(isSyncTarget) };
 }

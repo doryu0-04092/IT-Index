@@ -117,18 +117,31 @@ export interface AskRecord {
 /** Drive 同期対象外（過程は共有しない） */
 export interface ChatSessionRecord {
   id: string;
-  termId: string | null; // null = 自由チャット
+  /** 登録済みの語にひも付くチャットならそのid。検索欄からの「AIで検索」では null */
+  termId: string | null;
+  /**
+   * `termId: null`（検索欄からの「AIで検索」）のとき、利用者が入力した文字列。
+   * ホームの「取り込み待ち」一覧に何のチャットか表示するために要る——これが無いと
+   * 取り込む前に画面を離れた会話が、一覧に出せず取り込めない孤児になる（2026-08-06追加）。
+   * 廃止済みの旧「自由モード」で作られたセッションには存在しないため optional。
+   */
+  subjectLabel?: string;
   startedAt: number;
   lastActiveAt: number;
-  status: 'open' | 'committed';
   /**
-   * ローカルデータ層（docs/local-data.md §6.1）。`data/pending/<termId>.md` を一度でも
-   * 書き出したら、その時刻（epoch ms）を記録する。次回以降、書き出し先にファイルが無ければ
-   * 「Claude Code が処理を終えて削除した」とみなし、このセッションを自動的に commit する。
-   * まだ一度も書き出していない（＝ファイルが無いのは単に新規だから）場合と区別するために必須。
-   * 未書き出しなら null。
+   * 'open' = 取り込み待ち（ホームの一覧に並ぶ）
+   * 'committing' = 取り込み処理の実行中。AI呼び出しに数秒〜十数秒かかるため、その間は
+   *   再開・再取り込みの対象から外す。外さないと、処理中に同じ語のチャットを開いた場合に
+   *   同一セッションが再開されてしまい、あとから走り終えた取り込みがそれを committed に
+   *   するため、**その間に追加した発言が黙って捨てられる**（実際に起きうる不具合）。
+   *   取り込み中に同じ語を開いた場合は別の新しいセッションが立ち、後でそれを取り込めば
+   *   既存のAI補足に統合される。
+   * 'committed' = 取り込み済み
+   * 'declined' = 利用者が「登録しない」を選んだ（2026-08-06追加）。会話は削除しない
+   *   ——履歴画面の「取り込み履歴」タブから後で見返し、取り込み直すこともできる。
+   *   'open' と同じくbeginCommit()で'committing'へ遷移できる（気が変わって取り込む場合）。
    */
-  pendingExportedAt: number | null;
+  status: 'open' | 'committing' | 'committed' | 'declined';
 }
 
 /** Drive 同期対象外 */
@@ -138,6 +151,13 @@ export interface ChatMessageRecord {
   role: 'user' | 'assistant';
   content: string;
   at: number;
+  /**
+   * クイック質問（「単語の概要を聞く」「さらに詳しく聞く」）で自動送信した定型文かどうか。
+   * true の場合はチャット画面に表示しない。省略時（既存レコード含む）はfalse相当（表示する）。
+   * 以前はコンポーネントのローカルstateだけで非表示管理していたため、チャット履歴を
+   * 再度開き直す（セッション再開・リロード復元）と定型文が見えてしまう不具合があった。
+   */
+  hidden?: boolean;
 }
 
 /** Drive 同期対象外。APIキーは含めない */
@@ -152,19 +172,55 @@ export interface SettingsRecord {
    * 新規語の登録は常に askedByUser:true が必須（この設定の対象外。distribution.ts参照）。
    */
   autoUpdateExistingTerms: 'askedOnly' | 'all';
-  /**
-   * ローカルデータ層（docs/local-data.md）。`data/terms.json` の最終取り込み時に記録した
-   * `lastModified`（epoch ms）。次回起動時、ファイルのこの値と比較して変化が無ければ
-   * 取り込み処理そのものをスキップする（3510語規模の再パースを避けるため）。
-   * まだ一度もフォルダを選んでいない・取り込んでいなければ null。
-   */
-  localTermsLastModified: number | null;
+}
+
+/**
+ * Drive 同期対象外（端末ローカルの記録。連携相手には送らない）。
+ * QR連携1回ごとに1件。取り込み履歴タブ（HistoryScreen）の表示に使う。
+ */
+export interface SyncEventRecord {
+  id: string;
+  at: number; // epoch ms
+  /** 相手端末の deviceId。名前を付ける機能が無いため表示には使わず、同一相手の判別にのみ使う */
+  peerDeviceId: string;
+  /** この連携で新しく受け取った単語のterm id */
+  receivedTermIds: string[];
+  /** この連携で新しく相手に渡した単語のterm id */
+  sentTermIds: string[];
+}
+
+/**
+ * Drive 同期対象外（端末ローカルの記録）。QR連携で「両端末が独自に編集した」と判定された
+ * 語（`mergeSnapshot.ts`のisRealConflict）1件ぶんの記録（2026-08-07追加）。
+ *
+ * 検出した瞬間の元データ2つ（local/remote）を不変のスナップショットとして保存する——
+ * 以前はこの場（`ConflictResolver.tsx`）で選ばずに離れると、選ばれなかった側の内容が
+ * この端末のどこにも残らず、選び直すこともできなかった。取り込み履歴タブから後で見返し、
+ * 何度でも選び直せるようにするための保存先。
+ */
+export interface NoteConflictRecord {
+  id: string;
+  termId: string;
+  detectedAt: number;
+  /** 相手端末のdeviceId。表示には使わず、どの連携で検出したかの記録用 */
+  peerDeviceId: string;
+  /** 検出時点のこの端末側の内容（不変）。noteHistory等の同期対象外フィールドは含まない */
+  local: NoteRecord;
+  /** 検出時点の相手端末側の内容（不変） */
+  remote: NoteRecord;
+  /** 現在採用中の選択。未解決ならnull。解決後もいつでも選び直せる */
+  resolution: 'local' | 'remote' | 'merged' | null;
+  /** AIで統合した結果のキャッシュ。1度統合すれば、選び直す際に再度AIを呼ばず再利用する */
+  merged: { body: string; diagrams: string[] } | null;
+  resolvedAt: number | null;
 }
 
 /**
  * Drive 同期対象外。APIキーの暗号化保存が明示的にオプトインされた場合のみ1行できる
  * （既定はセッションのみでこのテーブル自体が空のまま）。
- * `credentialId` はパスキーの識別子で秘匿情報ではない。復号には毎回 WebAuthn PRF を要する。
+ * `credentialId`/`iv`は元々WebAuthnのパスキー(PRF拡張)向けのフィールドだったが、現在は
+ * PC版(Electron safeStorage)・Android版(Android Keystore)ともダミー値を入れて流用している
+ * （`src/keystore/electronSafeStorageApiKeyStore.ts`・`src/keystore/androidSecureApiKeyStore.ts`）。
  * `provider`/`model` はどのAIプロバイダ・モデル向けの鍵かを示す（秘匿情報ではないので平文）。
  */
 export interface KeyStoreRecord {
@@ -176,13 +232,3 @@ export interface KeyStoreRecord {
   iv: Uint8Array<ArrayBuffer>;
 }
 
-/**
- * Drive 同期対象外。手動同期の「共有フォルダ方式」（docs/manual-sync.md）で選んだ
- * フォルダの参照を次回起動時にも使えるよう保持する。FileSystemDirectoryHandle は
- * 構造化複製可能なため IndexedDB にそのまま保存できる（Chrome 86+）。
- * 権限（readwrite）は保存されないため、使用時に毎回 queryPermission/requestPermission が要る。
- */
-export interface SyncFolderRecord {
-  key: 'singleton';
-  handle: FileSystemDirectoryHandle;
-}

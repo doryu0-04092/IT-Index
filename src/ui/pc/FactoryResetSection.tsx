@@ -4,11 +4,9 @@ import { factoryReset } from '../../factoryReset';
 const CONFIRM_TEXT = '初期化する';
 
 /**
- * 設定モーダルの「オールクリア」セクション。ローカルデータの初期化（LocalFolderPanelの
- * 「初期データに戻す」、ローカルフォルダ連携が前提）とは別物で、フォルダ連携の有無に
- * 関わらず常に使える。用語・履歴・APIキー・テーマ設定まで含め初回起動時の状態に戻す、
- * より広範囲かつ取り消せない操作のため、確認文字列を入力しないと実行できないようにする
- * （通常のconfirm()一発では誤操作を防げないという要望による）。
+ * 設定モーダルの「オールクリア」セクション。用語・履歴・APIキー・テーマ設定まで含め
+ * 初回起動時の状態に戻す、広範囲かつ取り消せない操作のため、確認文字列を入力しないと
+ * 実行できないようにする（通常のconfirm()一発では誤操作を防げないという要望による）。
  */
 export default function FactoryResetSection() {
   const [expanded, setExpanded] = useState(false);
@@ -39,9 +37,8 @@ export default function FactoryResetSection() {
     <section className="settings-section settings-section-danger">
       <h3>オールクリア</h3>
       <p className="search-status">
-        用語・ノート・検索履歴・APIキー・ローカルフォルダ連携・テーマ設定など、このアプリが保存している全てのデータを削除し、初回起動時と同じ状態に戻します。
+        用語・ノート・検索履歴・APIキー・テーマ設定など、このアプリが保存している全てのデータを削除し、初回起動時と同じ状態に戻します。
         <strong>この操作は取り消せません。</strong>
-        （WebAuthnのパスキー登録自体はブラウザ・OS側の管轄のため削除されません）
       </p>
       {!expanded ? (
         <button type="button" className="btn-secondary" onClick={() => setExpanded(true)}>
