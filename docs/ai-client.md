@@ -1,6 +1,6 @@
 # AIクライアント設計
 
-- 版: 2.5（2026-07-30）
+- 版: 2.7（2026-08-07）
 - 前提: [要件定義書](./requirements.md) §5.3 / [アーキテクチャ](./architecture.md) §4.1 / [データ層設計](./data-layer.md)
 
 ## 0. この文書の目的
@@ -31,7 +31,9 @@ src/ai/
   testSupport.ts    … テスト専用フェイク AiClient
 ```
 
-`AiClient` はインターフェースとして切り出し、`chat.ts` / `distribution.ts` はこれを注入で受け取る（プロバイダの違いを一切知らない）。実際の認証器が要る WebAuthn（`src/keystore/webauthn.ts`）と同じ理由で、**実際のAPI呼び出しはテストできない**ため、フェイク実装（`src/ai/testSupport.ts`）を注入してオーケストレーション（メッセージ組み立て・DB書き込み・エラー処理）だけを単体テストする。
+`AiClient` はインターフェースとして切り出し、`chat.ts` / `distribution.ts` はこれを注入で受け取る（プロバイダの違いを一切知らない）。ネットワーク越しの実APIと同じ理由で、**実際のAPI呼び出しはテストできない**ため、フェイク実装（`src/ai/testSupport.ts`）を注入してオーケストレーション（メッセージ組み立て・DB書き込み・エラー処理）だけを単体テストする。
+
+APIキーの保存方式は2026-08-06にPC版を刷新した。当初はWebAuthnパスキー（`src/keystore/webauthn.ts`）だったが、Windows Hello等プラットフォーム認証器の設定状況に依存して失敗しやすい構造的な弱さがあったため、Electronの`safeStorage`（OS標準の暗号化機能）によるローカル暗号化保存に置き換えた（`src/keystore/electronSafeStorageApiKeyStore.ts`）。`webauthn.ts`・PRF暗号処理の`crypto.ts`は削除済み。Android版は元から`androidSecureApiKeyStore.ts`（Android Keystore）を使っており変更なし。両実装とも共通の`ApiKeyStore`インターフェース（`src/keystore/apiKeyStore.ts`）を満たす。
 
 ---
 
@@ -121,14 +123,15 @@ architecture.md §4.1 の「何度でも」ループの1回分。
 `termLabel?: string` を廃止し、`SubjectContext`（`src/ai/subjectContext.ts`）を受け取るようにした：
 
 ```
-SubjectContext = {
-  mode: 'term'; termId: string; label: string; field: Field; readings: string[];
-  existingSummary: string | null; existingNoteBody: string | null
-}
+SubjectContext =
+  | { mode: 'term'; termId: string; label: string; field: Field; readings: string[];
+      existingSummary: string | null; existingNoteBody: string | null }
+  | { mode: 'query'; label: string }
 ```
 
 - `mode: 'term'` は `termId` が確定している場合のみ生成できる（用語詳細画面からの開始、または検索結果一覧で利用者が用語を明示的に選んだ場合）。生成時に `TermsRepository`/`NotesRepository` から実際の `summary`・`field`・`readings`・`notes.body` を取得し、グラウンディング文脈として保持する。語が見つからない（削除済み等）場合は `null` を返し、チャット自体を開かない
 - **2026-08-05: `mode: 'free'`（`termId` を確定させないモード）を廃止した**（リリース対象に含めない判断。要件定義書§5.3）。チャットは必ずいずれかの語にひも付く
+- **2026-08-06追加: `mode: 'query'`。** 検索欄に打った文字列をそのままAIに聞く「AIで検索」用。辞書の語ではないため`field`・`readings`・既存情報を持たず、`label`（入力文字列そのもの）だけを保持する。`buildQuerySubject()`（`subjectContext.ts`）が生成する。システムプロンプトへの文脈合成は`mode: 'term'`と同じ仕組みを使うが、既存の初期説明・AI補足のブロックは自然に空になる（存在しないため）
 
 `sendChatTurn()` はユーザーの発言（`userText`）に一切手を加えず、代わりに**毎ターン** `SubjectContext` から動的生成した文脈ブロックを `CHAT_SYSTEM_PROMPT` に追加して `system` として送る:
 
@@ -164,16 +167,26 @@ system = CHAT_SYSTEM_PROMPT
 
 ### 3.1 `proposeDistribution()` — AI呼び出し＋分配案の組み立て
 
-1. セッションの全メッセージ + `DISTRIBUTION_INSTRUCTION` を Claude に渡す
-2. 出力（JSON配列）を `parseDistributionResponse()` で検証
+1. セッションの全メッセージ + `DISTRIBUTION_INSTRUCTION` を Claude に渡す（**2026-08-06〜: セッションの主題（`SubjectContext`のlabel。`termId`があれば辞書側の正式名を優先）をプロンプトに明示し**、「話題として成立するかどうかの判断に関わらず、必ずこの語を1項目としてisTerm:true・askedByUser:trueで含める」よう指示する。§3.1の下の「主題の強制登録」参照）
+2. 出力（JSON配列）を `parseDistributionResponse()` で検証（2026-08-07〜: 空文字の`readings`も拒否する。空の読みが1件でも単語一覧のバケット内並べ替えで例外になり索引全体が停止する不具合があったため）
 3. `isTerm: false` の項目は最初から除外する（要件定義書§5.3「`isTerm` による除外」）
-4. `makeTermId()` で既存語かどうかを判定し、**辞書に無い語（新規登録になる語）は `askedByUser: false` なら除外する**（要件定義書§5.3「新規登録は、利用者が明示的に尋ねた語だけ」）。既存語への更新はこの絞り込みの対象外——`askedByUser` の値に関わらず処理を続ける（書き込むかどうかは後段の `commitProposal()` が判断する）
+4. `makeTermId()` で既存語かどうかを判定し、**辞書に無い語（新規登録になる語）は `askedByUser: false` かつ主題でもなければ除外する**（要件定義書§5.3「新規登録は、利用者が明示的に尋ねた語だけ」）。既存語への更新はこの絞り込みの対象外——`askedByUser` の値に関わらず処理を続ける（書き込むかどうかは後段の `commitProposal()` が判断する）
 5. 残った各項目について
    - **既存語かつ既存の `notes.body` が空でない** → 「統合」プロンプト（`MERGE_SYSTEM_PROMPT`）で追加のAI呼び出しを行い、既存本文と新しい本文を1つに統合する
    - それ以外（新規語、または既存語だが本文が空）→ AIが起こした `draftBody` をそのまま使う
 6. 統合呼び出しが失敗・出力不正だった場合は `draftBody` にフォールバックする（**統合の失敗で分配統合全体を止めない**）
 
 この時点では **DBには一切書き込まない**。戻り値の `DistributionProposal` を `commitProposal()` に渡す。
+
+#### 主題の強制登録（2026-08-06追加。実バグの修正）
+
+以前は「利用者が明示的に尋ねた語だけ登録する」の判定を**AIの`askedByUser`推測のみ**に委ねていた。これには構造的な欠陥があった: セッションの主題そのもの（利用者がクリックした語、または「AIで検索」に打った文字列）についてAIが「これはIT用語として登録すべきではない」「askedByUserではない」と誤判定すると、**主題の語ごと候補から消え、確定は完了扱いになるのに単語一覧にも検索にもチャットにも現れなくなる**（会話が実質的に失われる）という不具合が実際に報告された。
+
+「AIに推測させず、利用者が選ぶ」という要件定義書§5.3の原則は、チャットの主題選び（`SubjectContext`）だけでなく、この分配統合の判定にも及ぶべき、という方針転換に基づき対処した:
+
+- セッションの主題（`session.termId`があれば辞書から引き直した正式名、無ければ`session.subjectLabel`）とテキストが一致するtermId（`makeTermId()`で正規化して突き合わせ）の項目は、**AIの`askedByUser`判定に関わらず`askedByUser: true`を強制**する（上記の絞り込み4を通過させる）
+- ただし`isTerm: false`の項目は`draftBody`等を一切持たない（判別共用体のため）。プロンプト側の指示で主題は必ず`isTerm: true`にするよう求めているが、AIがそれでも従わなかった場合はここで諦めるしかない——ただし会話自体は消えない（履歴画面「取り込み履歴」タブに残り、後から取り込み直せる。§declined状態は下記参照）
+- 主題**以外**の語（会話の中でついでに触れられただけの語）への絞り込みは変更していない——引き続きAIの`askedByUser`推測のみで決まる
 
 ### 3.2 `commitProposal()` — 自動反映（2026-07-30改訂）
 
@@ -255,20 +268,22 @@ architecture.md §5 の状態遷移図（元は `open → committing → approvi
 
 `CommitOrchestratorDeps` は `asksRepo`/`deviceId`/`autoUpdateExistingTerms` を**必須**にしてある（旧版では承認画面との後方互換のため任意項目だったが、承認画面が無くなった以上これが唯一の経路になったため）。
 
-4つのトリガーすべてに対応する:
+**2026-08-04改訂: 自動トリガーをすべて廃止し、明示的な確定操作（`triggerCommit(sessionId)`）1本に集約した。**
 
-| # | トリガー | 対応するメソッド |
-|---|---|---|
-| ① | 別の用語のチャットを開いた | `triggerCommit(sessionId)` |
-| ② | 最終操作から15分経過 | `noteActivity(sessionId)` を呼ぶたびにタイマーを引き直す。既定15分（`timeoutMs`で変更可） |
-| ③ | 明示的な確定操作 | `triggerCommit(sessionId)`（①と同じ実装） |
-| ④ | 起動時に検出（15分以上前から放置） | `recoverStaleSessions()`。`chatRepo.findStaleOpenSessions()` を使って一括で確定処理へ回す |
+- **経緯**: 当初は①別の用語のチャットを開いた、②最終操作から15分経過、③明示的な確定操作、④起動時に検出した放置セッションの回収、の4トリガーに対応していた（`noteActivity()`・`recoverStaleSessions()`）。その後一度は「起動時の自動確定」を復活させたが、APIキーはセッション限りの保持のため起動直後は必ず未認証で「確定処理に失敗しました: APIキーが設定されていません」が毎回出てしまい（[ui-pc.md](./ui-pc.md) バグ6と同じ形の再発）、「AIと会話した内容は自動では保存されない」という利用者への説明とも矛盾していたため、②④とあわせて再び廃止した
+- 現在の`CommitOrchestrator`インターフェースは`triggerCommit(sessionId)`のみ。`noteActivity()`/`recoverStaleSessions()`は存在しない
+- 確定していないセッションはホーム画面（`SearchScreen`）の「取り込み待ち」一覧（`ChatRepository.getOpenSessions()`）に残り、そこから個別に「取り込む」、または「まとめて単語帳に取り込む」で一括取り込みする。「登録しない」（`declined`状態。§8参照）を選ばない限りセッションは消えない
 
 AI呼び出し（`proposeDistribution()`）や書き込み（`commitProposal()`）が失敗した場合は `onError` を呼ぶだけで、セッションの状態は変更しない（`committing --> open` に相当。次回のトリガーで再試行される）。
 
 `App.tsx` は `deviceId` が読み込まれるまで（起動直後の一瞬）`createCommitOrchestrator()` 自体を作らない（`deviceId: string | null` のうち `null` の間は `commitOrchestrator` を `null` にする）——書き込みに実在の `deviceId` を要するため。
 
-**未配線（このオーケストレーター自体はテスト済み）**: `noteActivity()`（トリガー②・15分無操作）を `ChatScreen` のメッセージ送受信から呼ぶ配線だけがまだ無い。`recoverStaleSessions()`（起動時）は `App.tsx` に配線済み（[ui-pc.md](./ui-pc.md)）。
+## 8. 取り込みの拒否と履歴（2026-08-06追加）
+
+「登録しない」ボタンを押すと、セッションは`declined`状態になる（`ChatSessionRecord.status`。`chatRepo.declineSession()`）。AIの登録可否判定に利用者の拒否権が無いままでは「ユーザー判断」とは言えないため追加した——§3.1「主題の強制登録」と対になる変更で、**AIに登録を拒否する権限は無いが、利用者には常にある**という設計にした。
+
+- 会話は削除しない。履歴画面の「取り込み履歴」タブ（`ChatRepository.getRecentSessions()`。open/declined/committedを全て時系列で表示、最大30件）から後で見返し、`beginCommit()`で`declined → committing`へ遷移させて取り込み直せる
+- 30件の上限は`open`/`declined`/`committed`を合算したチャットセッション数で数える。超えた分は`lastActiveAt`が古いものから`chatMessages`ごと削除するが、既に単語帳へ書き込み済みの`terms`/`notes`/`asks`は一切対象外（`chatRepo.createSession()`内の`pruneOldSessions()`）
 
 ### テスト時の注意: fake-indexeddb と `vi.useFakeTimers()` は併用できない
 
