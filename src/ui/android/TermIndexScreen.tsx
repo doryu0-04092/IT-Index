@@ -24,6 +24,11 @@ function sectionId(bucket: string): string {
  *
  * タップ操作向けの調整（ジャンプリンク・五十音図の各マスを44px以上に広げる等）は
  * `.android-app` スコープのCSS（src/index.css 末尾）で追記する。
+ *
+ * 数字始まりの語は「数字」と「読みの行」の両方に出る（2026-08-07。`bucketsOf`）。つまり
+ * **同じ語が索引に2回現れることがある**——辞書の空見出しと同じで、意図した重複。あわせて
+ * 「数字」の中だけは読み順ではなく数値の昇順に並ぶ。いずれも `src/core/kanaRow.ts` 側の
+ * 責務で、PC版・Android版とも表示は返ってきたバケットを描くだけ。
  */
 export default function TermIndexScreen({ termsRepo, onSelectTerm, onBack }: TermIndexScreenProps) {
   const [buckets, setBuckets] = useState<Map<string, TermRecord[]> | null>(null);

@@ -79,8 +79,17 @@ export function parseDistributionResponse(raw: string): ParseDistributionResult 
     if (typeof e.summary !== 'string' || e.summary === '') {
       return { ok: false, reason: `${e.term}: summary がありません` };
     }
-    if (!Array.isArray(e.readings) || e.readings.length === 0 || !e.readings.every((r) => typeof r === 'string')) {
-      return { ok: false, reason: `${e.term}: readings が不正です（1要素以上の文字列配列が必要）` };
+    // 空文字の読みも弾く（2026-08-07追加）。以前は `typeof r === 'string'` しか見ていなかったため
+    // `[""]` が通り、読みが実質無い語がDBに入り得た。単語一覧はバケット内を読み順に並べるため、
+    // そうした語が他の語と同じバケットに入ると並べ替えで例外になり、**索引の画面全体が
+    // 「読み込み中です…」のまま停止する**（実データで再現）。表示側（core/kanaRow.ts）でも
+    // 落ちないようにしてあるが、そもそも不正な読みを作らないことをここで担保する。
+    if (
+      !Array.isArray(e.readings) ||
+      e.readings.length === 0 ||
+      !e.readings.every((r) => typeof r === 'string' && r.trim() !== '')
+    ) {
+      return { ok: false, reason: `${e.term}: readings が不正です（空でない文字列を1要素以上含む配列が必要）` };
     }
     if (typeof e.field !== 'string' || !(FIELDS as readonly string[]).includes(e.field)) {
       return { ok: false, reason: `${e.term}: field が一覧にありません: ${String(e.field)}` };
