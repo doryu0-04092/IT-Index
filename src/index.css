@@ -1161,6 +1161,26 @@ button:disabled {
   gap: var(--space-4);
 }
 
+/* 履歴画面「競合選択」タブの一覧。見出しの行を押すと下に解決UIが開く。
+   当初は検索結果と同じ .search-result-row を流用していたが、あちらは「ボタンを横に並べる」
+   ための display:flex（折り返し無し）で、開いた解決UIまで横に押し込まれてPC幅で崩れていた
+   （Android版は .android-app .search-result-row の flex-wrap で偶然縦積みになっていただけ）。
+   縦に積むのが正しいので専用のクラスを持たせる（2026-08-07修正）。 */
+.conflict-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.conflict-history-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 .link-conflict-term {
   margin: 0 0 var(--space-2);
   font-size: var(--font-size-sm);

@@ -85,6 +85,24 @@ describe('NotesRepository', () => {
       expect(historyBodies).toContain('相手の説明');
     });
 
+    // 「いつでも選び直せる」機能なので2案の往復は起こり得る。時系列の記録ではなく
+    // 「この版は見たことがある」という集合として持つ（isRealConflictがその用途で参照する）。
+    it('does not grow noteHistory when the user switches back and forth between the two sides', async () => {
+      const repo = createNotesRepository(db);
+      const local = { body: 'ローカル本文', diagrams: [] };
+      const remote = { body: 'リモート本文', diagrams: [] };
+
+      await repo.applyConflictResolution('cors', local.body, local.diagrams, 'device-A', 1, remote);
+      await repo.applyConflictResolution('cors', remote.body, remote.diagrams, 'device-A', 2, local);
+      await repo.applyConflictResolution('cors', local.body, local.diagrams, 'device-A', 3, remote);
+      await repo.applyConflictResolution('cors', remote.body, remote.diagrams, 'device-A', 4, local);
+
+      const note = await repo.getByTermId('cors');
+      expect(note?.body).toBe('リモート本文');
+      // 何度往復しても、実在する2つの版だけが残る
+      expect(note?.noteHistory.map((h) => h.body).sort()).toEqual(['リモート本文', 'ローカル本文']);
+    });
+
     it('does not duplicate the rejected body if it is already in noteHistory', async () => {
       const repo = createNotesRepository(db);
       await repo.applyCommit('cors', '元の説明', [], 'device-A', 1);

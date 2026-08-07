@@ -38,6 +38,7 @@ describe('isPersistedScreen', () => {
     expect(isPersistedScreen({ name: 'history', view: 'timeline' })).toBe(true);
     expect(isPersistedScreen({ name: 'history', view: 'sync' })).toBe(true);
     expect(isPersistedScreen({ name: 'history', view: 'commits' })).toBe(true);
+    expect(isPersistedScreen({ name: 'history', view: 'conflicts' })).toBe(true);
   });
 
   it('rejects a history screen with an invalid view', () => {

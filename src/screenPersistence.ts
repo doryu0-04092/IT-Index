@@ -24,7 +24,7 @@ export type PersistedScreen =
   | { name: 'link' };
 
 const STORAGE_KEY = 'it-index-last-screen';
-const VALID_HISTORY_VIEWS: HistoryView[] = ['weighted', 'timeline', 'sync', 'commits'];
+const VALID_HISTORY_VIEWS: HistoryView[] = ['weighted', 'timeline', 'sync', 'commits', 'conflicts'];
 
 function isValidDetailFrom(value: unknown): value is PersistedDetailFrom {
   if (value === 'search' || value === 'index') return true;

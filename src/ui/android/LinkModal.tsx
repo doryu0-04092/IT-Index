@@ -137,9 +137,12 @@ function ResultView({ outcome, deps, claude }: { outcome: Outcome; deps: ManualS
         </p>
       )}
       {outcome.conflicts.length > 0 && deps && (
+        // 競合の選択はPC版に一本化している（単語詳細はパソコン版を基準に整える。
+        // 要件定義書§5.5・src/ui/shared/ConflictResolver.tsx）。ここは案内だけ出す
         <ConflictResolver
           conflicts={outcome.conflicts}
           deps={{ notesRepo: deps.notesRepo, conflictsRepo: deps.conflictsRepo, deviceId: deps.deviceId, claude }}
+          canResolve={false}
         />
       )}
     </div>

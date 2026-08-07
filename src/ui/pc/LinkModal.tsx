@@ -140,6 +140,7 @@ function ResultView({ outcome, deps, claude }: { outcome: Outcome; deps: ManualS
         <ConflictResolver
           conflicts={outcome.conflicts}
           deps={{ notesRepo: deps.notesRepo, conflictsRepo: deps.conflictsRepo, deviceId: deps.deviceId, claude }}
+          canResolve
         />
       )}
     </div>

@@ -60,16 +60,24 @@ export function createNotesRepository(db: ItIndexDB): NotesRepository {
     async applyConflictResolution(termId, body, diagrams, deviceId, at, rejected) {
       await db.transaction('rw', db.notes, async () => {
         const existing = await db.notes.get(termId);
-        const noteHistory = existing
-          ? [...existing.noteHistory, { body: existing.body, diagrams: existing.diagrams, updatedAt: existing.updatedAt }]
-          : [];
+        const noteHistory = existing ? [...existing.noteHistory] : [];
 
-        const alreadyRecorded = noteHistory.some(
-          (h) => h.body === rejected.body && JSON.stringify(h.diagrams) === JSON.stringify(rejected.diagrams),
-        );
-        if (!alreadyRecorded) {
-          noteHistory.push({ body: rejected.body, diagrams: rejected.diagrams, updatedAt: at });
+        // 同じ内容は積み直さない。この操作は「いつでも選び直せる」ものなので、利用者が2案を
+        // 往復するたびに applyCommit と同じ無条件の積み増しをすると、実際には2種類しかない
+        // 本文で noteHistory が際限なく伸びる（往復3回で3件になるのを実測。2026-08-07）。
+        // ここで必要なのは時系列の記録ではなく「この版は見たことがある」という集合
+        // ——競合の再検出を防ぐ isRealConflict() がその用途で参照するため（mergeSnapshot.ts）。
+        const remember = (entry: { body: string; diagrams: string[]; updatedAt: number }) => {
+          const seen = noteHistory.some(
+            (h) => h.body === entry.body && JSON.stringify(h.diagrams) === JSON.stringify(entry.diagrams),
+          );
+          if (!seen) noteHistory.push(entry);
+        };
+
+        if (existing) {
+          remember({ body: existing.body, diagrams: existing.diagrams, updatedAt: existing.updatedAt });
         }
+        remember({ body: rejected.body, diagrams: rejected.diagrams, updatedAt: at });
 
         const next: NoteRecord = {
           termId,
