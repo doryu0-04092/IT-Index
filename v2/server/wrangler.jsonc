@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "it-index-v2-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-08",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "it-index-v2",
+      // ローカル開発・テスト用のプレースホルダ。実デプロイ時に `wrangler d1 create` の結果へ置き換える。
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
