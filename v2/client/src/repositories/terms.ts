@@ -13,6 +13,11 @@ export interface TermsRepository {
   bulkPutFromSeed(terms: TermRecord[]): Promise<void>;
   /** 利用者による明示的な削除(単語詳細画面)。tombstoneするだけで物理削除はしない */
   softDelete(id: string, now: number): Promise<void>;
+  /**
+   * 同期の取り込み専用(v1 ../../src/repositories/terms.ts参照)。updatedAt比較は行わない
+   * ——mergeSnapshot()が既に決定的マージ済みの結果をそのまま書く。
+   */
+  upsertFromSync(term: TermRecord): Promise<void>;
 }
 
 export function createTermsRepository(db: ItIndexDB): TermsRepository {
@@ -48,6 +53,10 @@ export function createTermsRepository(db: ItIndexDB): TermsRepository {
       const term = await db.terms.get(id);
       if (!term) return;
       await db.terms.put({ ...term, deletedAt: now, updatedAt: now });
+    },
+
+    async upsertFromSync(term) {
+      await db.terms.put(term);
     },
   };
 }

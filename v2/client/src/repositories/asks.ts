@@ -14,6 +14,11 @@ export interface AsksRepository {
    */
   getAllOrdered(): Promise<AskRecord[]>;
   getByTermId(termId: string): Promise<AskRecord[]>;
+  /**
+   * 同期の取り込み専用(v1 ../../src/repositories/asks.ts参照)。asksはidで和集合
+   * ——mergeSnapshot()が既に和集合済みの結果を渡してくるので、無い分だけ追加する(冪等)。
+   */
+  upsertFromSync(asks: AskRecord[]): Promise<void>;
 }
 
 function compareAsks(a: AskRecord, b: AskRecord): number {
@@ -35,6 +40,15 @@ export function createAsksRepository(db: ItIndexDB): AsksRepository {
 
     async getByTermId(termId) {
       return db.asks.where('termId').equals(termId).toArray();
+    },
+
+    async upsertFromSync(asks) {
+      await db.transaction('rw', db.asks, async () => {
+        for (const ask of asks) {
+          const existing = await db.asks.get(ask.id);
+          if (!existing) await db.asks.add(ask);
+        }
+      });
     },
   };
 }

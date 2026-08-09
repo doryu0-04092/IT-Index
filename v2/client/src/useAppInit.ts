@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { db } from './db';
 import { createAsksRepository, type AsksRepository } from './repositories/asks';
+import { createNoteConflictsRepository, type NoteConflictsRepository } from './repositories/noteConflicts';
 import { createNotesRepository, type NotesRepository } from './repositories/notes';
 import { createSettingsRepository, type SettingsRepository } from './repositories/settings';
+import { createSyncStateRepository, type SyncStateRepository } from './repositories/syncState';
 import { createTermsRepository, type TermsRepository } from './repositories/terms';
 import { fetchSeedFile, importSeed } from './seed/importSeed';
 
@@ -11,6 +13,8 @@ export interface AppInit {
   notesRepo: NotesRepository;
   asksRepo: AsksRepository;
   settingsRepo: SettingsRepository;
+  noteConflictsRepo: NoteConflictsRepository;
+  syncStateRepo: SyncStateRepository;
   /** settingsRepo.get()が終わるまでnull(初回起動時にcrypto.randomUUID()で発行される) */
   deviceId: string | null;
   /** シード取り込みに失敗した場合のみ非null。既取り込み済みの場合はnullのまま */
@@ -32,6 +36,8 @@ export function useAppInit(): AppInit {
   const notesRepo = useMemo(() => createNotesRepository(db), []);
   const asksRepo = useMemo(() => createAsksRepository(db), []);
   const settingsRepo = useMemo(() => createSettingsRepository(db), []);
+  const noteConflictsRepo = useMemo(() => createNoteConflictsRepository(db), []);
+  const syncStateRepo = useMemo(() => createSyncStateRepository(db), []);
 
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [seedError, setSeedError] = useState<string | null>(null);
@@ -69,5 +75,17 @@ export function useAppInit(): AppInit {
     void settingsRepo.get().then((s) => setDeviceId(s.deviceId));
   }, [runSeedImport, settingsRepo]);
 
-  return { termsRepo, notesRepo, asksRepo, settingsRepo, deviceId, seedError, seedSettled, seedRefreshTick, runSeedImport };
+  return {
+    termsRepo,
+    notesRepo,
+    asksRepo,
+    settingsRepo,
+    noteConflictsRepo,
+    syncStateRepo,
+    deviceId,
+    seedError,
+    seedSettled,
+    seedRefreshTick,
+    runSeedImport,
+  };
 }
