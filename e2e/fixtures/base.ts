@@ -48,6 +48,9 @@ export const test = base.extend<{ preparedPage: Page }>({
       // フォント読み込みが10秒で終わらない場合はテスト続行し、観点として別途報告する。
     });
     await waitForSeedSettled(page);
+    // この use は Playwright のフィクスチャ引数で、React Hooks の use ではない。
+    // ルールが名前だけで誤検知するため、この行に限って抑制する。
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
   },
 });

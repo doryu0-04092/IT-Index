@@ -1,0 +1,55 @@
+# PR作成時と master への push 時に、型検査・lint・単体テスト・E2E恒久ゲートを自動実行する。
+#
+# 目的は「テストを実行したという事実を成果物に残すこと」。
+# ローカル実行の結果は自己申告にしかならず、レビュー側に検証手段が無い。
+# このリポジトリではゲート(gate:*)が定義されていながら実行する主体が無く、
+# lint 16677件・e2e 46件失敗が誰にも気づかれないまま放置されていた(2026-08-09発見)。
+# その再発防止として導入する。sns-application の #33 と同じ型。
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# 同じブランチへ連続でpushした場合、古い実行は打ち切る(待ち時間と実行時間の節約)。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: web (Node 24)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      # package-lock.json のとおりに入れる(install と違い lock を書き換えない)。
+      - name: Install dependencies
+        run: npm ci
+
+      # vitest は型検査をせずにトランスパイルするため、テストだけでは型エラーを検出できない。
+      # 「テストが緑でもビルドは壊れている」事故の再発防止として型検査を独立に走らせる。
+      - name: Type check
+        run: npm run gate:type
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      # ビジュアル回帰(@visual)は基準画像が win32 で撮られており、Linuxランナーでは
+      # フォントレンダリング差で必ず不一致になるため CI では除外する。
+      # ローカル(Windows)での実行は npm run test:e2e でこれまで通り全件走る。
+      - name: E2E gates (a11y)
+        run: npm run test:e2e -- --grep-invert @visual
