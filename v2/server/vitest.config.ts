@@ -16,8 +16,10 @@ export default defineConfig(async () => {
       cloudflareTest({
         wrangler: { configPath: './wrangler.jsonc' },
         miniflare: {
-          // テスト専用バインディング。マイグレーションをsetupファイルへ渡すためだけに使う。
-          bindings: { TEST_MIGRATIONS: migrations },
+          // テスト専用バインディング。マイグレーションの受け渡しと、JWT_SECRETの供給。
+          // JWT_SECRETをここで与えないと、.dev.vars(gitignore対象)が無いCI環境では
+          // トークン署名が失敗し、signupが500になる(2026-08-09にCIで実際に発生)。
+          bindings: { TEST_MIGRATIONS: migrations, JWT_SECRET: 'test-only-secret' },
         },
       }),
     ],
