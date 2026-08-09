@@ -9,6 +9,15 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e',
+  /**
+   * `investigate-*` は 2026-08-01 の品質検証で使った**使い捨ての調査スクリプト**で、
+   * 各ファイル自身が「調査終了後に削除してよい」と宣言している。恒久的な回帰テストではない。
+   * 既に現行UIに追従しておらず（2026-08-04の設定画面モーダル→画面化に未対応）、
+   * 既定の実行に混ざると失敗が支配的でゲートとして機能しない
+   * （2026-08-09 実測: 72件中46件失敗の大半がこれ）。
+   * 恒久ゲートは `e2e/a11y/` と `e2e/visual/`。調査specを回す時はパスを明示指定する。
+   */
+  testIgnore: ['**/investigate-*/**'],
   fullyParallel: false,
   workers: 1,
   retries: 0,

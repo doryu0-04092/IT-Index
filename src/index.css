@@ -414,6 +414,26 @@ button:disabled {
   }
 }
 
+/* 矢印キーで選択中の行。フォーカスは入力欄に残るため、選択位置は見た目でしか
+   伝わらない。hover より濃くし、左の線で「今ここ」を明示する（2026-08-09追加）。 */
+.search-result-active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.search-empty {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 16px 0 0;
+  line-height: 1.6;
+}
+
+.search-result-count {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 16px 0 0;
+}
+
 .search-result-term {
   font-weight: 600;
 }

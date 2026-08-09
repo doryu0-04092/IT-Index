@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import { score } from '../../core/score';
 import type { ChatRepository } from '../../repositories/chat';
 import type { TermsRepository } from '../../repositories/terms';
 import type { TermRecord } from '../../types';
+import { NO_ACTIVE_INDEX, nextActiveIndex } from '../shared/activeIndex';
 import { useDebouncedValue } from '../shared/useDebouncedValue';
 import FeatureHint from './FeatureHint';
 
@@ -69,6 +70,14 @@ export default function SearchScreen({
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 150);
   const [pendingUpdates, setPendingUpdates] = useState<PendingUpdate[]>([]);
+  /**
+   * キーボードで選択中の検索結果（NO_ACTIVE_INDEX は未選択）。この画面の主動線は
+   * 「打つ → 選ぶ → 開く」で、マウスに持ち替えずに完結できる必要がある（2026-08-09追加）。
+   * フォーカス自体は入力欄に残したまま aria-activedescendant で選択位置を伝える
+   * combobox パターンを採る——矢印キーで移動しても続けて絞り込みを打てるようにするため。
+   */
+  const [activeIndex, setActiveIndex] = useState(NO_ACTIVE_INDEX);
+  const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
     termsRepo.getAll().then(setTerms);
@@ -128,6 +137,35 @@ export default function SearchScreen({
       .slice(0, MAX_RESULTS);
   }, [debouncedQuery, terms]);
 
+  // 選択位置を画面内に保つ。DOM操作のみで state を触らないため effect でよい。
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    const el = listRef.current?.children[activeIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex]);
+
+  const activeResult = activeIndex >= 0 ? results[activeIndex] : undefined;
+
+  function handleSearchKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Escape') {
+      // 1段階ずつ戻す: 選択中なら選択解除、選択が無ければ入力を消す
+      if (activeIndex >= 0) setActiveIndex(NO_ACTIVE_INDEX);
+      else if (query !== '') setQuery('');
+      return;
+    }
+    if (results.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault(); // 入力欄のカーソル移動を止める
+      setActiveIndex((i) => nextActiveIndex(i, 'down', results.length));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex((i) => nextActiveIndex(i, 'up', results.length));
+    } else if (e.key === 'Enter' && activeResult) {
+      e.preventDefault();
+      onSelectTerm(activeResult.term.id);
+    }
+  }
+
   return (
     <div className="search-screen">
       <input
@@ -135,7 +173,22 @@ export default function SearchScreen({
         className="search-input"
         placeholder="用語を入力（かな・カタカナ・英字どれでも）"
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setActiveIndex(NO_ACTIVE_INDEX); // 絞り込みが変われば選択位置は無効
+        }}
+        onKeyDown={handleSearchKeyDown}
+        role="combobox"
+        aria-expanded={results.length > 0}
+        aria-controls="search-results-listbox"
+        // 見出し語IDは空白や記号を含みうる（例: "tcp/ip"）。aria-activedescendant は
+        // 単一IDしか取れないため、位置の連番で参照して壊れないようにする。
+        aria-activedescendant={activeIndex >= 0 ? `search-result-${activeIndex}` : undefined}
+        aria-autocomplete="list"
+        aria-label="用語を検索"
+        // この画面はアプリを開いた直後の入り口で、目的は検索そのもの。
+        // 起動のたびに入力欄を押させないため autoFocus を意図的に残す。
+        // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
       />
 
@@ -205,14 +258,40 @@ export default function SearchScreen({
         </div>
       )}
 
-      <ul className="search-results">
+      {/*
+        1件も一致しなかった時に何も出さないと「まだ検索中なのか、壊れているのか」が
+        区別できない。行き止まりにはせず、上の「AIで検索」へ繋ぐ一文を添える（2026-08-09追加）。
+      */}
+      {debouncedQuery.trim() !== '' && results.length === 0 && (
+        <p className="search-empty" role="status">
+          「{debouncedQuery.trim()}」に一致する語は辞書にありませんでした。上の「AIで検索」から質問できます。
+        </p>
+      )}
+
+      {results.length > 0 && (
+        <p className="search-result-count" role="status">
+          {results.length}件{results.length === MAX_RESULTS && '以上'}見つかりました（↑↓キーで選択、Enterで開く）
+        </p>
+      )}
+
+      <ul className="search-results" id="search-results-listbox" role="listbox" aria-label="検索結果" ref={listRef}>
         {results.map(({ term, score: s }, index) => (
           <li
             key={term.id}
             className="search-result-row stagger-row"
             style={{ '--stagger-index': Math.min(index, 12) } as React.CSSProperties}
+            role="presentation"
           >
-            <button type="button" className="search-result" onClick={() => onSelectTerm(term.id)}>
+            <button
+              type="button"
+              id={`search-result-${index}`}
+              className={`search-result${index === activeIndex ? ' search-result-active' : ''}`}
+              role="option"
+              aria-selected={index === activeIndex}
+              onClick={() => onSelectTerm(term.id)}
+              onMouseEnter={() => setActiveIndex(index)}
+              tabIndex={-1}
+            >
               <span className="search-result-term">{term.term}</span>
               <span className="search-result-reading">{term.readings[0]}</span>
               <span className="search-result-field">{term.field}</span>

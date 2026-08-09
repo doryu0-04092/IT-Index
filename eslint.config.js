@@ -5,7 +5,20 @@ import jsxA11y from 'eslint-plugin-jsx-a11y';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'docs/review/logs/playwright-report/**', 'e2e/**/*-snapshots/**'],
+    // ビルド成果物は lint 対象にしない。flat config は .gitignore を参照しないため、
+    // ここに書かない限り Android/Electron のビルド出力（minify 済みバンドル）まで検査され、
+    // 実コードの指摘がその中に埋没する（2026-08-09: 全16677件中16648件が成果物由来だった）。
+    ignores: [
+      'dist/**',
+      'node_modules/**',
+      'docs/review/logs/playwright-report/**',
+      'e2e/**/*-snapshots/**',
+      'android/app/build/**',
+      'android/app/src/main/assets/**',
+      'dist-electron/**',
+      'release/**',
+      'test-results/**',
+    ],
   },
   ...tseslint.configs.recommended,
   {
