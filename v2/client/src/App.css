@@ -1,0 +1,294 @@
+/*
+ * 単一レスポンシブUI(要件定義書§4.1)。v1のPC/Android並行実装(src/ui/pc, src/ui/android)を
+ * 繰り返さないため、CSSも1本にする。モバイル幅を基準に書き、PC幅では最大幅を絞って中央寄せする
+ * だけの最小限のブレークポイントに留める。
+ */
+
+:root {
+  color-scheme: light dark;
+  --fg: #1a1a1a;
+  --bg: #ffffff;
+  --muted: #666666;
+  --border: #d0d0d0;
+  --accent: #2b6cb0;
+  --accent-fg: #ffffff;
+  --danger: #c0392b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8e8e8;
+    --bg: #1a1a1a;
+    --muted: #a0a0a0;
+    --border: #3a3a3a;
+    --accent: #5b9bd5;
+    --accent-fg: #111111;
+    --danger: #e07a6b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: system-ui, 'Hiragino Sans', 'Yu Gothic', sans-serif;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 12px 24px;
+}
+
+.app-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 1;
+}
+
+.app-header h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+.app-nav {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.app-nav-link {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.app-nav-link-active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+
+.app-main {
+  min-height: 60vh;
+}
+
+.status-text {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.error-text {
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.btn-text {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  margin-left: 8px;
+  text-decoration: underline;
+}
+
+.btn-primary,
+.btn-secondary {
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: 1px solid var(--accent);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.back-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.95rem;
+}
+
+/* 検索画面 */
+
+.search-input {
+  width: 100%;
+  font-size: 1.1rem;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.result-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.result-row {
+  margin: 4px 0;
+}
+
+.result-button {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.result-button-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg));
+}
+
+.result-term {
+  font-weight: 600;
+}
+
+.result-reading,
+.result-field,
+.result-score {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* 単語一覧(索引)画面 */
+
+.term-index-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.term-index-jump-link {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.term-index-section {
+  margin: 16px 0;
+}
+
+.term-index-heading {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+}
+
+/* 用語詳細画面 */
+
+.term-detail-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.term-detail-reading {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.term-detail-meta {
+  color: var(--muted);
+}
+
+.term-detail-summary,
+.term-detail-notes {
+  margin-top: 16px;
+}
+
+.term-detail-diagram-code {
+  white-space: pre-wrap;
+  background: color-mix(in srgb, var(--muted) 15%, var(--bg));
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.term-detail-note-editor {
+  width: 100%;
+  min-height: 160px;
+  font-family: ui-monospace, monospace;
+  font-size: 0.95rem;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  resize: vertical;
+}
+
+.term-detail-note-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.term-detail-delete-confirm {
+  color: var(--danger);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (min-width: 720px) {
+  .app {
+    padding: 0 24px 32px;
+  }
+
+  .result-button {
+    gap: 16px;
+  }
+}
