@@ -11,6 +11,7 @@ export default defineConfig({
     environment: 'node',
     globals: false,
     setupFiles: ['./src/test-setup.ts'],
-    exclude: ['**/node_modules/**', '**/e2e/**'],
+    // v2/** はv2ワークスペースのvitest(CIのv2ジョブ)が実行する。ここで拾うと二重実行になる。
+    exclude: ['**/node_modules/**', '**/e2e/**', '**/v2/**'],
   },
 });

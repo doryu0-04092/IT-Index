@@ -21,6 +21,9 @@ export default tseslint.config(
       // 2026-08-01の品質検証で使った使い捨ての調査spec。Playwrightの既定実行からも
       // 除外済み(playwright.config.ts の testIgnore)で、削除待ちの扱い。lintも見ない。
       'e2e/investigate-*/**',
+      // v2ワークスペースは独自のeslint.config.jsを持ち、CIのv2ジョブが検査する。
+      // ルート側で見ると依存解決が別(v2/node_modules)のため二重検査・誤検査になる。
+      'v2/**',
     ],
   },
   ...tseslint.configs.recommended,
