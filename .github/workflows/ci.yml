@@ -53,3 +53,39 @@ jobs:
       # ローカル(Windows)での実行は npm run test:e2e でこれまで通り全件走る。
       - name: E2E gates (a11y)
         run: npm run test:e2e -- --grep-invert @visual
+
+  # v2再設計(docs/v2/architecture.md §8 Phase 0)のワークスペース。
+  # v1側のジョブとは依存(v2/package-lock.json)も検査設定も独立している。
+  v2:
+    name: v2 (Node 24)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run gate:type
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E smoke
+        run: npm run test:e2e
