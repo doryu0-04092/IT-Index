@@ -10,7 +10,11 @@
   },
   "dependencies": {
     "@it-index/shared": "*",
+    "dexie": "^4.4.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5"
   }
 }
