@@ -1,1 +1,13 @@
 export { normalize } from './core/normalize';
+export { score } from './core/score';
+export { BUCKET_ORDER, NUMERIC_BUCKET, bucketOf, bucketsOf, groupIntoBuckets } from './core/kanaRow';
+export { computeWeights } from './core/computeWeights';
+export { mergeSnapshot, isSameContent } from './core/mergeSnapshot';
+export type { LocalSnapshot, SyncFile } from './core/mergeSnapshot';
+export { computeSyncDelta } from './core/syncDelta';
+export { isSyncTarget } from './core/syncTarget';
+export { validateSeedFile } from './core/validateSeed';
+export { parseSyncFile } from './core/validateSyncFile';
+export { makeTermId, buildTermRecord } from './core/term';
+export { FIELDS } from './types';
+export type { Field, TermRecord, NoteRecord, NoteHistoryEntry, AskRecord } from './types';
