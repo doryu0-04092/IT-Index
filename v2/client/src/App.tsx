@@ -1,13 +1,15 @@
 import { useCallback, useState } from 'react';
 import './App.css';
+import { db } from './db';
 import { backScreenFor, screenKey, type DetailFrom, type Screen } from './navigation';
 import SearchScreen from './screens/SearchScreen';
+import SyncScreen from './screens/SyncScreen';
 import TermDetailScreen from './screens/TermDetailScreen';
 import TermIndexScreen from './screens/TermIndexScreen';
 import WeightedScreen from './screens/WeightedScreen';
 import { useAppInit } from './useAppInit';
 
-type NavTarget = 'search' | 'index' | 'weighted';
+type NavTarget = 'search' | 'index' | 'weighted' | 'sync';
 
 function navLabel(target: NavTarget): string {
   switch (target) {
@@ -17,6 +19,8 @@ function navLabel(target: NavTarget): string {
       return '索引';
     case 'weighted':
       return '重み付け';
+    case 'sync':
+      return '同期';
   }
 }
 
@@ -28,7 +32,18 @@ function navLabel(target: NavTarget): string {
  * ルーターも追加せずstate(Screen)だけで遷移する(要件定義書§4.1)。
  */
 export function App() {
-  const { termsRepo, notesRepo, asksRepo, deviceId, seedError, seedSettled, seedRefreshTick, runSeedImport } = useAppInit();
+  const {
+    termsRepo,
+    notesRepo,
+    asksRepo,
+    noteConflictsRepo,
+    syncStateRepo,
+    deviceId,
+    seedError,
+    seedSettled,
+    seedRefreshTick,
+    runSeedImport,
+  } = useAppInit();
   const [screen, setScreen] = useState<Screen>({ name: 'search' });
 
   // 要件定義書§4.1「ローカル検索の確定」。検索・索引・重み付けのいずれから選んで
@@ -49,14 +64,16 @@ export function App() {
   }
 
   const navCurrent: NavTarget | null =
-    screen.name === 'search' || screen.name === 'index' || screen.name === 'weighted' ? screen.name : null;
+    screen.name === 'search' || screen.name === 'index' || screen.name === 'weighted' || screen.name === 'sync'
+      ? screen.name
+      : null;
 
   return (
     <div className="app">
       <header className="app-header">
         <h1>IT-Index v2</h1>
         <nav className="app-nav" aria-label="画面切り替え">
-          {(['search', 'index', 'weighted'] as const).map((target) => (
+          {(['search', 'index', 'weighted', 'sync'] as const).map((target) => (
             <button
               key={target}
               type="button"
@@ -85,6 +102,16 @@ export function App() {
           <TermIndexScreen termsRepo={termsRepo} onSelectTerm={(termId) => openDetail(termId, 'index')} />
         ) : screen.name === 'weighted' ? (
           <WeightedScreen asksRepo={asksRepo} termsRepo={termsRepo} onSelectTerm={(termId) => openDetail(termId, 'weighted')} />
+        ) : screen.name === 'sync' ? (
+          <SyncScreen
+            db={db}
+            deviceId={deviceId}
+            termsRepo={termsRepo}
+            notesRepo={notesRepo}
+            asksRepo={asksRepo}
+            noteConflictsRepo={noteConflictsRepo}
+            syncStateRepo={syncStateRepo}
+          />
         ) : (
           <TermDetailScreen
             termId={screen.termId}

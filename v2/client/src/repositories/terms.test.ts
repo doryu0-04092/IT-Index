@@ -90,4 +90,15 @@ describe('createTermsRepository', () => {
     expect(stored).toBeDefined();
     expect(stored?.deletedAt).toBe(12345);
   });
+
+  it('upsertFromSyncはmergeSnapshot()の結果をそのまま書く(updatedAt比較はしない)', async () => {
+    const { db, repo: r } = repo();
+    await db.terms.put(makeTerm({ id: 'a', origin: 'ai', updatedAt: 500 }));
+
+    await r.upsertFromSync(makeTerm({ id: 'a', origin: 'ai', term: '相手の内容', updatedAt: 100 }));
+
+    const stored = await db.terms.get('a');
+    expect(stored?.term).toBe('相手の内容');
+    expect(stored?.updatedAt).toBe(100);
+  });
 });

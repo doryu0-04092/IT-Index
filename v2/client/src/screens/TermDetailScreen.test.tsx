@@ -18,6 +18,7 @@ function fakeTermsRepo(): TermsRepository {
       deleted = id;
       return Promise.resolve();
     },
+    upsertFromSync: () => Promise.resolve(),
   };
 }
 
@@ -31,6 +32,14 @@ function fakeNotesRepo(initial?: NoteRecord): NotesRepository {
     getByTermId: () => Promise.resolve(note),
     getAll: () => Promise.resolve(note ? [note] : []),
     saveBody,
+    upsertFromSync: (n) => {
+      note = n;
+      return Promise.resolve();
+    },
+    applyConflictResolution: (termId, body, diagrams, deviceId, at) => {
+      note = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, noteHistory: note ? [...note.noteHistory] : [] };
+      return Promise.resolve();
+    },
   };
 }
 

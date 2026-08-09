@@ -11,7 +11,8 @@ export type Screen =
   | { name: 'search' }
   | { name: 'detail'; termId: string; from: DetailFrom }
   | { name: 'index' }
-  | { name: 'weighted' };
+  | { name: 'weighted' }
+  | { name: 'sync' };
 
 export function screenKey(screen: Screen): string {
   return screen.name === 'detail' ? `detail:${screen.termId}` : screen.name;

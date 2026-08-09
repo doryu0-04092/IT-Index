@@ -15,6 +15,7 @@ function fakeTermsRepo(): TermsRepository {
     getById: (id) => Promise.resolve(terms.find((t) => t.id === id)),
     bulkPutFromSeed: () => Promise.resolve(),
     softDelete: () => Promise.resolve(),
+    upsertFromSync: () => Promise.resolve(),
   };
 }
 
