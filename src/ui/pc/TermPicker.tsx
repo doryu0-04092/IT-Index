@@ -44,6 +44,8 @@ export default function TermPicker({ termsRepo, onSelect, onCancel }: TermPicker
           placeholder="用語を入力"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          // 用語を選ぶことだけが目的のモーダルのため、開いた時点で検索欄へフォーカスを移す。
+          // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         />
         <ul className="search-results">

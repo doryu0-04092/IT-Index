@@ -128,6 +128,9 @@ export default function ApiKeyPrompt({ apiKeyStore, onSet, onBack, backLabel = '
               placeholder={getProviderInfo(provider).apiKeyPlaceholder}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
+              // この画面はキー入力そのものが目的で開かれるダイアログのため、
+              // 開いた時点で入力欄へフォーカスを移すのが自然な動線。
+              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
             />
           </label>
