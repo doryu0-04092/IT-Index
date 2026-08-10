@@ -12,7 +12,7 @@ import {
   pullSyncBlobs,
   todayUtc,
 } from './db';
-import { callAnthropic, validateChatRequest } from './ai';
+import { callAi, validateChatRequest } from './ai';
 
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
@@ -216,7 +216,7 @@ app.post('/api/ai/chat', requireAuth, async (c) => {
     );
   }
 
-  const result = await callAnthropic(c.env, validation.messages, validation.system);
+  const result = await callAi(c.env, validation.messages, validation.system);
   if (!result.ok) {
     return c.json(
       { error: { code: result.error.code, message: result.error.message } },

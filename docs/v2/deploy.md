@@ -51,7 +51,9 @@ npm run deploy:migrations
 
 ## 2. シークレットの投入
 
-サーバーが必要とするシークレットは **`JWT_SECRET`** と **`ANTHROPIC_API_KEY`** の2つ
+サーバーが必要とするシークレットは **`JWT_SECRET`** と、AI_PROVIDER([server/wrangler.jsonc](../../v2/server/wrangler.jsonc)の
+`vars.AI_PROVIDER`。既定は本番運用の`openai`)に応じて **`OPENAI_API_KEY`** または
+**`ANTHROPIC_API_KEY`** のいずれか
 ([server/src/types.ts](../../v2/server/src/types.ts) の `Env` 型参照)。
 
 ### JWT_SECRET
@@ -72,38 +74,54 @@ npx wrangler secret put JWT_SECRET
 
 プロンプトが出たら生成した文字列を貼り付ける。
 
-### ANTHROPIC_API_KEY
+### OPENAI_API_KEY(本番運用。`AI_PROVIDER=openai`の場合)
 
-```
-npx wrangler secret put ANTHROPIC_API_KEY
-```
-
-**投入前に、Anthropicコンソールでこのキーの支出上限(スペンドリミット)を必ず設定すること。**
+**投入前に、platform.openai.comの Settings → Limits で月次支出上限を必ず設定すること。**
 これは[architecture.md §6](./architecture.md#6-セキュリティ)の「支出上限」層に対応する、
 防止策が全て破られた後に効く最後の防波堤であり、v1では第1層として位置づけられていた
 ([requirements.md §5.6](../requirements.md#56-重点セキュリティ--漏れても被害が有限を先に作る))。
 サーバー側キーに一本化したv2ではこの層の重要性がさらに増す(キーが漏れれば
 利用者全員の分の被害になりうるため)。設定手順:
 
-1. Anthropic Console(console.anthropic.com)にログイン
-2. 対象のAPIキーが属するワークスペース(専用ワークスペースを推奨)の使用上限(Usage limits /
-   Spend limit)を設定する
+1. platform.openai.com にログイン
+2. Settings → Limits で月次支出上限(Monthly budget)を設定する
 3. 上限額は想定利用規模(利用者数 × `AI_DAILY_LIMIT_PER_USER` × 想定日数)から余裕を持って決める
+
+上限を設定したら、キーを投入する。
+
+```
+npx wrangler secret put OPENAI_API_KEY
+```
+
+### ANTHROPIC_API_KEY(`AI_PROVIDER=anthropic`に切り替える場合のみ必要)
+
+`AI_PROVIDER=openai`で運用する限り、このキーは不要(未設定でも起動できる)。
+Anthropic運用に切り替える場合のみ、Anthropicコンソール(console.anthropic.com)で
+対象のAPIキーが属するワークスペースの使用上限(Usage limits / Spend limit)を先に設定してから
+投入する。
+
+```
+npx wrangler secret put ANTHROPIC_API_KEY
+```
 
 ---
 
 ## 3. 環境変数の調整(任意)
 
-既定値で問題なければこの手順は不要(`AI_MODEL`/`AI_MAX_TOKENS`/`AI_DAILY_LIMIT_PER_USER`/
-`AI_DAILY_LIMIT_GLOBAL` は未設定でもコード側の既定値で動く。[server/src/ai.ts](../../v2/server/src/ai.ts)参照)。
+`v2/server/wrangler.jsonc` の `vars` に、本番運用の既定として
+`AI_PROVIDER: "openai"` / `AI_MODEL: "gpt-5.6-luna"` が既に設定されている
+([server/src/providers/openai.ts](../../v2/server/src/providers/openai.ts)参照)。
+`AI_MAX_TOKENS`/`AI_DAILY_LIMIT_PER_USER`/`AI_DAILY_LIMIT_GLOBAL` は未設定でも
+コード側の既定値で動く([server/src/providers](../../v2/server/src/providers)配下参照)。
 
-上書きする場合は `v2/server/wrangler.jsonc` の `vars` に追記する(シークレットではなく通常の
-環境変数のため `wrangler secret put` は不要):
+Anthropic運用に切り替える、または既定値を上書きする場合は `v2/server/wrangler.jsonc` の
+`vars` を編集する(シークレットではなく通常の環境変数のため `wrangler secret put` は不要):
 
 ```jsonc
 {
   // ...既存の設定...
   "vars": {
+    "AI_PROVIDER": "anthropic",
     "AI_MODEL": "claude-sonnet-5",
     "AI_MAX_TOKENS": "4096",
     "AI_DAILY_LIMIT_PER_USER": "50",
@@ -164,6 +182,6 @@ npm run deploy
   [Cloudflare公式の料金ページ](https://developers.cloudflare.com/workers/platform/pricing/)で
   最新の数値を確認する(無料枠の数値は変更されうるため、このドキュメントの数値を鵜呑みにせず
   都度確認すること)
-- Anthropic側の支出上限(§2)は無料枠と無関係に効く。AIプロキシの回数上限
+- AIプロバイダ側の支出上限(§2)は無料枠と無関係に効く。AIプロキシの回数上限
   (`AI_DAILY_LIMIT_PER_USER`/`AI_DAILY_LIMIT_GLOBAL`)を超えた場合は429エラーになり、
-  Anthropic APIへのリクエスト自体が発生しないため課金もされない
+  上流(OpenAIまたはAnthropic)へのリクエスト自体が発生しないため課金もされない

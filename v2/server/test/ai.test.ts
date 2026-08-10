@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 const BASE = 'https://example.com';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
+const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 
 // このvitest-pool-workersのバージョン(0.20.3)には`cloudflare:test`の
 // `fetchMock`(undici MockAgent)が存在しない(型定義・ランタイムいずれにも無し。
@@ -22,6 +23,13 @@ function installFetchMock(handler: (url: string, init: RequestInit) => Response)
 }
 
 function anthropicSuccessResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function openAiSuccessResponse(payload: unknown): Response {
   return new Response(JSON.stringify(payload), {
     status: 200,
     headers: { 'content-type': 'application/json' },
@@ -253,6 +261,130 @@ describe('POST /api/ai/chat', () => {
     expect(res.status).toBe(429);
     const body = await res.json<{ error: { code: string } }>();
     expect(body.error.code).toBe('ai_upstream_rate_limited');
+  });
+});
+
+describe('POST /api/ai/chat (AI_PROVIDER=openai)', () => {
+  const originalProvider = env.AI_PROVIDER;
+  const originalOpenAiKey = env.OPENAI_API_KEY;
+
+  afterEach(() => {
+    env.AI_PROVIDER = originalProvider;
+    env.OPENAI_API_KEY = originalOpenAiKey;
+  });
+
+  it('正常系: 転送ボディが契約通りで、finish_reasonとusageを正規化して返す', async () => {
+    env.AI_PROVIDER = 'openai';
+    env.OPENAI_API_KEY = 'test-only-openai-key';
+
+    const mock = mockAnthropicOnce((url) => {
+      expect(url).toBe(OPENAI_URL);
+      return openAiSuccessResponse({
+        choices: [{ message: { content: 'Hello there' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 12, completion_tokens: 4 },
+      });
+    });
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      system: 'be nice',
+    });
+
+    expect(res.status).toBe(200);
+    const responseBody = await res.json<{
+      text: string;
+      stopReason: string;
+      usage: { inputTokens: number; outputTokens: number };
+    }>();
+    expect(responseBody.text).toBe('Hello there');
+    expect(responseBody.stopReason).toBe('end_turn');
+    expect(responseBody.usage).toEqual({ inputTokens: 12, outputTokens: 4 });
+
+    expect(mock.calls).toHaveLength(1);
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders.authorization).toBe(`Bearer ${env.OPENAI_API_KEY}`);
+
+    const sentBody = JSON.parse(mock.calls[0].init.body as string) as Record<string, unknown>;
+    expect(sentBody.model).toBeTypeOf('string');
+    expect(sentBody.max_completion_tokens).toBeTypeOf('number');
+    expect(sentBody.messages).toEqual([
+      { role: 'system', content: 'be nice' },
+      { role: 'user', content: 'hi' },
+    ]);
+    // 禁止パラメータが一切送られていないこと(新世代モデルは既定値以外を拒否しうる)。
+    expect(sentBody.temperature).toBeUndefined();
+    expect(sentBody.top_p).toBeUndefined();
+    expect(sentBody.max_tokens).toBeUndefined();
+  });
+
+  it('finish_reason=lengthはmax_tokensに正規化される', async () => {
+    env.AI_PROVIDER = 'openai';
+    env.OPENAI_API_KEY = 'test-only-openai-key';
+    mockAnthropicOnce(() =>
+      openAiSuccessResponse({
+        choices: [{ message: { content: '途中まで' }, finish_reason: 'length' }],
+        usage: { prompt_tokens: 5, completion_tokens: 6 },
+      })
+    );
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, { messages: [{ role: 'user', content: 'hi' }] });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ stopReason: string }>();
+    expect(body.stopReason).toBe('max_tokens');
+  });
+
+  it('finish_reason=content_filterはrefusalに正規化される', async () => {
+    env.AI_PROVIDER = 'openai';
+    env.OPENAI_API_KEY = 'test-only-openai-key';
+    mockAnthropicOnce(() =>
+      openAiSuccessResponse({
+        choices: [{ message: { content: null }, finish_reason: 'content_filter' }],
+        usage: { prompt_tokens: 5, completion_tokens: 0 },
+      })
+    );
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, { messages: [{ role: 'user', content: 'hi' }] });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ stopReason: string; text: string }>();
+    expect(body.stopReason).toBe('refusal');
+    expect(body.text).toBe('');
+  });
+
+  it('上流429はそのまま429にマッピングされる', async () => {
+    env.AI_PROVIDER = 'openai';
+    env.OPENAI_API_KEY = 'test-only-openai-key';
+    mockAnthropicOnce(
+      () =>
+        new Response(
+          JSON.stringify({ error: { type: 'insufficient_quota', message: 'quota exceeded' } }),
+          { status: 429, headers: { 'content-type': 'application/json' } }
+        )
+    );
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, { messages: [{ role: 'user', content: 'hi' }] });
+    expect(res.status).toBe(429);
+    const body = await res.json<{ error: { code: string } }>();
+    expect(body.error.code).toBe('ai_upstream_rate_limited');
+  });
+
+  it('OPENAI_API_KEY未設定はai_config_error(500)。上流には転送されない', async () => {
+    env.AI_PROVIDER = 'openai';
+    env.OPENAI_API_KEY = undefined;
+    const mock = installFetchMock(() => {
+      throw new Error('fetchが呼ばれるべきではない');
+    });
+    activeMock = mock;
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, { messages: [{ role: 'user', content: 'hi' }] });
+    expect(res.status).toBe(500);
+    const body = await res.json<{ error: { code: string } }>();
+    expect(body.error.code).toBe('ai_config_error');
+    expect(mock.calls).toHaveLength(0);
   });
 });
 
