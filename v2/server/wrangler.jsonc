@@ -7,8 +7,8 @@
     {
       "binding": "DB",
       "database_name": "it-index-v2",
-      // ローカル開発・テスト用のプレースホルダ。実デプロイ時に `wrangler d1 create` の結果へ置き換える。
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // 2026-08-10にwrangler d1 createで作成した実D1のid(リージョンAPAC)。
+      "database_id": "ece940d0-feaa-44dc-815f-d7e6cb8818c7",
       "migrations_dir": "migrations"
     }
   ],
@@ -16,5 +16,13 @@
     "directory": "../client/dist",
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
+  },
+  // 本番運用はOpenAI(モデルgpt-5.6-luna)に一本化(2026-08-10)。ANTHROPIC_API_KEYへ戻す場合は
+  // AI_PROVIDERを"anthropic"に変更しAI_MODELをAnthropic側のモデルIDに変更する。
+  // vitest-pool-workersはこのwrangler.jsoncを読むが、vitest.config.tsのminiflare bindingsで
+  // AI_PROVIDER/AI_MODELを明示的に上書きしているため既存(Anthropic経路)のテストは影響を受けない。
+  "vars": {
+    "AI_PROVIDER": "openai",
+    "AI_MODEL": "gpt-5.6-luna"
   }
 }

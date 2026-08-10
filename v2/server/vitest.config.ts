@@ -22,8 +22,12 @@ export default defineConfig(async () => {
           bindings: {
             TEST_MIGRATIONS: migrations,
             JWT_SECRET: 'test-only-secret',
-            // AIプロキシのテスト用バインディング。実際のAnthropic APIには到達させない
-            // (fetchMock.disableNetConnect()で強制)ため、キーの値自体はダミーでよい。
+            // AIプロキシのテスト用バインディング。実際のAI APIには到達させない
+            // (globalThis.fetchの差し替えで強制)ため、キーの値自体はダミーでよい。
+            // AI_PROVIDER/AI_MODELをここで明示することで、wrangler.jsoncのvars(本番既定は
+            // openai/gpt-5.6-luna)に関わらず既存テストはAnthropic経路のまま動く。
+            // OpenAI経路のテストはテスト内でenv.AI_PROVIDER等を差し替えて行う。
+            AI_PROVIDER: 'anthropic',
             ANTHROPIC_API_KEY: 'test-only-anthropic-key',
             AI_MODEL: 'claude-sonnet-5',
             AI_MAX_TOKENS: '4096',

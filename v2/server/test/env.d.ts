@@ -2,7 +2,9 @@ declare namespace Cloudflare {
   interface Env {
     DB: D1Database;
     JWT_SECRET: string;
-    ANTHROPIC_API_KEY: string;
+    AI_PROVIDER?: string;
+    ANTHROPIC_API_KEY?: string;
+    OPENAI_API_KEY?: string;
     AI_MODEL: string;
     AI_MAX_TOKENS: string;
     AI_DAILY_LIMIT_PER_USER: string;

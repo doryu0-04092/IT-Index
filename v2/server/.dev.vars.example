@@ -1,9 +1,18 @@
 JWT_SECRET=change-me-in-local-dev-vars
 
-# AIプロキシ(architecture.md §5)。ANTHROPIC_API_KEYは実際のキーに置き換える。
+# AIプロキシ(architecture.md §5)。AI_PROVIDERで使うプロバイダを切り替える
+# (未設定時はコード既定でanthropic=後方互換)。本番はopenai(gpt-5.6-luna)で運用する
+# (wrangler.jsoncのvars参照)。ローカルではAI_PROVIDERに合わせて片方のキーだけ設定すればよい。
 # AI_MODEL/AI_MAX_TOKENS/AI_DAILY_LIMIT_PER_USER/AI_DAILY_LIMIT_GLOBALは
 # 未設定でも既定値(claude-sonnet-5 / 4096 / 50 / 500)で動く。
+AI_PROVIDER=anthropic
+
+# AI_PROVIDER=anthropicの場合のみ必要。実際のキーに置き換える。
 ANTHROPIC_API_KEY=change-me-in-local-dev-vars
+
+# AI_PROVIDER=openaiの場合のみ必要。実際のキーに置き換える。
+# OPENAI_API_KEY=change-me-in-local-dev-vars
+
 AI_MODEL=claude-sonnet-5
 AI_MAX_TOKENS=4096
 AI_DAILY_LIMIT_PER_USER=50
