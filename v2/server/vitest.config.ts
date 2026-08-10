@@ -19,7 +19,17 @@ export default defineConfig(async () => {
           // テスト専用バインディング。マイグレーションの受け渡しと、JWT_SECRETの供給。
           // JWT_SECRETをここで与えないと、.dev.vars(gitignore対象)が無いCI環境では
           // トークン署名が失敗し、signupが500になる(2026-08-09にCIで実際に発生)。
-          bindings: { TEST_MIGRATIONS: migrations, JWT_SECRET: 'test-only-secret' },
+          bindings: {
+            TEST_MIGRATIONS: migrations,
+            JWT_SECRET: 'test-only-secret',
+            // AIプロキシのテスト用バインディング。実際のAnthropic APIには到達させない
+            // (fetchMock.disableNetConnect()で強制)ため、キーの値自体はダミーでよい。
+            ANTHROPIC_API_KEY: 'test-only-anthropic-key',
+            AI_MODEL: 'claude-sonnet-5',
+            AI_MAX_TOKENS: '4096',
+            AI_DAILY_LIMIT_PER_USER: '50',
+            AI_DAILY_LIMIT_GLOBAL: '500',
+          },
         },
       }),
     ],

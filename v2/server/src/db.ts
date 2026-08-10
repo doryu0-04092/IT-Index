@@ -49,6 +49,46 @@ export async function insertSyncBlob(
   throw lastError;
 }
 
+// AIプロキシの回数上限(architecture.md §5)。全体上限はこの予約IDの行で数える。
+export const AI_GLOBAL_USAGE_ACCOUNT_ID = '__global__';
+
+export function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// account_id×dayの行をアトミックにインクリメントし、インクリメント後のcountを返す。
+// 呼び出し側はcountが上限を超えていたら429を返すが、その時点で既に1回分が
+// 消費されている(超過時にカウントが1消費される点は許容。db.tsコメントとしても明記)。
+export async function incrementAiUsage(
+  db: D1Database,
+  accountId: string,
+  day: string
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `INSERT INTO ai_usage (account_id, day, count) VALUES (?1, ?2, 1)
+       ON CONFLICT(account_id, day) DO UPDATE SET count = count + 1
+       RETURNING count`
+    )
+    .bind(accountId, day)
+    .first<{ count: number }>();
+  if (!row) throw new Error('insert into ai_usage returned no row');
+  return row.count;
+}
+
+// クライアントの残量表示用。行が無ければ0(まだ一度も利用していない)。
+export async function getAiUsageCount(
+  db: D1Database,
+  accountId: string,
+  day: string
+): Promise<number> {
+  const row = await db
+    .prepare('SELECT count FROM ai_usage WHERE account_id = ?1 AND day = ?2')
+    .bind(accountId, day)
+    .first<{ count: number }>();
+  return row?.count ?? 0;
+}
+
 export async function pullSyncBlobs(
   db: D1Database,
   accountId: string,
