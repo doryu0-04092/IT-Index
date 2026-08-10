@@ -12,6 +12,8 @@ export interface TermDetailScreenProps {
   onBack: () => void;
   /** 削除した後の後始末(呼び出し元(App)の責務。削除後は必ず画面を離れる) */
   onDeleted: (termId: string) => void;
+  /** 「AIに聞く」ボタン。この語にひも付くチャットを開く(要件定義書§5.3) */
+  onOpenChat: (termId: string) => void;
 }
 
 /**
@@ -21,7 +23,15 @@ export interface TermDetailScreenProps {
  * コードブロック表示のみに留める(v1(../../../src/ui/pc/TermDetailScreen.tsx)は
  * MermaidDiagramで描画していたが、v2では新規依存を追加しない方針のため見送る)。
  */
-export default function TermDetailScreen({ termId, termsRepo, notesRepo, deviceId, onBack, onDeleted }: TermDetailScreenProps) {
+export default function TermDetailScreen({
+  termId,
+  termsRepo,
+  notesRepo,
+  deviceId,
+  onBack,
+  onDeleted,
+  onOpenChat,
+}: TermDetailScreenProps) {
   const [term, setTerm] = useState<TermRecord | null | undefined>(undefined); // undefined = 読み込み中
   const [note, setNote] = useState<NoteRecord | undefined>(undefined);
   const [draftBody, setDraftBody] = useState('');
@@ -97,6 +107,12 @@ export default function TermDetailScreen({ termId, termsRepo, notesRepo, deviceI
               <p>{term.summary}</p>
             </section>
           )}
+
+          <div className="term-detail-ai-row">
+            <button type="button" className="btn-secondary" onClick={() => onOpenChat(termId)}>
+              AIに聞く
+            </button>
+          </div>
 
           <section className="term-detail-notes">
             <h3>AI補足ノート</h3>

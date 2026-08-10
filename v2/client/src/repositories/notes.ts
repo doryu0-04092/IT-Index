@@ -11,6 +11,13 @@ export interface NotesRepository {
    */
   saveBody(termId: string, body: string, deviceId: string, at: number): Promise<void>;
   /**
+   * AIチャットの確定(分配統合)専用。saveBody()と同じくnoteHistoryへ旧内容を退避してから
+   * 上書きするが、diagrams(Mermaid文字列)も同時に書き込む点が異なる(v1 ../../../src/
+   * repositories/notes.ts の`applyCommit`参照。手入力の保存(saveBody)はdiagramsを
+   * 変更しないため既存のdiagramsを引き継ぐが、AI確定はAIが起こしたdiagramsで置き換える)。
+   */
+  applyCommit(termId: string, body: string, diagrams: string[], deviceId: string, at: number): Promise<void>;
+  /**
    * 同期の取り込み専用(v1 ../../src/repositories/notes.ts参照)。updatedAt比較は行わない
    * ——mergeSnapshot()が既に決定的マージ済みの結果をそのまま書く。noteHistoryは
    * 同期対象外のためレコードごと置き換えず、既存の履歴を保つ。
@@ -56,6 +63,18 @@ export function createNotesRepository(db: ItIndexDB): NotesRepository {
           lastEditedBy: deviceId,
           noteHistory,
         };
+        await db.notes.put(next);
+      });
+    },
+
+    async applyCommit(termId, body, diagrams, deviceId, at) {
+      await db.transaction('rw', db.notes, async () => {
+        const existing = await db.notes.get(termId);
+        const noteHistory = existing
+          ? [...existing.noteHistory, { body: existing.body, diagrams: existing.diagrams, updatedAt: existing.updatedAt }]
+          : [];
+
+        const next: NoteRecord = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, noteHistory };
         await db.notes.put(next);
       });
     },

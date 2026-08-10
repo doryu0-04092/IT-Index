@@ -18,6 +18,8 @@ export interface TermsRepository {
    * ——mergeSnapshot()が既に決定的マージ済みの結果をそのまま書く。
    */
   upsertFromSync(term: TermRecord): Promise<void>;
+  /** AIチャットの確定(分配統合)による新規登録専用(v1 ../../src/repositories/terms.ts参照) */
+  upsertFromAi(term: TermRecord): Promise<void>;
 }
 
 export function createTermsRepository(db: ItIndexDB): TermsRepository {
@@ -56,6 +58,10 @@ export function createTermsRepository(db: ItIndexDB): TermsRepository {
     },
 
     async upsertFromSync(term) {
+      await db.terms.put(term);
+    },
+
+    async upsertFromAi(term) {
       await db.terms.put(term);
     },
   };

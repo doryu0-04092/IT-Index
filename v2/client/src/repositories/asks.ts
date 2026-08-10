@@ -19,6 +19,8 @@ export interface AsksRepository {
    * ——mergeSnapshot()が既に和集合済みの結果を渡してくるので、無い分だけ追加する(冪等)。
    */
   upsertFromSync(asks: AskRecord[]): Promise<void>;
+  /** 分配先の全語に1件ずつ、1トランザクションで追加する(AIチャット確定時。source:'ai'。v1 ../../src/repositories/asks.ts参照) */
+  addMany(asks: Omit<AskRecord, 'id'>[]): Promise<void>;
 }
 
 function compareAsks(a: AskRecord, b: AskRecord): number {
@@ -49,6 +51,11 @@ export function createAsksRepository(db: ItIndexDB): AsksRepository {
           if (!existing) await db.asks.add(ask);
         }
       });
+    },
+
+    async addMany(asks) {
+      const records: AskRecord[] = asks.map((a) => ({ ...a, id: crypto.randomUUID() }));
+      await db.asks.bulkAdd(records);
     },
   };
 }

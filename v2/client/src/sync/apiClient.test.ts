@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiRequestError, fetchMe, login, pullSyncBlobs, pushSyncBlob, signup } from './apiClient';
+import { ApiRequestError, chatWithAi, fetchAiQuota, fetchMe, login, pullSyncBlobs, pushSyncBlob, signup } from './apiClient';
 
 function mockFetchOnce(status: number, body: unknown) {
   return vi.fn().mockResolvedValue({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) });
@@ -87,5 +87,47 @@ describe('apiClient', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
 
     await expect(login('a@example.com', 'password123')).rejects.toBeInstanceOf(ApiRequestError);
+  });
+
+  it('chatWithAiはAuthorizationヘッダとmessages/systemを送りtext/stopReason/usageを受け取る', async () => {
+    const fetchMock = mockFetchOnce(200, {
+      text: 'こたえ',
+      stopReason: 'end_turn',
+      usage: { inputTokens: 10, outputTokens: 5 },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await chatWithAi('tok', [{ role: 'user', content: 'こんにちは' }], 'system指示');
+
+    expect(result).toEqual({ text: 'こたえ', stopReason: 'end_turn', usage: { inputTokens: 10, outputTokens: 5 } });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/ai/chat');
+    expect(init.headers.Authorization).toBe('Bearer tok');
+    expect(JSON.parse(init.body)).toEqual({ messages: [{ role: 'user', content: 'こんにちは' }], system: 'system指示' });
+  });
+
+  it('chatWithAiは429の場合サーバーの日本語messageを持つApiRequestErrorを投げる', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetchOnce(429, {
+        error: { code: 'ai_limit_exceeded', message: '本日の利用回数の上限に達しました。明日また利用できます' },
+      }),
+    );
+
+    await expect(chatWithAi('tok', [{ role: 'user', content: 'こんにちは' }])).rejects.toMatchObject({
+      message: '本日の利用回数の上限に達しました。明日また利用できます',
+      code: 'ai_limit_exceeded',
+      status: 429,
+    });
+  });
+
+  it('fetchAiQuotaはused/limitを受け取る', async () => {
+    const fetchMock = mockFetchOnce(200, { used: 3, limit: 50 });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchAiQuota('tok');
+
+    expect(result).toEqual({ used: 3, limit: 50 });
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/ai/quota');
   });
 });
