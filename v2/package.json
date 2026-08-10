@@ -13,7 +13,9 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "build": "npm run build -w client"
+    "build": "npm run build -w client",
+    "deploy": "npm run build -w client && npm run deploy -w server",
+    "deploy:migrations": "npm run deploy:migrations -w server"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

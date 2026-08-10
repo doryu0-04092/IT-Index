@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import type { Env } from './types';
 import { hashPassword, verifyPassword } from './crypto';
 import { issueToken, requireAuth, type AuthedVariables } from './auth';
@@ -17,6 +18,17 @@ const MIN_PASSWORD_LENGTH = 8;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
 
 const app = new Hono<{ Bindings: Env; Variables: AuthedVariables }>();
+
+// CORS_ALLOWED_ORIGIN未設定時は何もしない(本番は同一オリジン配信のためCORS不要)。
+// ローカル開発でvite dev(5173)からwrangler dev(8787)を叩く場合のみ設定する。
+app.use('/api/*', async (c, next) => {
+  const allowedOrigin = c.env.CORS_ALLOWED_ORIGIN;
+  if (!allowedOrigin) {
+    await next();
+    return;
+  }
+  return cors({ origin: allowedOrigin })(c, next);
+});
 
 app.get('/api/health', (c) => c.json({ status: 'ok' }));
 
