@@ -8,3 +8,7 @@ AI_MODEL=claude-sonnet-5
 AI_MAX_TOKENS=4096
 AI_DAILY_LIMIT_PER_USER=50
 AI_DAILY_LIMIT_GLOBAL=500
+
+# ローカル開発でvite dev(http://localhost:5173)からwrangler dev(http://localhost:8787)を
+# 直接叩く場合のみ設定する。本番は同一オリジン配信のため未設定のまま(コメントアウト)にする。
+# CORS_ALLOWED_ORIGIN=http://localhost:5173

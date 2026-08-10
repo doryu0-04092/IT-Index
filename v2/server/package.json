@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "test": "vitest run"
+    "test": "vitest run",
+    "deploy": "wrangler deploy",
+    "deploy:migrations": "wrangler d1 migrations apply it-index-v2 --remote"
   },
   "dependencies": {
     "hono": "^4.13.1"
