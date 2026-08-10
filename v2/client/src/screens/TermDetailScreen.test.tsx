@@ -19,6 +19,7 @@ function fakeTermsRepo(): TermsRepository {
       return Promise.resolve();
     },
     upsertFromSync: () => Promise.resolve(),
+    upsertFromAi: () => Promise.resolve(),
   };
 }
 
@@ -32,6 +33,10 @@ function fakeNotesRepo(initial?: NoteRecord): NotesRepository {
     getByTermId: () => Promise.resolve(note),
     getAll: () => Promise.resolve(note ? [note] : []),
     saveBody,
+    applyCommit: (termId, body, diagrams, deviceId, at) => {
+      note = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, noteHistory: note ? [...note.noteHistory] : [] };
+      return Promise.resolve();
+    },
     upsertFromSync: (n) => {
       note = n;
       return Promise.resolve();
@@ -55,6 +60,7 @@ describe('TermDetailScreen', () => {
         deviceId="device-1"
         onBack={() => {}}
         onDeleted={() => {}}
+        onOpenChat={() => {}}
       />,
     );
 
@@ -72,6 +78,7 @@ describe('TermDetailScreen', () => {
         deviceId="device-1"
         onBack={() => {}}
         onDeleted={() => {}}
+        onOpenChat={() => {}}
       />,
     );
 
@@ -81,7 +88,15 @@ describe('TermDetailScreen', () => {
   it('ノート本文を編集して保存できる', async () => {
     const notesRepo = fakeNotesRepo();
     render(
-      <TermDetailScreen termId={term.id} termsRepo={fakeTermsRepo()} notesRepo={notesRepo} deviceId="device-1" onBack={() => {}} onDeleted={() => {}} />,
+      <TermDetailScreen
+        termId={term.id}
+        termsRepo={fakeTermsRepo()}
+        notesRepo={notesRepo}
+        deviceId="device-1"
+        onBack={() => {}}
+        onDeleted={() => {}}
+        onOpenChat={() => {}}
+      />,
     );
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /HTTP/ })).toBeTruthy());
@@ -96,7 +111,15 @@ describe('TermDetailScreen', () => {
   it('削除確認→削除するとonDeletedが呼ばれる', async () => {
     const onDeleted = vi.fn();
     render(
-      <TermDetailScreen termId={term.id} termsRepo={fakeTermsRepo()} notesRepo={fakeNotesRepo()} deviceId="device-1" onBack={() => {}} onDeleted={onDeleted} />,
+      <TermDetailScreen
+        termId={term.id}
+        termsRepo={fakeTermsRepo()}
+        notesRepo={fakeNotesRepo()}
+        deviceId="device-1"
+        onBack={() => {}}
+        onDeleted={onDeleted}
+        onOpenChat={() => {}}
+      />,
     );
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /HTTP/ })).toBeTruthy());

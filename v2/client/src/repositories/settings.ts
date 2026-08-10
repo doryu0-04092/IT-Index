@@ -22,6 +22,7 @@ export function createSettingsRepository(db: ItIndexDB): SettingsRepository {
           key: 'singleton',
           deviceId: crypto.randomUUID(),
           seedVersion: null,
+          autoUpdateExistingTerms: 'askedOnly',
         };
         await db.settings.put(created);
         return created;

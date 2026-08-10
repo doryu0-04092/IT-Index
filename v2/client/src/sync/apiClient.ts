@@ -87,3 +87,34 @@ export async function pullSyncBlobs(
 ): Promise<{ blobs: PulledBlob[]; latest: number }> {
   return apiFetch(`/sync/pull?since=${since}`, { method: 'GET', headers: authHeader(token) });
 }
+
+/**
+ * v2\server\src\ai.ts / index.ts が正本のAIプロキシ契約。
+ * v1と異なり端末からAnthropicを直接呼ばず、必ずこのプロキシ経由で呼ぶ(docs/v2/requirements.md §4.1)。
+ */
+export interface AiProxyMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface AiProxyChatResult {
+  text: string;
+  stopReason: string;
+  usage: { inputTokens: number; outputTokens: number };
+}
+
+export async function chatWithAi(
+  token: string,
+  messages: AiProxyMessage[],
+  system?: string,
+): Promise<AiProxyChatResult> {
+  return apiFetch('/ai/chat', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify(system === undefined ? { messages } : { messages, system }),
+  });
+}
+
+export async function fetchAiQuota(token: string): Promise<{ used: number; limit: number }> {
+  return apiFetch('/ai/quota', { method: 'GET', headers: authHeader(token) });
+}
