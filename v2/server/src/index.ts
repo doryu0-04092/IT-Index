@@ -2,7 +2,16 @@ import { Hono } from 'hono';
 import type { Env } from './types';
 import { hashPassword, verifyPassword } from './crypto';
 import { issueToken, requireAuth, type AuthedVariables } from './auth';
-import { insertSyncBlob, isUniqueConstraintError, pullSyncBlobs } from './db';
+import {
+  AI_GLOBAL_USAGE_ACCOUNT_ID,
+  getAiUsageCount,
+  incrementAiUsage,
+  insertSyncBlob,
+  isUniqueConstraintError,
+  pullSyncBlobs,
+  todayUtc,
+} from './db';
+import { callAnthropic, validateChatRequest } from './ai';
 
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
@@ -154,6 +163,68 @@ app.get('/api/sync/pull', requireAuth, async (c) => {
     })),
     latest,
   });
+});
+
+app.post('/api/ai/chat', requireAuth, async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const validation = validateChatRequest(body);
+  if (!validation.ok) {
+    return c.json({ error: { code: 'invalid_request', message: validation.error } }, 400);
+  }
+
+  const accountId = c.get('accountId');
+  const day = todayUtc();
+  const perUserLimit = Number(c.env.AI_DAILY_LIMIT_PER_USER ?? '50');
+  const globalLimit = Number(c.env.AI_DAILY_LIMIT_GLOBAL ?? '500');
+
+  // 判定順: 利用者→全体。超過時にカウントが1消費される点は許容(db.tsのコメントに明記)。
+  const userCount = await incrementAiUsage(c.env.DB, accountId, day);
+  if (userCount > perUserLimit) {
+    return c.json(
+      {
+        error: {
+          code: 'ai_limit_exceeded',
+          message: '本日の利用回数の上限に達しました。明日また利用できます',
+        },
+      },
+      429
+    );
+  }
+
+  const globalCount = await incrementAiUsage(c.env.DB, AI_GLOBAL_USAGE_ACCOUNT_ID, day);
+  if (globalCount > globalLimit) {
+    return c.json(
+      {
+        error: {
+          code: 'ai_global_limit_exceeded',
+          message: '本日の利用回数の上限に達しました。明日また利用できます',
+        },
+      },
+      429
+    );
+  }
+
+  const result = await callAnthropic(c.env, validation.messages, validation.system);
+  if (!result.ok) {
+    return c.json(
+      { error: { code: result.error.code, message: result.error.message } },
+      result.error.status as 400 | 429 | 500 | 502 | 503
+    );
+  }
+
+  return c.json({
+    text: result.value.text,
+    stopReason: result.value.stopReason,
+    usage: result.value.usage,
+  });
+});
+
+app.get('/api/ai/quota', requireAuth, async (c) => {
+  const accountId = c.get('accountId');
+  const day = todayUtc();
+  const limit = Number(c.env.AI_DAILY_LIMIT_PER_USER ?? '50');
+  const used = await getAiUsageCount(c.env.DB, accountId, day);
+  return c.json({ used, limit });
 });
 
 export default app;

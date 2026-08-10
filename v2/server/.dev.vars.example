@@ -1,1 +1,10 @@
 JWT_SECRET=change-me-in-local-dev-vars
+
+# AIプロキシ(architecture.md §5)。ANTHROPIC_API_KEYは実際のキーに置き換える。
+# AI_MODEL/AI_MAX_TOKENS/AI_DAILY_LIMIT_PER_USER/AI_DAILY_LIMIT_GLOBALは
+# 未設定でも既定値(claude-sonnet-5 / 4096 / 50 / 500)で動く。
+ANTHROPIC_API_KEY=change-me-in-local-dev-vars
+AI_MODEL=claude-sonnet-5
+AI_MAX_TOKENS=4096
+AI_DAILY_LIMIT_PER_USER=50
+AI_DAILY_LIMIT_GLOBAL=500
