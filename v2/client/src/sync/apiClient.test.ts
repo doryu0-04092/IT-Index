@@ -121,6 +121,62 @@ describe('apiClient', () => {
     });
   });
 
+  it('chatWithAiはapiKeyが未指定・null・空文字ならapiKeyフィールドを送らない', async () => {
+    for (const apiKey of [undefined, null, ''] as const) {
+      const fetchMock = mockFetchOnce(200, {
+        text: 'こたえ',
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await chatWithAi('tok', [{ role: 'user', content: 'hi' }], undefined, apiKey);
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Record<string, unknown>;
+      expect(body).toEqual({ messages: [{ role: 'user', content: 'hi' }] });
+      expect('apiKey' in body).toBe(false);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('chatWithAiはapiKeyが設定されていればapiKeyフィールドを付ける', async () => {
+    const fetchMock = mockFetchOnce(200, {
+      text: 'こたえ',
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await chatWithAi('tok', [{ role: 'user', content: 'hi' }], 'system指示', 'sk-user-key');
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Record<string, unknown>;
+    expect(body).toEqual({
+      messages: [{ role: 'user', content: 'hi' }],
+      system: 'system指示',
+      apiKey: 'sk-user-key',
+    });
+  });
+
+  it('chatWithAiはuser_api_key_invalidをコード付きのApiRequestErrorとして投げる', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetchOnce(400, {
+        error: {
+          code: 'user_api_key_invalid',
+          message: '設定したAPIキーが無効です。設定画面で確認してください',
+        },
+      }),
+    );
+
+    await expect(
+      chatWithAi('tok', [{ role: 'user', content: 'hi' }], undefined, 'sk-bad'),
+    ).rejects.toMatchObject({
+      code: 'user_api_key_invalid',
+      message: '設定したAPIキーが無効です。設定画面で確認してください',
+      status: 400,
+    });
+  });
+
   it('fetchAiQuotaはused/limitを受け取る', async () => {
     const fetchMock = mockFetchOnce(200, { used: 3, limit: 50 });
     vi.stubGlobal('fetch', fetchMock);

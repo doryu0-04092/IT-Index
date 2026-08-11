@@ -12,7 +12,7 @@ import {
   pullSyncBlobs,
   todayUtc,
 } from './db';
-import { callAi, validateChatRequest } from './ai';
+import { callAi, resolveProvider, validateChatRequest } from './ai';
 
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
@@ -184,39 +184,60 @@ app.post('/api/ai/chat', requireAuth, async (c) => {
     return c.json({ error: { code: 'invalid_request', message: validation.error } }, 400);
   }
 
-  const accountId = c.get('accountId');
-  const day = todayUtc();
-  const perUserLimit = Number(c.env.AI_DAILY_LIMIT_PER_USER ?? '50');
-  const globalLimit = Number(c.env.AI_DAILY_LIMIT_GLOBAL ?? '500');
-
-  // 判定順: 利用者→全体。超過時にカウントが1消費される点は許容(db.tsのコメントに明記)。
-  const userCount = await incrementAiUsage(c.env.DB, accountId, day);
-  if (userCount > perUserLimit) {
+  // 利用者持ち込みキー(BYOK)はOpenAI経路のみ対応(docs/v2/architecture.md §5)。
+  // Anthropic運用時に黙ってサーバー側キーへ落とすと「キーを付ければ上限を回避できる」
+  // 抜け道になるため、明示的に400で断る。
+  const userApiKey = validation.userApiKey;
+  if (userApiKey !== undefined && resolveProvider(c.env) !== 'openai') {
     return c.json(
       {
         error: {
-          code: 'ai_limit_exceeded',
-          message: '本日の利用回数の上限に達しました。明日また利用できます',
+          code: 'user_api_key_unsupported',
+          message: 'このサーバーでは自分のAPIキーを使えません',
         },
       },
-      429
+      400
     );
   }
 
-  const globalCount = await incrementAiUsage(c.env.DB, AI_GLOBAL_USAGE_ACCOUNT_ID, day);
-  if (globalCount > globalLimit) {
-    return c.json(
-      {
-        error: {
-          code: 'ai_global_limit_exceeded',
-          message: '本日の利用回数の上限に達しました。明日また利用できます',
+  // 利用者が自分のキーを使う場合は費用が本人負担のため、回数上限の判定もカウントも行わない
+  // (ai_usageに一切書かない)。上限をスキップする条件は「この後の上流呼び出しに実際に
+  // 利用者キーが使われること」と同一で、サーバー側キーが使われる経路では必ず上限が効く。
+  if (userApiKey === undefined) {
+    const accountId = c.get('accountId');
+    const day = todayUtc();
+    const perUserLimit = Number(c.env.AI_DAILY_LIMIT_PER_USER ?? '50');
+    const globalLimit = Number(c.env.AI_DAILY_LIMIT_GLOBAL ?? '500');
+
+    // 判定順: 利用者→全体。超過時にカウントが1消費される点は許容(db.tsのコメントに明記)。
+    const userCount = await incrementAiUsage(c.env.DB, accountId, day);
+    if (userCount > perUserLimit) {
+      return c.json(
+        {
+          error: {
+            code: 'ai_limit_exceeded',
+            message: '本日の利用回数の上限に達しました。明日また利用できます',
+          },
         },
-      },
-      429
-    );
+        429
+      );
+    }
+
+    const globalCount = await incrementAiUsage(c.env.DB, AI_GLOBAL_USAGE_ACCOUNT_ID, day);
+    if (globalCount > globalLimit) {
+      return c.json(
+        {
+          error: {
+            code: 'ai_global_limit_exceeded',
+            message: '本日の利用回数の上限に達しました。明日また利用できます',
+          },
+        },
+        429
+      );
+    }
   }
 
-  const result = await callAi(c.env, validation.messages, validation.system);
+  const result = await callAi(c.env, validation.messages, validation.system, userApiKey);
   if (!result.ok) {
     return c.json(
       { error: { code: result.error.code, message: result.error.message } },

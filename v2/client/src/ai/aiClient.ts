@@ -1,4 +1,5 @@
 import { chatWithAi } from '../sync/apiClient';
+import { getApiKey as getStoredApiKey } from '../sync/apiKeyStore';
 
 /**
  * v1(../../../src/ai/aiClient.ts)のプロバイダ非依存契約を踏襲するが、v2は呼び出し経路が
@@ -36,15 +37,22 @@ export interface AiClient {
  * 参照を作り直す必要が無いようにする。v1のcreateDynamicAiClient()と同じ考え方)。
  * 未ログイン時にAPIを呼ばないための最終防御として、トークンが無ければここで例外にする
  * (呼び出し元のUI側でも「ログインが必要です」と案内した上でチャット入口を塞ぐ。二重の防御)。
+ *
+ * 利用者が自分のOpenAIキーを設定している場合はそれも呼び出しごとに読み直して同送する
+ * (BYOK。docs/v2/architecture.md §5)。トークンと同じ理由で毎回読み直す——設定画面で
+ * キーを保存/削除した直後から、この参照を作り直さずに反映される。
  */
-export function createProxyAiClient(getToken: () => string | null): AiClient {
+export function createProxyAiClient(
+  getToken: () => string | null,
+  getApiKey: () => string | null = getStoredApiKey,
+): AiClient {
   return {
     async send(request) {
       const token = getToken();
       if (!token) {
         throw new Error('AIチャットにはログインが必要です');
       }
-      const result = await chatWithAi(token, request.messages, request.system);
+      const result = await chatWithAi(token, request.messages, request.system, getApiKey());
       return result;
     },
   };

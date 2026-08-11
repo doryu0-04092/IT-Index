@@ -103,15 +103,26 @@ export interface AiProxyChatResult {
   usage: { inputTokens: number; outputTokens: number };
 }
 
+/**
+ * apiKeyは利用者が自分のOpenAIキーを設定している場合にのみ付ける(BYOK。
+ * docs/v2/architecture.md §5)。付けた場合サーバーはそのキーで上流を呼び、回数上限を
+ * 適用しない。未設定(undefined・空文字)ならフィールド自体を送らず、サーバー側キー+
+ * 回数上限の通常経路になる。
+ */
 export async function chatWithAi(
   token: string,
   messages: AiProxyMessage[],
   system?: string,
+  apiKey?: string | null,
 ): Promise<AiProxyChatResult> {
+  const body: { messages: AiProxyMessage[]; system?: string; apiKey?: string } = { messages };
+  if (system !== undefined) body.system = system;
+  if (apiKey !== undefined && apiKey !== null && apiKey !== '') body.apiKey = apiKey;
+
   return apiFetch('/ai/chat', {
     method: 'POST',
     headers: authHeader(token),
-    body: JSON.stringify(system === undefined ? { messages } : { messages, system }),
+    body: JSON.stringify(body),
   });
 }
 

@@ -24,8 +24,13 @@
   // AI_PROVIDERを"anthropic"に変更しAI_MODELをAnthropic側のモデルIDに変更する。
   // vitest-pool-workersはこのwrangler.jsoncを読むが、vitest.config.tsのminiflare bindingsで
   // AI_PROVIDER/AI_MODELを明示的に上書きしているため既存(Anthropic経路)のテストは影響を受けない。
+  // 回数上限はサーバー側キー(運営者負担)を使う場合にだけ効く。利用者が自分のキーを
+  // 設定した場合は本人負担のため上限の対象外(src/index.ts)。運営者負担分を絞る値を明示する
+  // (コード側の既定値50/500はそのまま残し、ここでの上書きで運用値を決める)。
   "vars": {
     "AI_PROVIDER": "openai",
-    "AI_MODEL": "gpt-5.6-luna"
+    "AI_MODEL": "gpt-5.6-luna",
+    "AI_DAILY_LIMIT_PER_USER": "10",
+    "AI_DAILY_LIMIT_GLOBAL": "100"
   }
 }
