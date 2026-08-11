@@ -3,17 +3,17 @@ import './App.css';
 import { createProxyAiClient } from './ai/aiClient';
 import { createCommitOrchestrator } from './ai/commitOrchestrator';
 import { db } from './db';
-import { backScreenFor, screenKey, type DetailFrom, type Screen } from './navigation';
+import { screenKey, type Screen } from './navigation';
 import ChatScreen from './screens/ChatScreen';
+import HistoryScreen from './screens/HistoryScreen';
 import SearchScreen from './screens/SearchScreen';
 import SyncScreen from './screens/SyncScreen';
 import TermDetailScreen from './screens/TermDetailScreen';
 import TermIndexScreen from './screens/TermIndexScreen';
-import WeightedScreen from './screens/WeightedScreen';
 import { getToken } from './sync/tokenStore';
 import { useAppInit } from './useAppInit';
 
-type NavTarget = 'search' | 'index' | 'weighted' | 'sync';
+type NavTarget = 'search' | 'index' | 'history' | 'sync';
 
 function navLabel(target: NavTarget): string {
   switch (target) {
@@ -21,8 +21,8 @@ function navLabel(target: NavTarget): string {
       return '検索';
     case 'index':
       return '索引';
-    case 'weighted':
-      return '重み付け';
+    case 'history':
+      return '履歴';
     case 'sync':
       return '同期';
   }
@@ -98,15 +98,16 @@ export function App() {
     [chatRepo],
   );
 
-  // 要件定義書§4.1「ローカル検索の確定」。検索・索引・重み付けのいずれから選んで
+  // 要件定義書§4.1「ローカル検索の確定」。検索・索引・履歴のいずれから選んで
   // 単語詳細を開いた場合も「確定」として記録する(v1のApp.tsx openDetail相当。
   // AIチャット確定(source:'ai')より弱い重みで加算される。core/computeWeights.ts)。
+  // 戻り先(returnTo)は開いた画面を丸ごと保持する(chatと同じ仕組み。navigation.ts参照)。
   const openDetail = useCallback(
-    (termId: string, from: DetailFrom) => {
+    (termId: string, returnTo: Screen) => {
       if (deviceId) {
         void asksRepo.addSearchConfirm(termId, deviceId, Date.now());
       }
-      setScreen({ name: 'detail', termId, from });
+      setScreen({ name: 'detail', termId, returnTo });
     },
     [asksRepo, deviceId],
   );
@@ -116,7 +117,7 @@ export function App() {
   }
 
   const navCurrent: NavTarget | null =
-    screen.name === 'search' || screen.name === 'index' || screen.name === 'weighted' || screen.name === 'sync'
+    screen.name === 'search' || screen.name === 'index' || screen.name === 'history' || screen.name === 'sync'
       ? screen.name
       : null;
 
@@ -125,12 +126,14 @@ export function App() {
       <header className="app-header">
         <h1>IT-Index v2</h1>
         <nav className="app-nav" aria-label="画面切り替え">
-          {(['search', 'index', 'weighted', 'sync'] as const).map((target) => (
+          {(['search', 'index', 'history', 'sync'] as const).map((target) => (
             <button
               key={target}
               type="button"
               className={navCurrent === target ? 'app-nav-link app-nav-link-active' : 'app-nav-link'}
-              onClick={() => setScreen({ name: target } as Screen)}
+              onClick={() =>
+                setScreen(target === 'history' ? { name: 'history', view: 'timeline' } : ({ name: target } as Screen))
+              }
               aria-current={navCurrent === target ? 'page' : undefined}
             >
               {navLabel(target)}
@@ -146,7 +149,7 @@ export function App() {
           <SearchScreen
             termsRepo={termsRepo}
             chatRepo={chatRepo}
-            onSelectTerm={(termId) => openDetail(termId, 'search')}
+            onSelectTerm={(termId) => openDetail(termId, { name: 'search' })}
             onAskAi={(query) => void openChatForQuery(query)}
             onResumeChat={(sessionId) => setScreen({ name: 'chat', sessionId, returnTo: { name: 'search' } })}
             seedError={seedError}
@@ -154,9 +157,15 @@ export function App() {
             onRetrySeed={() => void runSeedImport()}
           />
         ) : screen.name === 'index' ? (
-          <TermIndexScreen termsRepo={termsRepo} onSelectTerm={(termId) => openDetail(termId, 'index')} />
-        ) : screen.name === 'weighted' ? (
-          <WeightedScreen asksRepo={asksRepo} termsRepo={termsRepo} onSelectTerm={(termId) => openDetail(termId, 'weighted')} />
+          <TermIndexScreen termsRepo={termsRepo} onSelectTerm={(termId) => openDetail(termId, { name: 'index' })} />
+        ) : screen.name === 'history' ? (
+          <HistoryScreen
+            asksRepo={asksRepo}
+            termsRepo={termsRepo}
+            view={screen.view}
+            onChangeView={(view) => setScreen({ name: 'history', view })}
+            onSelectTerm={(termId) => openDetail(termId, screen)}
+          />
         ) : screen.name === 'sync' ? (
           <SyncScreen
             db={db}
@@ -184,7 +193,7 @@ export function App() {
             termsRepo={termsRepo}
             notesRepo={notesRepo}
             deviceId={deviceId}
-            onBack={() => setScreen(backScreenFor(screen.from))}
+            onBack={() => setScreen(screen.returnTo)}
             onDeleted={handleTermDeleted}
             onOpenChat={(termId) => void openChatForTerm(termId, screen)}
           />

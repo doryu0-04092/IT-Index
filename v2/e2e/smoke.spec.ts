@@ -29,7 +29,7 @@ test('シード取り込み後に検索して結果から用語詳細を開け�
   await expect(page.getByRole('combobox', { name: '用語を検索' })).toBeVisible();
 });
 
-test('索引タブと重み付けタブに切り替えられる', async ({ page }) => {
+test('索引タブと履歴タブに切り替えられる', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByText(/登録単語数\(\d+語\)/)).toBeVisible({ timeout: 15_000 });
 
@@ -37,6 +37,10 @@ test('索引タブと重み付けタブに切り替えられる', async ({ page 
   await expect(page.getByRole('heading', { name: 'A', exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: '五十音へジャンプ' })).toBeVisible();
 
+  await page.getByRole('button', { name: '履歴' }).click();
+  await expect(page.getByRole('button', { name: '時系列' })).toHaveAttribute('aria-current', 'page');
+
+  // サブタブ切替(時系列→重み付け)
   await page.getByRole('button', { name: '重み付け' }).click();
   await expect(page.getByText('最近も繰り返し聞いている語ほど上位')).toBeVisible();
 });

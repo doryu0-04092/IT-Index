@@ -51,11 +51,42 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByText('HTTP')).toBeTruthy());
   });
 
-  it('重み付けタブへ切り替えられる', async () => {
+  it('履歴タブへ切り替えられ、既定は時系列(重み付けタブボタンはナビに無い)', async () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
 
-    fireEvent.click(screen.getByRole('button', { name: '重み付け' }));
+    expect(screen.queryByRole('button', { name: '重み付け' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '履歴' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '時系列' })).toBeTruthy());
+    expect(screen.getByRole('button', { name: '時系列' }).getAttribute('aria-current')).toBe('page');
     await waitFor(() => expect(screen.getByText('まだ記録がありません。')).toBeTruthy());
+  });
+
+  it('履歴タブの重み付けサブタブから詳細を開いて戻ると、重み付けサブタブに戻る(returnTo)', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
+
+    // まず検索経由でHTTPの詳細を開き、asksに確定を1件記録させる(履歴に出すため)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'HTTP' } });
+    const result = await waitFor(() => screen.getByText('HTTP'), { timeout: 1000 });
+    fireEvent.click(result.closest('button')!);
+    await waitFor(() => expect(screen.getByRole('heading', { name: /HTTP/ })).toBeTruthy());
+    fireEvent.click(screen.getByText('← 戻る'));
+    await waitFor(() => expect(screen.getByRole('combobox')).toBeTruthy());
+
+    // 履歴タブ→重み付けサブタブに切り替えてHTTPを開く
+    fireEvent.click(screen.getByRole('button', { name: '履歴' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '重み付け' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: '重み付け' }));
+    const weightedResult = await waitFor(() => screen.getByText('HTTP'), { timeout: 1000 });
+    fireEvent.click(weightedResult.closest('button')!);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /HTTP/ })).toBeTruthy());
+    fireEvent.click(screen.getByText('← 戻る'));
+
+    // 開いていたサブタブ(重み付け)に戻っている
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '重み付け' }).getAttribute('aria-current')).toBe('page'),
+    );
   });
 });
