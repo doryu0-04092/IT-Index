@@ -149,8 +149,16 @@ npm run deploy
 `../client/dist` を指しているため、同じWorkerが `/api/*` はHonoアプリで処理し、それ以外は
 静的アセットとして配信する)の順で実行される。
 
-成功すると `https://<name>.<account>.workers.dev` の形式でURLが表示される
-(`<name>` は `wrangler.jsonc` の `name`、既定は `it-index-v2-server`)。
+成功すると `https://<name>.<subdomain>.workers.dev` の形式でURLが表示される。
+`<name>` は `wrangler.jsonc` の `name`(現在は `it-index`)、`<subdomain>` はアカウントに
+登録したworkers.devサブドメイン。**初回はこのURLが未有効なため、ダッシュボードで有効化する**:
+
+1. [Workers & Pages](https://dash.cloudflare.com/) → 対象のWorker → **ドメイン**タブ
+2. **Worker URL** 枠の「プロダクション」行のトグルをONにする
+   (「カスタムドメインとルーティングする」は独自ドメイン用なので触らない)
+
+`name` を変更すると**別のWorkerとして作られる**ため、シークレットの再投入とこの有効化を
+やり直す必要がある(旧Workerは `npx wrangler delete --name <旧name>` で削除する)。
 
 ---
 
@@ -167,6 +175,12 @@ npm run deploy
 - [ ] **AIチャットを実際のAPIキーで1回実行し、応答が返る**
       (v1では実キーでの疎通確認が最後まで行われなかった経緯があるため、
       ここは省略せず必ず実施する)
+      - **PowerShellから直接APIを叩いて確認する場合は文字コードに注意**。
+        `Invoke-RestMethod -Body <文字列>` はcharset未指定だと日本語をUTF-8で送らないため、
+        壊れた日本語がモデルへ届き「日本語で聞いたのに中国語で返る」ように見える
+        (2026-08-10の検証で実際に誤判定した)。`[System.Text.Encoding]::UTF8.GetBytes($json)`
+        でバイト送信し、応答も `GetEncoding(28591)` → UTF-8 で読み直すこと。
+        ブラウザから画面越しに確認する場合はこの問題は起きない。
 - [ ] `GET /api/ai/quota` が使用回数と上限を返す(AIチャット実行後に `used` が増えていること)
 - [ ] (任意)上限に達するまで呼び出し、`429 ai_limit_exceeded` が返ることを確認する
 
