@@ -24,6 +24,9 @@ describe('App', () => {
     cleanup();
     vi.unstubAllGlobals();
     clearPersistedScreen();
+    // オンボーディング既読・テーマ選択の永続化(localStorage)がテスト間で持ち越されないようにする
+    // (onboarding.ts/theme.ts追加により、この2キーが新たにlocalStorageを使うようになったため)。
+    localStorage.clear();
   });
 
   it('見出しを表示し、シード取り込み後に登録単語数を表示する', async () => {
@@ -124,6 +127,24 @@ describe('App', () => {
 
     await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
     expect(screen.getByRole('combobox')).toBeTruthy();
+  });
+
+  it('初回起動時はオンボーディングを表示し、「次回から表示しない」で閉じると既読後は出ない', async () => {
+    const { unmount } = render(<App />);
+    await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
+    expect(screen.getByText('IT-Indexへようこそ')).toBeTruthy();
+
+    // 「次回から表示しない」はデフォルトでチェック済み。最終ステップまで進めて閉じる
+    fireEvent.click(screen.getByText('次へ')); // ① 検索する
+    fireEvent.click(screen.getByText('次へ')); // ② AIに聞く
+    fireEvent.click(screen.getByText('次へ')); // ③ 同期でデータを揃える
+    fireEvent.click(screen.getByText('始める'));
+    expect(screen.queryByText('IT-Indexへようこそ')).toBeNull();
+
+    unmount();
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
+    expect(screen.queryByText('IT-Indexへようこそ')).toBeNull();
   });
 
   it('未ログイン時に「取り込み待ち」一覧の取り込むを押すと同期画面へ誘導される', async () => {

@@ -27,6 +27,31 @@
   }
 }
 
+/*
+ * テーマの手動切替(移植元: ../../../src/index.css :root[data-theme='light'/'dark']、
+ * lib/theme.ts参照)。'system'選択時はdata-theme属性を持たせず、上の
+ * @media (prefers-color-scheme: dark)にそのまま委ねる。ここは明示選択時のみ効く上書き。
+ */
+:root[data-theme='light'] {
+  --fg: #1a1a1a;
+  --bg: #ffffff;
+  --muted: #666666;
+  --border: #d0d0d0;
+  --accent: #2b6cb0;
+  --accent-fg: #ffffff;
+  --danger: #c0392b;
+}
+
+:root[data-theme='dark'] {
+  --fg: #e8e8e8;
+  --bg: #1a1a1a;
+  --muted: #a0a0a0;
+  --border: #3a3a3a;
+  --accent: #5b9bd5;
+  --accent-fg: #111111;
+  --danger: #e07a6b;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -355,4 +380,342 @@ body {
   .result-button {
     gap: 16px;
   }
+}
+
+/* ボタンを画面幅いっぱいに広げる(移植元: ../../../src/index.css .btn-block) */
+.btn-block {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+
+/* 検索0件時、「AIで検索」を強調する(SearchScreen.tsx参照) */
+.search-ask-ai-primary {
+  margin: 8px 0;
+}
+
+/*
+ * 画面フェードイン・検索結果のstagger表示(移植元: ../../../src/index.css
+ * @keyframes result-fade-in/screen-fade-in、.stagger-row/.screen-fade-in)。
+ */
+@keyframes result-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stagger-row {
+  animation: result-fade-in 240ms ease both;
+  animation-delay: calc(var(--stagger-index, 0) * 30ms);
+}
+
+@keyframes screen-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.screen-fade-in {
+  animation: screen-fade-in 220ms ease;
+}
+
+/* モーダル共通(オンボーディング・話題ピッカーで使う。移植元: ../../../src/index.css
+   .modal-overlay/.modal-content/.modal-header、@keyframes modal-fade-in/modal-scale-in) */
+@keyframes modal-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, black 40%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 10;
+  animation: modal-fade-in 220ms ease;
+}
+
+.modal-content {
+  width: 100%;
+  max-width: 420px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px 20px;
+  animation: modal-scale-in 220ms ease;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.dismiss-error {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0 2px;
+}
+
+/* オンボーディングモーダル(移植元: ../../../src/index.css .onboarding-*) */
+.onboarding-content {
+  max-width: 380px;
+}
+
+.onboarding-body {
+  line-height: 1.7;
+  color: var(--fg);
+}
+
+.onboarding-dots {
+  display: flex;
+  gap: 6px;
+  margin: 16px 0;
+}
+
+.onboarding-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.onboarding-dot.active {
+  background: var(--accent);
+}
+
+.onboarding-dont-show {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.onboarding-dont-show input {
+  flex: none;
+  width: auto;
+}
+
+.onboarding-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+/* トースト通知(移植元: ../../../src/index.css .toast/.toast-error/.toast-info、
+   @keyframes toast-in) */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  max-width: 480px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 2px 10px color-mix(in srgb, black 20%, transparent);
+  font-size: 0.85rem;
+  z-index: 20;
+  animation: toast-in 220ms ease;
+}
+
+.toast-error {
+  border-color: var(--danger);
+}
+
+.toast-info {
+  border-color: var(--accent);
+}
+
+/* ローディングスケルトン(移植元: ../../../src/index.css .skeleton/.skeleton-line、
+   @keyframes skeleton-shimmer。lib/Skeleton.tsx参照) */
+@keyframes skeleton-shimmer {
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.skeleton-line {
+  height: 1em;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.skeleton-line:nth-child(2) {
+  width: 90%;
+}
+
+.skeleton-line:nth-child(3) {
+  width: 70%;
+}
+
+/* 動きを減らす設定の利用者への配慮。v1のindex.cssにはこれらの演出自体への
+   reduced-motion対応が無かったため、v2で新規に追加する(依頼者指定)。 */
+@media (prefers-reduced-motion: reduce) {
+  .stagger-row,
+  .screen-fade-in,
+  .modal-overlay,
+  .modal-content,
+  .toast,
+  .skeleton-line {
+    animation: none;
+  }
+}
+
+/* チャット画面: 送信中スピナー・話題変更導線(移植元: ../../../src/index.css
+   .chat-loading/.chat-spinner/.chat-subject-row/.chat-subject-change、
+   @keyframes chat-spinner-rotate) */
+.chat-loading {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  list-style: none;
+}
+
+.chat-spinner {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: chat-spinner-rotate 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-spinner {
+    animation-duration: 1.4s;
+  }
+}
+
+@keyframes chat-spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.chat-subject-row {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.chat-subject-change {
+  display: block;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.chat-back-bottom {
+  display: block;
+  margin-top: 16px;
+}
+
+/*
+ * テーマ手動切替UI(移植元: ../../../src/App.tsx:636-645の.app-toolbar。
+ * PR-Hで設定タブへ移設予定——今回は同期画面末尾に軽く置くだけに留める。lib/theme.ts参照)。
+ */
+.theme-switcher {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.theme-switcher-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.theme-switcher-btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.theme-switcher-btn-active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
 }

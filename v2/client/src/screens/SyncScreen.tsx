@@ -17,6 +17,8 @@ import type { NoteConflictsRepository } from '../repositories/noteConflicts';
 import type { NotesRepository } from '../repositories/notes';
 import type { SyncStateRepository } from '../repositories/syncState';
 import type { TermsRepository } from '../repositories/terms';
+import ThemeSwitcher from '../lib/ThemeSwitcher';
+import type { ThemeChoice } from '../lib/theme';
 
 export interface SyncScreenProps {
   db: ItIndexDB;
@@ -27,6 +29,14 @@ export interface SyncScreenProps {
   asksRepo: AsksRepository;
   noteConflictsRepo: NoteConflictsRepository;
   syncStateRepo: SyncStateRepository;
+  /**
+   * テーマ手動切替(依頼者指定)。設定タブが無い現時点では暫定でこの画面の末尾に置く
+   * (PR-Hで設定タブへ移設予定。App.tsxが状態を持ち、ここでは表示と変更通知だけを担う)。
+   */
+  themeChoice: ThemeChoice;
+  onThemeChange: (choice: ThemeChoice) => void;
+  /** 同期成功・失敗をトースト通知するための呼び出し(依頼者指定。App.tsxのToastへ接続) */
+  onSyncNotify?: (message: string, variant: 'error' | 'info') => void;
 }
 
 type AuthState =
@@ -54,6 +64,9 @@ export default function SyncScreen({
   asksRepo,
   noteConflictsRepo,
   syncStateRepo,
+  themeChoice,
+  onThemeChange,
+  onSyncNotify,
 }: SyncScreenProps) {
   const [auth, setAuth] = useState<AuthState>({ status: 'checking' });
   const [authError, setAuthError] = useState<string | null>(null);
@@ -149,8 +162,17 @@ export default function SyncScreen({
       setLastResult(outcome);
       setLastSyncedAt(Date.now());
       await loadConflicts();
+      // 完了/失敗をトースト通知する(依頼者指定。v1でToastを出していた「進行中/失敗」に
+      // 相当する操作として同期の完了もここに含める。既存のインライン表示(lastResult等)は
+      // そのまま残し、Toastは追加の通知として重ねる)。
+      onSyncNotify?.(
+        `同期しました(受信${outcome.receivedBlobs}件・競合${outcome.conflicts}件)。`,
+        'info',
+      );
     } catch (err) {
-      setSyncError(err instanceof ApiRequestError ? err.message : '同期に失敗しました');
+      const message = err instanceof ApiRequestError ? err.message : '同期に失敗しました';
+      setSyncError(message);
+      onSyncNotify?.(message, 'error');
     } finally {
       setSyncBusy(false);
     }
@@ -205,7 +227,12 @@ export default function SyncScreen({
   }
 
   if (auth.status === 'anonymous') {
-    return <AuthForms busy={authBusy} error={authError} onSubmit={handleAuthSubmit} />;
+    return (
+      <>
+        <AuthForms busy={authBusy} error={authError} onSubmit={handleAuthSubmit} />
+        <ThemeSwitcher choice={themeChoice} onChange={onThemeChange} />
+      </>
+    );
   }
 
   return (
@@ -275,6 +302,8 @@ export default function SyncScreen({
       </div>
 
       <ApiKeySection token={auth.token} />
+
+      <ThemeSwitcher choice={themeChoice} onChange={onThemeChange} />
     </section>
   );
 }

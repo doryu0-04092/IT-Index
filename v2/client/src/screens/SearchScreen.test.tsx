@@ -141,6 +141,33 @@ describe('SearchScreen', () => {
     expect(onAskAi).toHaveBeenCalledWith('クオンタムコンピューティング');
   });
 
+  it('0件時は誘導文言と強調した「AIで検索」ボタンを表示し、押すとonAskAiが呼ばれる', async () => {
+    const onAskAi = vi.fn();
+    render(
+      <SearchScreen
+        termsRepo={fakeTermsRepo()}
+        chatRepo={fakeChatRepo()}
+        onSelectTerm={() => {}}
+        onAskAi={onAskAi}
+        onResumeChat={() => {}}
+        {...pendingDefaults}
+        seedError={null}
+        seedRefreshTick={0}
+        onRetrySeed={() => {}}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '存在しない語' } });
+    await waitFor(
+      () => expect(screen.getByText('「存在しない語」に一致する語は辞書にありませんでした。')).toBeTruthy(),
+      { timeout: 1000 },
+    );
+
+    const primaryButton = screen.getByText('「存在しない語」についてAIで検索', { selector: '.search-ask-ai-primary' });
+    fireEvent.click(primaryButton);
+    expect(onAskAi).toHaveBeenCalledWith('存在しない語');
+  });
+
   it('取り込み待ちセッションを一覧表示し、選ぶとonResumeChatが呼ばれる', async () => {
     const onResumeChat = vi.fn();
     const session: ChatSessionRecord = {
