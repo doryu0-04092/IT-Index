@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiRequestError, chatWithAi, fetchAiQuota, fetchMe, login, pullSyncBlobs, pushSyncBlob, signup } from './apiClient';
+import {
+  ApiRequestError,
+  chatWithAi,
+  fetchAiQuota,
+  fetchMe,
+  login,
+  pullSyncBlobs,
+  pushSyncBlob,
+  signup,
+  testAiConnection,
+} from './apiClient';
 
 function mockFetchOnce(status: number, body: unknown) {
   return vi.fn().mockResolvedValue({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) });
@@ -121,8 +131,8 @@ describe('apiClient', () => {
     });
   });
 
-  it('chatWithAiはapiKeyが未指定・null・空文字ならapiKeyフィールドを送らない', async () => {
-    for (const apiKey of [undefined, null, ''] as const) {
+  it('chatWithAiはcredentialが未指定・null・空キーならapiKey系フィールドを送らない', async () => {
+    for (const credential of [undefined, null, { key: '', provider: 'openai' as const }]) {
       const fetchMock = mockFetchOnce(200, {
         text: 'こたえ',
         stopReason: 'end_turn',
@@ -130,16 +140,17 @@ describe('apiClient', () => {
       });
       vi.stubGlobal('fetch', fetchMock);
 
-      await chatWithAi('tok', [{ role: 'user', content: 'hi' }], undefined, apiKey);
+      await chatWithAi('tok', [{ role: 'user', content: 'hi' }], undefined, credential);
 
       const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Record<string, unknown>;
       expect(body).toEqual({ messages: [{ role: 'user', content: 'hi' }] });
       expect('apiKey' in body).toBe(false);
+      expect('apiProvider' in body).toBe(false);
       vi.unstubAllGlobals();
     }
   });
 
-  it('chatWithAiはapiKeyが設定されていればapiKeyフィールドを付ける', async () => {
+  it('chatWithAiはcredentialが設定されていればapiKey・apiProvider・modelを付ける', async () => {
     const fetchMock = mockFetchOnce(200, {
       text: 'こたえ',
       stopReason: 'end_turn',
@@ -147,13 +158,72 @@ describe('apiClient', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await chatWithAi('tok', [{ role: 'user', content: 'hi' }], 'system指示', 'sk-user-key');
+    await chatWithAi('tok', [{ role: 'user', content: 'hi' }], 'system指示', {
+      key: 'sk-user-key',
+      provider: 'anthropic',
+      model: 'claude-sonnet-5',
+    });
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Record<string, unknown>;
     expect(body).toEqual({
       messages: [{ role: 'user', content: 'hi' }],
       system: 'system指示',
       apiKey: 'sk-user-key',
+      apiProvider: 'anthropic',
+      model: 'claude-sonnet-5',
+    });
+  });
+
+  it('chatWithAiはmodel未指定ならmodelフィールドを送らない(サーバー側の既定に任せる)', async () => {
+    const fetchMock = mockFetchOnce(200, {
+      text: 'こたえ',
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await chatWithAi('tok', [{ role: 'user', content: 'hi' }], undefined, {
+      key: 'sk-user-key',
+      provider: 'openai',
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body) as Record<string, unknown>;
+    expect(body.apiProvider).toBe('openai');
+    expect('model' in body).toBe(false);
+  });
+
+  it('testAiConnectionは/ai/testへapiKey・apiProvider(・model)を送りok/provider/model/usageを受け取る', async () => {
+    const fetchMock = mockFetchOnce(200, {
+      ok: true,
+      provider: 'openai',
+      model: 'gpt-5.6-luna',
+      usage: { inputTokens: 2, outputTokens: 1 },
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await testAiConnection('tok', { key: 'sk-user-key', provider: 'openai' });
+
+    expect(result.model).toBe('gpt-5.6-luna');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/ai/test');
+    expect(init.headers.Authorization).toBe('Bearer tok');
+    expect(JSON.parse(init.body)).toEqual({ apiKey: 'sk-user-key', apiProvider: 'openai' });
+  });
+
+  it('testAiConnectionは失敗時サーバーの日本語messageとcodeを持つApiRequestErrorを投げる', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetchOnce(400, {
+        error: { code: 'user_model_invalid', message: '指定したモデル名が使えません。設定画面でモデル名を確認してください' },
+      }),
+    );
+
+    await expect(
+      testAiConnection('tok', { key: 'sk-user-key', provider: 'anthropic', model: 'bad-model' }),
+    ).rejects.toMatchObject({
+      code: 'user_model_invalid',
+      message: '指定したモデル名が使えません。設定画面でモデル名を確認してください',
+      status: 400,
     });
   });
 
@@ -169,7 +239,7 @@ describe('apiClient', () => {
     );
 
     await expect(
-      chatWithAi('tok', [{ role: 'user', content: 'hi' }], undefined, 'sk-bad'),
+      chatWithAi('tok', [{ role: 'user', content: 'hi' }], undefined, { key: 'sk-bad', provider: 'openai' }),
     ).rejects.toMatchObject({
       code: 'user_api_key_invalid',
       message: '設定したAPIキーが無効です。設定画面で確認してください',

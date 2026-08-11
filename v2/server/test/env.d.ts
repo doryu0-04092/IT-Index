@@ -9,6 +9,7 @@ declare namespace Cloudflare {
     AI_MAX_TOKENS: string;
     AI_DAILY_LIMIT_PER_USER: string;
     AI_DAILY_LIMIT_GLOBAL: string;
+    AI_TEST_DAILY_LIMIT?: string; // 既定はコード側の20(接続テストの上限テストのみtest内で上書きする)
     CORS_ALLOWED_ORIGIN?: string; // 既定は未設定(ローカル開発時のみtest内で上書きする)
     TEST_MIGRATIONS: import('cloudflare:test').D1Migration[]; // vitest.config.tsで定義
   }

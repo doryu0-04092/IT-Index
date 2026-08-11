@@ -393,12 +393,14 @@ describe('POST /api/ai/chat (利用者のAPIキー)', () => {
   const originalProvider = env.AI_PROVIDER;
   const originalOpenAiKey = env.OPENAI_API_KEY;
   const originalPerUserLimit = env.AI_DAILY_LIMIT_PER_USER;
+  const originalModel = env.AI_MODEL;
   const USER_KEY = 'sk-user-provided-key-for-test';
 
   afterEach(() => {
     env.AI_PROVIDER = originalProvider;
     env.OPENAI_API_KEY = originalOpenAiKey;
     env.AI_DAILY_LIMIT_PER_USER = originalPerUserLimit;
+    env.AI_MODEL = originalModel;
   });
 
   const SERVER_KEY = 'test-only-server-openai-key';
@@ -600,8 +602,125 @@ describe('POST /api/ai/chat (利用者のAPIキー)', () => {
     expect(await tooLong.text()).not.toContain(USER_KEY);
   });
 
-  it('Anthropic経路ではBYOKを受け付けず400(上限の抜け道にしない)', async () => {
+  it('(g) サーバーがanthropic運用でも、利用者キーはopenai既定で通る(apiProvider未指定=後方互換)', async () => {
     env.AI_PROVIDER = 'anthropic';
+    const mock = mockAnthropicOnce((url) => {
+      expect(url).toBe(OPENAI_URL);
+      return openAiSuccessResponse({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, { messages: [{ role: 'user', content: 'hi' }], apiKey: USER_KEY });
+    expect(res.status).toBe(200);
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders.authorization).toBe(`Bearer ${USER_KEY}`);
+    expect(await todayUserUsageCount(token)).toBe(0);
+  });
+
+  it('(h) apiProvider=anthropicなら、サーバーがopenai運用でもAnthropicを利用者キーで呼ぶ', async () => {
+    useOpenAi();
+    env.AI_MODEL = 'gpt-5.6-luna';
+    const mock = mockAnthropicOnce((url) => {
+      expect(url).toBe(ANTHROPIC_URL);
+      return anthropicSuccessResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      });
+    });
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: USER_KEY,
+      apiProvider: 'anthropic',
+    });
+    expect(res.status).toBe(200);
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders['x-api-key']).toBe(USER_KEY);
+    expect(sentHeaders['x-api-key']).not.toBe(env.ANTHROPIC_API_KEY);
+    // AI_MODELは運用中プロバイダ(openai)のモデルIDなので、Anthropicへは渡さず既定を使う
+    const sentBody = JSON.parse(mock.calls[0].init.body as string) as Record<string, unknown>;
+    expect(sentBody.model).toBe('claude-sonnet-5');
+    expect(await todayUserUsageCount(token)).toBe(0);
+  });
+
+  it('(h2) modelを指定するとそのまま上流へ渡る(利用者キー経路)', async () => {
+    useOpenAi();
+    const mock = mockAnthropicOnce(() =>
+      openAiSuccessResponse({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      })
+    );
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: USER_KEY,
+      apiProvider: 'openai',
+      model: 'gpt-test-model',
+    });
+    expect(res.status).toBe(200);
+    const sentBody = JSON.parse(mock.calls[0].init.body as string) as Record<string, unknown>;
+    expect(sentBody.model).toBe('gpt-test-model');
+  });
+
+  // 不変条件: 「上限をスキップする条件」と「利用者キーで上流を呼ぶ条件」は同一。
+  // apiKeyを付けたリクエストがサーバー側キーで処理される経路は存在しない。
+  it('(i) apiKeyを付けた全ての組み合わせで、上流に使われるのは利用者キーだけ(上限も消費しない)', async () => {
+    const cases: Array<{ server: 'openai' | 'anthropic'; requested?: 'openai' | 'anthropic' }> = [
+      { server: 'openai', requested: undefined },
+      { server: 'openai', requested: 'openai' },
+      { server: 'openai', requested: 'anthropic' },
+      { server: 'anthropic', requested: undefined },
+      { server: 'anthropic', requested: 'openai' },
+      { server: 'anthropic', requested: 'anthropic' },
+    ];
+
+    for (const testCase of cases) {
+      env.AI_PROVIDER = testCase.server;
+      env.OPENAI_API_KEY = SERVER_KEY;
+      const mock = installFetchMock((url) =>
+        url === OPENAI_URL
+          ? openAiSuccessResponse({
+              choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+              usage: { prompt_tokens: 1, completion_tokens: 1 },
+            })
+          : anthropicSuccessResponse({
+              content: [{ type: 'text', text: 'ok' }],
+              stop_reason: 'end_turn',
+              usage: { input_tokens: 1, output_tokens: 1 },
+            })
+      );
+      activeMock = mock;
+
+      const token = await signupAndGetToken();
+      const body: Record<string, unknown> = {
+        messages: [{ role: 'user', content: 'hi' }],
+        apiKey: USER_KEY,
+      };
+      if (testCase.requested !== undefined) body.apiProvider = testCase.requested;
+      const res = await chat(token, body);
+      expect(res.status).toBe(200);
+
+      const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+      const usedKey = sentHeaders.authorization ?? sentHeaders['x-api-key'];
+      expect(usedKey).toContain(USER_KEY);
+      expect(usedKey).not.toContain(SERVER_KEY);
+      expect(usedKey).not.toContain(env.ANTHROPIC_API_KEY);
+      expect(await todayUserUsageCount(token)).toBe(0);
+
+      mock.restore();
+      activeMock = undefined;
+    }
+  });
+
+  it('(j) apiProviderが不正値なら400。上流には転送されない', async () => {
+    useOpenAi();
     const mock = installFetchMock(() => {
       throw new Error('fetchが呼ばれるべきではない');
     });
@@ -611,13 +730,38 @@ describe('POST /api/ai/chat (利用者のAPIキー)', () => {
     const res = await chat(token, {
       messages: [{ role: 'user', content: 'hi' }],
       apiKey: USER_KEY,
+      apiProvider: 'gemini',
     });
     expect(res.status).toBe(400);
-    expect((await res.json<{ error: { code: string } }>()).error.code).toBe(
-      'user_api_key_unsupported'
-    );
+    expect((await res.json<{ error: { code: string } }>()).error.code).toBe('invalid_request');
     expect(mock.calls).toHaveLength(0);
-    expect(await todayUserUsageCount(token)).toBe(0);
+  });
+
+  it('(k) apiKeyなしでapiProvider/modelを指定しても無視され、サーバー運用の設定+上限が効く', async () => {
+    useOpenAi();
+    env.AI_MODEL = 'gpt-5.6-luna';
+    const mock = mockAnthropicOnce((url) => {
+      // apiKeyが無いので利用者の選択(anthropic)は採用されず、サーバー運用のopenaiで呼ぶ
+      expect(url).toBe(OPENAI_URL);
+      return openAiSuccessResponse({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiProvider: 'anthropic',
+      model: 'claude-something-expensive',
+    });
+    expect(res.status).toBe(200);
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders.authorization).toBe(`Bearer ${SERVER_KEY}`);
+    const sentBody = JSON.parse(mock.calls[0].init.body as string) as Record<string, unknown>;
+    expect(sentBody.model).toBe('gpt-5.6-luna');
+    // サーバー側キーの経路なので上限のカウントは通常どおり進む
+    expect(await todayUserUsageCount(token)).toBe(1);
   });
 
   it('サーバー側キー未設定でも利用者キーがあれば動く', async () => {
@@ -638,6 +782,222 @@ describe('POST /api/ai/chat (利用者のAPIキー)', () => {
     expect(res.status).toBe(200);
     const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
     expect(sentHeaders.authorization).toBe(`Bearer ${USER_KEY}`);
+  });
+});
+
+// 接続テスト(docs/v2/architecture.md §5、要件定義書§5.7)。
+describe('POST /api/ai/test', () => {
+  const originalProvider = env.AI_PROVIDER;
+  const originalModel = env.AI_MODEL;
+  const originalTestLimit = env.AI_TEST_DAILY_LIMIT;
+  const USER_KEY = 'sk-test-endpoint-user-key';
+
+  afterEach(() => {
+    env.AI_PROVIDER = originalProvider;
+    env.AI_MODEL = originalModel;
+    env.AI_TEST_DAILY_LIMIT = originalTestLimit;
+  });
+
+  async function testConnection(token: string, requestBody: unknown) {
+    return exports.default.fetch(`${BASE}/api/ai/test`, {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(requestBody),
+    });
+  }
+
+  async function usedCount(token: string): Promise<number> {
+    const res = await quota(token);
+    return (await res.json<{ used: number }>()).used;
+  }
+
+  it('認証なしは401', async () => {
+    const res = await testConnection('not-a-real-token', { apiKey: USER_KEY, apiProvider: 'openai' });
+    expect(res.status).toBe(401);
+  });
+
+  it('成功(openai): 最小のリクエストを1件投げ、provider・model・usageを返す', async () => {
+    env.AI_PROVIDER = 'openai';
+    env.AI_MODEL = 'gpt-5.6-luna';
+    const mock = mockAnthropicOnce((url) => {
+      expect(url).toBe(OPENAI_URL);
+      return openAiSuccessResponse({
+        choices: [{ message: { content: 'pong' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      });
+    });
+
+    const token = await signupAndGetToken();
+    const globalBefore = await todayGlobalUsageCount();
+    const res = await testConnection(token, { apiKey: USER_KEY, apiProvider: 'openai' });
+
+    expect(res.status).toBe(200);
+    const body = await res.json<{
+      ok: boolean;
+      provider: string;
+      model: string;
+      usage: { inputTokens: number; outputTokens: number };
+    }>();
+    expect(body).toEqual({
+      ok: true,
+      provider: 'openai',
+      model: 'gpt-5.6-luna',
+      usage: { inputTokens: 2, outputTokens: 1 },
+    });
+
+    // 上流へは利用者キーで、最小のリクエスト(user1件・生成量も小さく)を投げる
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders.authorization).toBe(`Bearer ${USER_KEY}`);
+    const sentBody = JSON.parse(mock.calls[0].init.body as string) as {
+      messages: unknown[];
+      max_completion_tokens: number;
+    };
+    expect(sentBody.messages).toHaveLength(1);
+    expect(sentBody.max_completion_tokens).toBeLessThanOrEqual(64);
+
+    // 通常のチャット上限(ai_usage の accountId 行・全体行)は消費しない
+    expect(await usedCount(token)).toBe(0);
+    expect(await todayGlobalUsageCount()).toBe(globalBefore);
+  });
+
+  it('成功(anthropic): サーバーがopenai運用でもAnthropicへ利用者キーで投げ、既定モデルを使う', async () => {
+    env.AI_PROVIDER = 'openai';
+    env.AI_MODEL = 'gpt-5.6-luna';
+    const mock = mockAnthropicOnce((url) => {
+      expect(url).toBe(ANTHROPIC_URL);
+      return anthropicSuccessResponse({
+        content: [{ type: 'text', text: 'pong' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 2, output_tokens: 1 },
+      });
+    });
+
+    const token = await signupAndGetToken();
+    const res = await testConnection(token, { apiKey: USER_KEY, apiProvider: 'anthropic' });
+
+    expect(res.status).toBe(200);
+    const body = await res.json<{ provider: string; model: string }>();
+    expect(body.provider).toBe('anthropic');
+    expect(body.model).toBe('claude-sonnet-5');
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders['x-api-key']).toBe(USER_KEY);
+  });
+
+  it('modelを指定すればそのモデルでテストし、応答に指定モデル名を返す', async () => {
+    env.AI_PROVIDER = 'openai';
+    const mock = mockAnthropicOnce(() =>
+      openAiSuccessResponse({
+        choices: [{ message: { content: 'pong' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      })
+    );
+
+    const token = await signupAndGetToken();
+    const res = await testConnection(token, {
+      apiKey: USER_KEY,
+      apiProvider: 'openai',
+      model: 'gpt-指定なし',
+    });
+    // 全角を含むモデル名は文字種検証で弾く
+    expect(res.status).toBe(400);
+    expect(mock.calls).toHaveLength(0);
+
+    const ok = await testConnection(token, {
+      apiKey: USER_KEY,
+      apiProvider: 'openai',
+      model: 'gpt-4.1-mini',
+    });
+    expect(ok.status).toBe(200);
+    expect((await ok.json<{ model: string }>()).model).toBe('gpt-4.1-mini');
+    const sentBody = JSON.parse(mock.calls[0].init.body as string) as Record<string, unknown>;
+    expect(sentBody.model).toBe('gpt-4.1-mini');
+  });
+
+  it('認証失敗(401)はuser_api_key_invalidで返り、応答にキーの値を含まない', async () => {
+    mockAnthropicOnce(() => new Response(JSON.stringify({ error: { code: 'invalid_api_key' } }), { status: 401 }));
+
+    const token = await signupAndGetToken();
+    const res = await testConnection(token, { apiKey: USER_KEY, apiProvider: 'openai' });
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).not.toContain(USER_KEY);
+    expect(JSON.parse(text).error.code).toBe('user_api_key_invalid');
+  });
+
+  it('モデル名が無効(404)ならuser_model_invalidで返る', async () => {
+    mockAnthropicOnce(
+      () =>
+        new Response(
+          JSON.stringify({ error: { code: 'model_not_found', message: 'The model does not exist' } }),
+          { status: 404 }
+        )
+    );
+
+    const token = await signupAndGetToken();
+    const res = await testConnection(token, {
+      apiKey: USER_KEY,
+      apiProvider: 'openai',
+      model: 'gpt-does-not-exist',
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe('user_model_invalid');
+    expect(body.error.message).toContain('モデル名');
+  });
+
+  it('上流429はai_upstream_rate_limitedで返る', async () => {
+    mockAnthropicOnce(() => new Response(JSON.stringify({ error: { type: 'insufficient_quota' } }), { status: 429 }));
+
+    const token = await signupAndGetToken();
+    const res = await testConnection(token, { apiKey: USER_KEY, apiProvider: 'openai' });
+    expect(res.status).toBe(429);
+    expect((await res.json<{ error: { code: string } }>()).error.code).toBe('ai_upstream_rate_limited');
+  });
+
+  it('到達不能(fetch自体の失敗)はupstream_unreachableで返る', async () => {
+    activeMock = installFetchMock(() => {
+      throw new TypeError('network down');
+    });
+
+    const token = await signupAndGetToken();
+    const res = await testConnection(token, { apiKey: USER_KEY, apiProvider: 'anthropic' });
+    expect(res.status).toBe(502);
+    expect((await res.json<{ error: { code: string } }>()).error.code).toBe('upstream_unreachable');
+  });
+
+  it('apiKey・apiProviderが欠けていれば400。上流には転送されない', async () => {
+    const mock = installFetchMock(() => {
+      throw new Error('fetchが呼ばれるべきではない');
+    });
+    activeMock = mock;
+
+    const token = await signupAndGetToken();
+    expect((await testConnection(token, { apiProvider: 'openai' })).status).toBe(400);
+    expect((await testConnection(token, { apiKey: USER_KEY })).status).toBe(400);
+    expect((await testConnection(token, { apiKey: USER_KEY, apiProvider: 'gemini' })).status).toBe(400);
+    expect((await testConnection(token, { apiKey: 'sk-a\r\nx: 1', apiProvider: 'openai' })).status).toBe(400);
+    expect(mock.calls).toHaveLength(0);
+  });
+
+  it('アカウントあたりの日次回数上限を超えると429(チャットの残量とは別枠)', async () => {
+    env.AI_TEST_DAILY_LIMIT = '1';
+    const mock = mockAnthropicOnce(() =>
+      openAiSuccessResponse({
+        choices: [{ message: { content: 'pong' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      })
+    );
+
+    const token = await signupAndGetToken();
+    expect((await testConnection(token, { apiKey: USER_KEY, apiProvider: 'openai' })).status).toBe(200);
+
+    const second = await testConnection(token, { apiKey: USER_KEY, apiProvider: 'openai' });
+    expect(second.status).toBe(429);
+    expect((await second.json<{ error: { code: string } }>()).error.code).toBe('ai_test_limit_exceeded');
+    // 上限超過時は上流を呼ばない(fetchは1回目のみ)
+    expect(mock.calls).toHaveLength(1);
+    // 接続テストの回数はチャットの残量に影響しない
+    expect(await usedCount(token)).toBe(0);
   });
 });
 

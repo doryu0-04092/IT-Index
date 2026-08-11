@@ -52,6 +52,13 @@ export async function insertSyncBlob(
 // AIプロキシの回数上限(architecture.md §5)。全体上限はこの予約IDの行で数える。
 export const AI_GLOBAL_USAGE_ACCOUNT_ID = '__global__';
 
+// 接続テスト(POST /api/ai/test)の回数はチャットの上限と別枠で数える。ai_usageのスキーマを
+// 変えずに済ませるため、実在のアカウントID(UUID)とは衝突しない'test:'前置の予約キーの行を使う
+// (全体上限の'__global__'と同じ方式)。これによりテストはチャットの残量を1回も消費しない。
+export function aiTestUsageAccountId(accountId: string): string {
+  return `test:${accountId}`;
+}
+
 export function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }

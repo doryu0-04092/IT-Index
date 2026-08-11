@@ -4,7 +4,8 @@
 // (max_tokensはo-series等の新世代モデルと非互換のため廃止予定)。
 // temperature/top_p等のサンプリングパラメータは送らない(新世代モデルは既定値以外を拒否しうる)。
 import type { Env } from '../types';
-import type { ChatMessage, AiResult, AiFailure } from '../ai';
+import type { ChatMessage, AiResult, ProviderCallOptions } from '../ai';
+import { detectModelUnknown, mapUpstreamError } from './upstreamError';
 
 type OpenAiChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -24,30 +25,29 @@ function normalizeStopReason(finishReason: string): string {
 }
 
 /**
- * userApiKeyが与えられた場合はそれで上流を呼び、サーバー側のOPENAI_API_KEYは一切参照しない
+ * options.userApiKeyが与えられた場合はそれで上流を呼び、サーバー側のOPENAI_API_KEYは一切参照しない
  * (docs/v2/architecture.md §5「2つのキー経路」)。利用者キーは保存もログ出力もしない:
  * この関数の外へ出るのはAuthorizationヘッダとしての上流リクエストだけで、
  * 成功応答にもエラー(mapUpstreamError)にも値は載らない。
+ *
+ * model/maxTokensは呼び出し元(ai.ts)で確定させたものを受け取る(既定値の決定はai.tsに集約)。
  */
 export async function callOpenAi(
   env: Env,
   messages: ChatMessage[],
   system: string | undefined,
-  userApiKey?: string
+  options: ProviderCallOptions
 ): Promise<AiResult> {
-  const usingUserKey = userApiKey !== undefined;
+  const usingUserKey = options.userApiKey !== undefined;
   // OPENAI_API_KEYはEnv型上は任意。使う瞬間(この関数が呼ばれた時)に無ければai_config_errorにする。
   // 利用者キー利用時はサーバー側キーの有無を問わない(未設定でも動く)。
-  const apiKey = userApiKey ?? env.OPENAI_API_KEY;
+  const apiKey = options.userApiKey ?? env.OPENAI_API_KEY;
   if (!apiKey) {
     return {
       ok: false,
       error: { status: 500, code: 'ai_config_error', message: 'サーバーのAI設定に問題があります' },
     };
   }
-
-  const model = env.AI_MODEL ?? 'gpt-5.6-luna';
-  const maxTokens = Number(env.AI_MAX_TOKENS ?? '4096');
 
   const openAiMessages: OpenAiChatMessage[] = [];
   if (system !== undefined) {
@@ -58,9 +58,9 @@ export async function callOpenAi(
   }
 
   const requestBody: Record<string, unknown> = {
-    model,
+    model: options.model,
     messages: openAiMessages,
-    max_completion_tokens: maxTokens,
+    max_completion_tokens: options.maxTokens,
   };
 
   let res: Response;
@@ -82,7 +82,8 @@ export async function callOpenAi(
   }
 
   if (!res.ok) {
-    return { ok: false, error: mapUpstreamError(res.status, usingUserKey) };
+    const modelUnknown = await detectModelUnknown(res);
+    return { ok: false, error: mapUpstreamError(res.status, { usingUserKey, modelUnknown }) };
   }
 
   const data = (await res.json()) as OpenAiChatCompletionResponse;
@@ -99,35 +100,4 @@ export async function callOpenAi(
       },
     },
   };
-}
-
-function mapUpstreamError(status: number, usingUserKey: boolean): AiFailure {
-  if (status === 401 || status === 403) {
-    // キーの値はログにも出さない。ステータス以外の詳細も返さない。
-    // 利用者キーが無効な場合はサーバー設定の問題と混同させない別コードにする
-    // (利用者が自分で直せる問題なので、設定画面へ誘導する文言にする)。
-    // 401ではなく400で返すのは、クライアント側で401が「ログインの失効」として
-    // 扱われる余地を作らないため(不正なのはリクエストのapiKeyフィールドである)。
-    if (usingUserKey) {
-      return {
-        status: 400,
-        code: 'user_api_key_invalid',
-        message: '設定したAPIキーが無効です。設定画面で確認してください',
-      };
-    }
-    return { status: 500, code: 'ai_config_error', message: 'サーバーのAI設定に問題があります' };
-  }
-  if (status === 429) {
-    // OpenAIはクレジット不足(insufficient_quota)もこのステータスで返すため、
-    // レート制限と利用枠超過の両方を汲んだ文言にする。
-    return {
-      status: 429,
-      code: 'ai_upstream_rate_limited',
-      message: 'AIが混み合っているか、利用枠を超えています。しばらくして再試行してください',
-    };
-  }
-  if (status >= 400 && status < 500) {
-    return { status: 500, code: 'ai_request_invalid', message: 'AIリクエストの組み立てに失敗しました' };
-  }
-  return { status: 502, code: 'ai_upstream_error', message: 'AIサービスでエラーが発生しました' };
 }
