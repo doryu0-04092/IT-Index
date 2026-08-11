@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { NoteRecord, TermRecord } from '@it-index/shared';
+import Skeleton from '../lib/Skeleton';
 import type { NotesRepository } from '../repositories/notes';
 import type { TermsRepository } from '../repositories/terms';
 
@@ -88,7 +89,12 @@ export default function TermDetailScreen({
         )}
       </div>
 
-      {term === undefined && <p className="status-text">読み込み中です…</p>}
+      {term === undefined && (
+        <>
+          <p className="status-text">読み込み中です…</p>
+          <Skeleton />
+        </>
+      )}
       {term === null && <p className="status-text">この語は見つかりませんでした。</p>}
 
       {term && (

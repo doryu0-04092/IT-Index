@@ -24,6 +24,8 @@ function renderSyncScreen(deviceId: string | null = 'device-1') {
       asksRepo={createAsksRepository(db)}
       noteConflictsRepo={createNoteConflictsRepository(db)}
       syncStateRepo={createSyncStateRepository(db)}
+      themeChoice="system"
+      onThemeChange={() => {}}
     />,
   );
   return db;

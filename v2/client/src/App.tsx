@@ -3,6 +3,11 @@ import './App.css';
 import { createProxyAiClient } from './ai/aiClient';
 import { createCommitOrchestrator } from './ai/commitOrchestrator';
 import { db } from './db';
+import Skeleton from './lib/Skeleton';
+import OnboardingModal from './lib/OnboardingModal';
+import { hasSeenOnboarding, markOnboardingSeen } from './lib/onboarding';
+import { applyThemeChoice, persistThemeChoice, readStoredThemeChoice, type ThemeChoice } from './lib/theme';
+import Toast from './lib/Toast';
 import { screenKey, type Screen } from './navigation';
 import { persistScreen, readPersistedScreen } from './screenPersistence';
 import ChatScreen from './screens/ChatScreen';
@@ -61,6 +66,37 @@ export function App() {
   // 「取り込み待ち」一覧の再取得トリガー(この画面を開いたままチャット画面を経由せず
   // 一覧上のボタンで確定した場合に一覧を追従させるため。v1のpendingRefreshTickを移植)。
   const [pendingRefreshTick, setPendingRefreshTick] = useState(0);
+
+  // テーマ手動切替(依頼者指定。lib/theme.ts参照)。既定はOS追従('system')——v1(常に明示保存)
+  // と異なり、保存が無い初回起動時はOSの設定にそのまま追従させる。
+  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(() => readStoredThemeChoice());
+  useEffect(() => {
+    applyThemeChoice(themeChoice);
+    persistThemeChoice(themeChoice);
+  }, [themeChoice]);
+
+  // グローバルトースト(依頼者指定。移植元: ../../src/App.tsx:647-655のglobalError/
+  // commitInProgress表示。v1は「エラー」と「進行中」の2種を出し分けていたが、ここでは
+  // 呼び出し側がvariantを渡す単一スロットに一般化する(同時に複数出す要件はv1にも無い)。
+  const [toast, setToast] = useState<{ message: string; variant: 'error' | 'info' } | null>(null);
+  const notify = useCallback((message: string, variant: 'error' | 'info' = 'error') => {
+    setToast({ message, variant });
+  }, []);
+
+  // 辞書取り込み失敗をトースト通知する(依頼者指定。SearchScreen側の常時表示(seedError+再試行
+  // ボタン)は残したまま、Toastは一時的な追加通知として重ねる)。useAppInit.tsのrunSeedImportと
+  // 同じ理由でawaitを最初に置き、effect内の同期的なsetState呼び出しから切り離す。
+  useEffect(() => {
+    if (!seedError) return;
+    void Promise.resolve().then(() => notify(seedError, 'error'));
+  }, [seedError, notify]);
+
+  // オンボーディング(依頼者指定。lib/onboarding.ts参照)。初回起動時のみ表示する。
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding());
+  function dismissOnboarding(dontShowAgain: boolean) {
+    if (dontShowAgain) markOnboardingSeen();
+    setShowOnboarding(false);
+  }
 
   // URLルーティングを持たないため、画面遷移してもhistoryエントリが増えず、ブラウザの
   // 戻るボタンを押すとアプリの前画面ではなく「流入前のページ」へ即座に離脱し白紙化して
@@ -131,9 +167,12 @@ export function App() {
         // 次回再試行できる。
         onError: (sessionId) => {
           setFailedCommitSessionIds((prev) => new Set(prev).add(sessionId));
+          // 取り込み失敗をトースト通知する(移植元: ../../src/App.tsx:247-250のsetGlobalError。
+          // v1準拠——失敗時のみエラートーストを出す)。
+          notify('取り込みに失敗しました。もう一度お試しください。', 'error');
         },
       }),
-    [chatRepo, termsRepo, notesRepo, asksRepo, aiClient, deviceId, autoUpdateExistingTerms],
+    [chatRepo, termsRepo, notesRepo, asksRepo, aiClient, deviceId, autoUpdateExistingTerms, notify],
   );
 
   // 「AIに聞く」(用語詳細から)。取り込み待ち(open)の既存セッションがあれば再開する。
@@ -187,11 +226,19 @@ export function App() {
         next.delete(sessionId);
         return next;
       });
-      void commitOrchestrator.triggerCommit(sessionId).finally(() => {
-        setPendingRefreshTick((t) => t + 1);
-      });
+      void commitOrchestrator
+        .triggerCommit(sessionId)
+        .then(async () => {
+          // 取り込み成功をトースト通知する(依頼者指定。失敗はcommitOrchestratorのonErrorが
+          // 既に通知するため、ここでは成功時(status==='committed')だけ判定する)。
+          const updated = await chatRepo.getSession(sessionId);
+          if (updated?.status === 'committed') notify('取り込みました。', 'info');
+        })
+        .finally(() => {
+          setPendingRefreshTick((t) => t + 1);
+        });
     },
-    [commitOrchestrator],
+    [commitOrchestrator, chatRepo, notify],
   );
 
   // 「登録しない」。ローカル操作のみでAI呼び出しを伴わないためログイン不要
@@ -247,9 +294,12 @@ export function App() {
         </nav>
       </header>
 
-      <main key={screenKey(screen)} className="app-main">
+      <main key={screenKey(screen)} className="app-main screen-fade-in">
         {!seedSettled ? (
-          <p className="status-text">辞書を読み込み中です…</p>
+          <>
+            <p className="status-text">辞書を読み込み中です…</p>
+            <Skeleton />
+          </>
         ) : screen.name === 'search' ? (
           <SearchScreen
             termsRepo={termsRepo}
@@ -284,6 +334,9 @@ export function App() {
             asksRepo={asksRepo}
             noteConflictsRepo={noteConflictsRepo}
             syncStateRepo={syncStateRepo}
+            themeChoice={themeChoice}
+            onThemeChange={setThemeChoice}
+            onSyncNotify={notify}
           />
         ) : screen.name === 'chat' ? (
           <ChatScreen
@@ -295,6 +348,7 @@ export function App() {
             commitOrchestrator={commitOrchestrator}
             onBack={() => setScreen(screen.returnTo)}
             onGoToSync={() => setScreen({ name: 'sync' })}
+            onChangeSubject={(termId) => void openChatForTerm(termId, screen.returnTo)}
             initialQuestion={screen.initialQuestion}
           />
         ) : (
@@ -309,6 +363,9 @@ export function App() {
           />
         )}
       </main>
+
+      {toast && <Toast message={toast.message} variant={toast.variant} onDismiss={() => setToast(null)} />}
+      {showOnboarding && <OnboardingModal onClose={dismissOnboarding} />}
     </div>
   );
 }

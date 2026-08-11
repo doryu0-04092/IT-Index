@@ -11,6 +11,7 @@ import { ApiRequestError } from '../sync/apiClient';
 import { fetchAiQuota } from '../sync/apiClient';
 import { getToken } from '../sync/tokenStore';
 import { getVerifiedCredential, providerLabel } from '../sync/apiKeyStore';
+import TermPicker from './TermPicker';
 
 export interface ChatScreenProps {
   sessionId: string;
@@ -22,6 +23,12 @@ export interface ChatScreenProps {
   onBack: () => void;
   /** 未ログイン時の案内から同期画面へ誘導する */
   onGoToSync: () => void;
+  /**
+   * 「話題を変える」で用語を選んだ(移植元: ../../../src/ui/pc/ChatScreen.tsx onChangeSubject。
+   * v1のTermPickerをそのまま移植)。呼び出し元(App.tsx)がApp.tsxの既存openChatForTerm
+   * (「AIに聞く」と同じ処理)でこの画面のsessionId/subjectを入れ替える。
+   */
+  onChangeSubject: (termId: string) => void;
   /**
    * 画面を開いた直後に一度だけ自動送信する質問(検索画面の「AIで検索」で入力した文字列。
    * v1(../../../src/ui/pc/ChatScreen.tsx:23-24,106-113)を移植)。新規セッションのときだけ
@@ -53,6 +60,7 @@ export default function ChatScreen({
   commitOrchestrator,
   onBack,
   onGoToSync,
+  onChangeSubject,
   initialQuestion,
 }: ChatScreenProps) {
   const token = getToken();
@@ -72,6 +80,8 @@ export default function ChatScreen({
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [commitState, setCommitState] = useState<'idle' | 'committing' | 'committed' | 'error'>('idle');
   const [commitErrorMessage, setCommitErrorMessage] = useState<string | null>(null);
+  // 「話題を変える」用のピッカー開閉(移植元: ../../../src/ui/pc/ChatScreen.tsx pickerOpen)。
+  const [pickerOpen, setPickerOpen] = useState(false);
   // initialQuestionの二重送信防止(v1 ../../../src/ui/pc/ChatScreen.tsx:106)。StrictModeの
   // 二重effect実行・再レンダリング両方に効かせるため、stateではなくrefで持つ。
   const initialQuestionSent = useRef(false);
@@ -202,7 +212,21 @@ export default function ChatScreen({
                 <p className="chat-message-content">{m.content}</p>
               </li>
             ))}
+            {/* 送信中スピナー(移植元: ../../../src/ui/pc/ChatScreen.tsx:168-172の
+                .chat-loading/.chat-spinner。AIの応答を待っている間だけ表示する) */}
+            {sending && (
+              <li className="chat-message chat-message-assistant chat-loading">
+                <span className="chat-spinner" aria-label="AIが返答を作成中" />
+              </li>
+            )}
           </ul>
+
+          {/* 質問を重ねて会話が伸びると、画面上部の戻るリンクまでスクロールしないと前の
+              画面に戻れない不便があった(v1で実際に利用者から指摘された不具合。
+              ../../../src/ui/pc/ChatScreen.tsx:217-226を移植)。同じリンクをここにも複製する。 */}
+          <button type="button" className="back-link chat-back-bottom" onClick={onBack}>
+            ← 戻る
+          </button>
 
           {sendError && <p className="error-text">{sendError}</p>}
           {sendErrorCode === 'user_api_key_invalid' && (
@@ -227,6 +251,14 @@ export default function ChatScreen({
               disabled={sending}
             >
               さらに詳しく聞く
+            </button>
+          </div>
+
+          {/* 話題を変える(移植元: ../../../src/ui/pc/ChatScreen.tsx:201-204のTermPicker導線)。
+              選んだ語で呼び出し元(App.tsx)がこの画面のsessionId/subjectを入れ替える。 */}
+          <div className="chat-subject-row">
+            <button type="button" className="btn-text chat-subject-change" onClick={() => setPickerOpen(true)}>
+              話題を変える
             </button>
           </div>
 
@@ -286,6 +318,17 @@ export default function ChatScreen({
             {commitState === 'error' && commitErrorMessage && <p className="error-text">{commitErrorMessage}</p>}
           </div>
         </>
+      )}
+
+      {pickerOpen && (
+        <TermPicker
+          termsRepo={termsRepo}
+          onSelect={(termId) => {
+            setPickerOpen(false);
+            onChangeSubject(termId);
+          }}
+          onCancel={() => setPickerOpen(false)}
+        />
       )}
     </div>
   );

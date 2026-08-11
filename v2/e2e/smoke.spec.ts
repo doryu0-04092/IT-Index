@@ -1,19 +1,36 @@
-import { expect, test } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 /**
  * v2クライアントのスモークE2E。要件定義書§4.1「残す」機能の入口が実ビルド上で通ることを
  * 固定する(docs/v2/architecture.md §9)。workers:1・IndexedDB共有前提(playwright.config.ts)
  * のため、複数testが同じシード取り込み結果を前提にしてよい。
  */
+
+/**
+ * 初回起動時のオンボーディングモーダル(lib/OnboardingModal.tsx)は表示中
+ * modal-overlayが画面全体のクリックを奪う。実ブラウザ(jsdomと異なりhit-testingが働く)
+ * ではこれを閉じないと以降の操作がすべてタイムアウトするため、各testの冒頭で閉じる。
+ * 「スキップ」はステップに関わらず即座に閉じる(次回から表示しないonにする必要は無い
+ * ——このtest実行のIndexedDB/localStorageは使い捨てのため既読状態の持ち越しは問わない)。
+ */
+async function dismissOnboarding(page: Page) {
+  const skip = page.getByText('スキップ');
+  if (await skip.isVisible().catch(() => false)) {
+    await skip.click();
+  }
+}
+
 test('ビルドしたv2クライアントが描画され、単一UIでナビゲーションが機能する', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'IT-Index v2' })).toBeVisible();
+  await dismissOnboarding(page);
   // シード取り込み(実際のpublic/seed/terms.jsonがfetchされ、登録単語数が0件から増える)
   await expect(page.getByText(/登録単語数\(\d+語\)/)).toBeVisible({ timeout: 15_000 });
 });
 
 test('シード取り込み後に検索して結果から用語詳細を開ける', async ({ page }) => {
   await page.goto('/');
+  await dismissOnboarding(page);
   await expect(page.getByText(/登録単語数\(\d+語\)/)).toBeVisible({ timeout: 15_000 });
 
   await page.getByRole('combobox', { name: '用語を検索' }).fill('TCP/IP');
@@ -31,6 +48,7 @@ test('シード取り込み後に検索して結果から用語詳細を開け�
 
 test('索引タブと履歴タブに切り替えられる', async ({ page }) => {
   await page.goto('/');
+  await dismissOnboarding(page);
   await expect(page.getByText(/登録単語数\(\d+語\)/)).toBeVisible({ timeout: 15_000 });
 
   await page.getByRole('button', { name: '索引' }).click();

@@ -198,6 +198,26 @@ export default function SearchScreen({
         </button>
       )}
 
+      {/*
+        1件も一致しなかった時に何も出さないと「まだ検索中なのか、壊れているのか」が区別できない。
+        行き止まりにはせず、「AIで検索」へ強調して繋ぐ(移植元: ../../../src/ui/pc/SearchScreen.tsx
+        :196-204,265-269。v1では入力するだけで常時表示される検索欄直下のボタン
+        (btn-primary btn-block)がその強調枠を兼ねていたが、v2は上のbtn-textボタンを既に
+        常時表示しているため、0件時にはそれとは別に強調表示のボタンを追加する。
+        文言はv1の0件時メッセージ("「〜」に一致する語は辞書にありませんでした。上の「AIで検索」
+        から質問できます。")をそのまま使うと"上の"がこの位置(ボタンの下)と食い違うため、
+        指示語を落として必要最小限だけ変更する)。
+      */}
+      {debouncedQuery.trim() !== '' && results.length === 0 && (
+        <button
+          type="button"
+          className="btn-primary btn-block search-ask-ai-primary"
+          onClick={() => onAskAi(debouncedQuery.trim())}
+        >
+          「{debouncedQuery.trim()}」についてAIで検索
+        </button>
+      )}
+
       {results.length > 0 && (
         <p className="status-text" role="status">
           {results.length}件{results.length === MAX_RESULTS && '以上'}見つかりました(↑↓キーで選択、Enterで開く)
@@ -206,7 +226,12 @@ export default function SearchScreen({
 
       <ul className="result-list" id="search-results-listbox" role="listbox" aria-label="検索結果" ref={listRef}>
         {results.map(({ term, score: s }, index) => (
-          <li key={term.id} className="result-row" role="presentation">
+          <li
+            key={term.id}
+            className="result-row stagger-row"
+            role="presentation"
+            style={{ '--stagger-index': index } as React.CSSProperties}
+          >
             <button
               type="button"
               id={`search-result-${index}`}

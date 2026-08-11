@@ -54,6 +54,7 @@ describe('ChatScreen', () => {
         commitOrchestrator={fakeCommitOrchestrator()}
         onBack={() => {}}
         onGoToSync={onGoToSync}
+        onChangeSubject={() => {}}
       />,
     );
 
@@ -82,6 +83,7 @@ describe('ChatScreen', () => {
         commitOrchestrator={fakeCommitOrchestrator()}
         onBack={() => {}}
         onGoToSync={() => {}}
+        onChangeSubject={() => {}}
       />,
     );
 
@@ -109,6 +111,7 @@ describe('ChatScreen', () => {
         commitOrchestrator={fakeCommitOrchestrator()}
         onBack={() => {}}
         onGoToSync={() => {}}
+        onChangeSubject={() => {}}
       />,
     );
 
@@ -117,6 +120,40 @@ describe('ChatScreen', () => {
     fireEvent.click(screen.getByText('送信'));
 
     await waitFor(() => expect(screen.getByText('AIが応答を控えました。別の聞き方を試してください。')).toBeTruthy());
+  });
+
+  it('「話題を変える」で用語を選ぶとonChangeSubjectが選んだtermIdで呼ばれる', async () => {
+    const term = buildTermRecord({ term: 'TCP/IP', readings: ['ティーシーピーアイピー'], summary: '通信規約', field: 'ネットワーク', origin: 'seed', now: 1 });
+    await termsRepo.bulkPutFromSeed([term]);
+    setToken('tok-1');
+    const session = await chatRepo.createSession(null, 'なにか');
+    const onChangeSubject = vi.fn();
+
+    render(
+      <ChatScreen
+        sessionId={session.id}
+        chatRepo={chatRepo}
+        termsRepo={termsRepo}
+        notesRepo={notesRepo}
+        aiClient={{ send: vi.fn() }}
+        commitOrchestrator={fakeCommitOrchestrator()}
+        onBack={() => {}}
+        onGoToSync={() => {}}
+        onChangeSubject={onChangeSubject}
+      />,
+    );
+
+    await screen.findByLabelText('メッセージ');
+    fireEvent.click(screen.getByText('話題を変える'));
+
+    const picker = await screen.findByText('話題にする用語を選ぶ');
+    expect(picker).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('用語を入力'), { target: { value: 'TCP' } });
+    const result = await screen.findByText('TCP/IP');
+    fireEvent.click(result.closest('button')!);
+
+    expect(onChangeSubject).toHaveBeenCalledWith(term.id);
+    expect(screen.queryByText('話題にする用語を選ぶ')).toBeNull();
   });
 
   it('用語モードでは既存の初期説明を持つ用語名を見出しに表示する', async () => {
@@ -135,6 +172,7 @@ describe('ChatScreen', () => {
         commitOrchestrator={fakeCommitOrchestrator()}
         onBack={() => {}}
         onGoToSync={() => {}}
+        onChangeSubject={() => {}}
       />,
     );
 
@@ -156,6 +194,7 @@ describe('ChatScreen', () => {
         commitOrchestrator={fakeCommitOrchestrator()}
         onBack={onBack}
         onGoToSync={() => {}}
+        onChangeSubject={() => {}}
       />,
     );
 
@@ -184,6 +223,7 @@ describe('ChatScreen', () => {
         commitOrchestrator={fakeCommitOrchestrator()}
         onBack={() => {}}
         onGoToSync={() => {}}
+        onChangeSubject={() => {}}
       />,
     );
 
@@ -222,6 +262,7 @@ describe('ChatScreen', () => {
         commitOrchestrator={fakeCommitOrchestrator()}
         onBack={() => {}}
         onGoToSync={() => {}}
+        onChangeSubject={() => {}}
         initialQuestion="ゼロトラストって何？"
       />,
     );
@@ -240,6 +281,7 @@ describe('ChatScreen', () => {
         commitOrchestrator={fakeCommitOrchestrator()}
         onBack={() => {}}
         onGoToSync={() => {}}
+        onChangeSubject={() => {}}
         initialQuestion="ゼロトラストって何？"
       />,
     );
@@ -260,6 +302,7 @@ describe('ChatScreen', () => {
           commitOrchestrator={fakeCommitOrchestrator()}
           onBack={() => {}}
           onGoToSync={overrides.onGoToSync ?? (() => {})}
+          onChangeSubject={() => {}}
         />,
       );
     }
