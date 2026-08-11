@@ -35,6 +35,7 @@ test('索引タブと重み付けタブに切り替えられる', async ({ page 
 
   await page.getByRole('button', { name: '索引' }).click();
   await expect(page.getByRole('heading', { name: 'A', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '五十音へジャンプ' })).toBeVisible();
 
   await page.getByRole('button', { name: '重み付け' }).click();
   await expect(page.getByText('最近も繰り返し聞いている語ほど上位')).toBeVisible();

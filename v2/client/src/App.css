@@ -195,13 +195,25 @@ body {
   font-size: 0.85rem;
 }
 
-/* 単語一覧(索引)画面 */
+/* 単語一覧(索引)画面。v1(../../../src/ui/pc/TermIndexScreen.tsx, ../../../src/index.css
+   .term-index-*)から、五十音図グリッド・「一番上へ戻る」ボタン・実バグ対策を移植する。 */
+
+.term-index {
+  /* 横スクロールが起きる不具合の安全網(v1の.android-app.term-indexから移植)。
+     下の.term-index-gojuon-grid .term-index-jump-link修正で根本原因は無くしたが、
+     他の要因(長い読み仮名等)による将来のはみ出しでも横スクロール自体を発生させない
+     (ユーザー指摘: 横スクロールが「不要」ではなく「できない」状態にする)。
+     下端の余白は「一番上へ戻る」ボタン分——スクロールし切っても最後の単語が
+     ボタンに隠れないようにする。 */
+  overflow-x: hidden;
+  padding-bottom: 76px;
+}
 
 .term-index-jump {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .term-index-jump-link {
@@ -212,10 +224,62 @@ body {
   padding: 2px 6px;
   font-size: 0.85rem;
   cursor: pointer;
+  /* タップ領域が44pxに届かないため広げる(v1の.android-app.term-index-jump-linkから移植)。 */
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.term-index-gojuon-grid {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(28px, 1fr));
+  gap: 4px;
+  margin-bottom: 8px;
+  max-width: 420px;
+}
+
+.term-index-gojuon-blank {
+  display: block;
+}
+
+/* 五十音図のマスは.term-index-jump-linkのmin-width:44pxをそのまま引き継ぐと、
+   上のgrid-template-columnsで割り当てた列幅(28px前後)よりボタンの最小幅の方が
+   大きくなり、ページ全体が横にはみ出す(v1で実際に起きた実バグ)。タップ領域の
+   高さ(min-height:44px)はそのまま残し、幅だけ列幅に委ねる。 */
+.term-index-gojuon-grid .term-index-jump-link {
+  min-width: 0;
+}
+
+.term-index-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+
+.term-index-scroll-top {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--fg) 20%, transparent);
+  z-index: 5;
 }
 
 .term-index-section {
   margin: 16px 0;
+  /* stickyヘッダー(.app-header)にジャンプ先見出しが隠れない補正。
+     .app-headerの高さを変えたらここも見直す。 */
+  scroll-margin-top: 96px;
 }
 
 .term-index-heading {

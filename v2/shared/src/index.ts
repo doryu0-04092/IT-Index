@@ -1,6 +1,7 @@
 export { normalize } from './core/normalize';
 export { score } from './core/score';
-export { BUCKET_ORDER, NUMERIC_BUCKET, bucketOf, bucketsOf, groupIntoBuckets } from './core/kanaRow';
+export { BUCKET_ORDER, GOJUON_GRID, NUMERIC_BUCKET, OTHER_BUCKET, bucketOf, bucketsOf, groupIntoBuckets } from './core/kanaRow';
+export type { Bucket } from './core/kanaRow';
 export { computeWeights } from './core/computeWeights';
 export { mergeSnapshot, isSameContent } from './core/mergeSnapshot';
 export type { LocalSnapshot, SyncFile } from './core/mergeSnapshot';
