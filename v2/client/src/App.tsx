@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import './App.css';
 import { createProxyAiClient } from './ai/aiClient';
 import { createCommitOrchestrator } from './ai/commitOrchestrator';
 import { db } from './db';
 import { screenKey, type Screen } from './navigation';
+import { persistScreen, readPersistedScreen } from './screenPersistence';
 import ChatScreen from './screens/ChatScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import SearchScreen from './screens/SearchScreen';
@@ -51,6 +52,60 @@ export function App() {
     runSeedImport,
   } = useAppInit();
   const [screen, setScreen] = useState<Screen>({ name: 'search' });
+  // リロード時の文脈復元(v1 #39)を一度だけ試みるためのガード。seedSettled後に1回だけ実行する。
+  const [screenRestoreAttempted, setScreenRestoreAttempted] = useState(false);
+  // 確定に失敗したセッションIDの集合。「取り込み待ち」一覧に失敗マークを表示するために使う
+  // (v1 #41を移植)。次に確定に成功したら該当セッションを取り除く。
+  const [failedCommitSessionIds, setFailedCommitSessionIds] = useState<Set<string>>(new Set());
+  // commitOrchestrator.triggerCommit()が完了するたびに増分する。SearchScreenの
+  // 「取り込み待ち」一覧の再取得トリガー(この画面を開いたままチャット画面を経由せず
+  // 一覧上のボタンで確定した場合に一覧を追従させるため。v1のpendingRefreshTickを移植)。
+  const [pendingRefreshTick, setPendingRefreshTick] = useState(0);
+
+  // URLルーティングを持たないため、画面遷移してもhistoryエントリが増えず、ブラウザの
+  // 戻るボタンを押すとアプリの前画面ではなく「流入前のページ」へ即座に離脱し白紙化して
+  // いた(v1 #35。../../src/App.tsx:178-204を移植)。画面が変わるたびにダミーのhistory
+  // エントリを積み、popstateで検索画面へ戻すことで、少なくとも白紙化は防ぐ。
+  // 注記: v1のコメントには「索引ジャンプの#リンクがpopstateを誤発火させる」問題への言及が
+  // あったが、v2のTermIndexScreenはdocument.getElementById().scrollIntoView()方式で
+  // ジャンプしており`#`リンクを使っていないため、その問題は最初から起きない。
+  useEffect(() => {
+    window.history.pushState({ appScreen: true }, '');
+  }, [screen]);
+
+  useEffect(() => {
+    function handlePopState() {
+      setScreen({ name: 'search' });
+    }
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // リロード時の文脈復元(v1 #39。../../src/screenPersistence.ts・App.tsx:186-195,285-333を
+  // 移植)。URLは変えず、sessionStorageに「どの画面にいたか」の識別子だけを保存する。
+  // 保存はscreenが変わるたびに行うが、復元(下のuseEffect)が完了する前に保存すると
+  // 初期値{name:'search'}で上書きしてしまうため、復元試行が済むまでは保存しない。
+  useEffect(() => {
+    if (!screenRestoreAttempted) return;
+    persistScreen(screen);
+  }, [screen, screenRestoreAttempted]);
+
+  // 復元はseedSettled後(=各画面が自分でDBを引き直せる状態)に一度だけ試みる。v1と異なり
+  // v2の各画面(ChatScreen/TermDetailScreen)はsessionId/termIdからDBを引き直す設計のため、
+  // ここではShape検証済みのScreenをそのままsetScreenするだけでよい(App.tsx側でセッション・
+  // 用語の実在確認をする必要が無い——存在しない場合は各画面が「見つかりませんでした」を
+  // 表示して安全に振る舞う。screenPersistence.tsのisPersistedScreen参照)。
+  useEffect(() => {
+    if (!seedSettled || screenRestoreAttempted) return;
+    // awaitを最初に置き、setState呼び出しをeffectの同期実行から切り離す
+    // (react-hooks/set-state-in-effectが「effect内での同期的なsetState呼び出し」を検出するため。
+    // useAppInit.tsのrunSeedImportと同じ対処。1マイクロタスク分の遅延は復元タイミングに影響しない)。
+    void Promise.resolve().then(() => {
+      setScreenRestoreAttempted(true);
+      const persisted = readPersistedScreen();
+      if (persisted) setScreen(persisted);
+    });
+  }, [seedSettled, screenRestoreAttempted]);
 
   // AI呼び出しは端末からAnthropicを直接呼ばず、必ずv2サーバーのAIプロキシを呼ぶ
   // (docs/v2/requirements.md §4.1)。トークンは呼び出しごとに読み直す(ログイン状態が
@@ -71,6 +126,12 @@ export function App() {
         aiClient,
         deviceId: deviceId ?? '',
         autoUpdateExistingTerms,
+        // 取り込み待ち一覧の失敗マーク用(v1 #41を移植)。AI呼び出し失敗時、状態遷移図どおり
+        // セッションはopenのまま残り(commitOrchestrator側でcommitting→openへ戻す)、
+        // 次回再試行できる。
+        onError: (sessionId) => {
+          setFailedCommitSessionIds((prev) => new Set(prev).add(sessionId));
+        },
       }),
     [chatRepo, termsRepo, notesRepo, asksRepo, aiClient, deviceId, autoUpdateExistingTerms],
   );
@@ -89,11 +150,55 @@ export function App() {
   );
 
   // 「AIで検索」(検索欄の入力文字列をそのまま主題にする。要件定義書§5.3「検索モード」)。
+  // 新規セッションを立てたときだけ、打った文字列をそのまま最初の質問として自動送信する
+  // (v1のinitialQuestion方式。../../src/ui/pc/ChatScreen.tsx:23-24,106-113・
+  // ../../src/App.tsx startQueryChatを移植)。既存セッションを再開した場合は同じ質問の
+  // 二重送信になるため送らない。
   const openChatForQuery = useCallback(
     async (query: string) => {
       const existing = await chatRepo.findOpenSessionBySubjectLabel(query);
       const session = existing ?? (await chatRepo.createSession(null, query));
-      setScreen({ name: 'chat', sessionId: session.id, returnTo: { name: 'search' } });
+      setScreen({
+        name: 'chat',
+        sessionId: session.id,
+        returnTo: { name: 'search' },
+        initialQuestion: existing ? undefined : query,
+      });
+    },
+    [chatRepo],
+  );
+
+  // 検索画面の「取り込み待ち」一覧から、チャット画面を開かずその場で単語帳へ取り込む
+  // (v1 ../../src/ui/pc/SearchScreen.tsx:224-254・App.tsx commitPendingTermを移植)。
+  // 未ログイン時はAI呼び出しが必要な操作(取り込み)を押した時に同期画面へ誘導する
+  // (ChatScreen.tsxの未ログインガードと同じ方針)。
+  const commitPendingTerm = useCallback(
+    (sessionId: string) => {
+      if (!getToken()) {
+        setScreen({ name: 'sync' });
+        return;
+      }
+      // 呼び出し前に楽観的に失敗マークを消す→失敗すればcommitOrchestratorのonErrorが
+      // 再セットする(v1 App.tsx commitSessionの順序を移植。triggerCommitの成否だけでは
+      // 判定できないため)。
+      setFailedCommitSessionIds((prev) => {
+        if (!prev.has(sessionId)) return prev;
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
+      void commitOrchestrator.triggerCommit(sessionId).finally(() => {
+        setPendingRefreshTick((t) => t + 1);
+      });
+    },
+    [commitOrchestrator],
+  );
+
+  // 「登録しない」。ローカル操作のみでAI呼び出しを伴わないためログイン不要
+  // (v1 ../../src/ui/pc/SearchScreen.tsx:119-123・App.tsx declineSessionを移植)。
+  const declinePendingSession = useCallback(
+    (sessionId: string) => {
+      void chatRepo.declineSession(sessionId).then(() => setPendingRefreshTick((t) => t + 1));
     },
     [chatRepo],
   );
@@ -152,6 +257,10 @@ export function App() {
             onSelectTerm={(termId) => openDetail(termId, { name: 'search' })}
             onAskAi={(query) => void openChatForQuery(query)}
             onResumeChat={(sessionId) => setScreen({ name: 'chat', sessionId, returnTo: { name: 'search' } })}
+            onCommitPending={commitPendingTerm}
+            onDeclineSession={declinePendingSession}
+            failedCommitSessionIds={failedCommitSessionIds}
+            pendingRefreshTick={pendingRefreshTick}
             seedError={seedError}
             seedRefreshTick={seedRefreshTick}
             onRetrySeed={() => void runSeedImport()}
@@ -186,6 +295,7 @@ export function App() {
             commitOrchestrator={commitOrchestrator}
             onBack={() => setScreen(screen.returnTo)}
             onGoToSync={() => setScreen({ name: 'sync' })}
+            initialQuestion={screen.initialQuestion}
           />
         ) : (
           <TermDetailScreen

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AiClient } from '../ai/aiClient';
 import { sendChatTurn } from '../ai/chat';
 import type { CommitOrchestrator } from '../ai/commitOrchestrator';
@@ -22,6 +22,13 @@ export interface ChatScreenProps {
   onBack: () => void;
   /** 未ログイン時の案内から同期画面へ誘導する */
   onGoToSync: () => void;
+  /**
+   * 画面を開いた直後に一度だけ自動送信する質問(検索画面の「AIで検索」で入力した文字列。
+   * v1(../../../src/ui/pc/ChatScreen.tsx:23-24,106-113)を移植)。新規セッションのときだけ
+   * 渡される——既存セッションの再開・リロード復元では渡されないため二重送信は起きない
+   * (呼び出し元App.tsxのScreen.initialQuestionがそれを保証する)。
+   */
+  initialQuestion?: string;
 }
 
 // 「単語の概要を聞く」「さらに詳しく聞く」で送る固定文言(v1 ../../../src/ui/pc/ChatScreen.tsx
@@ -46,6 +53,7 @@ export default function ChatScreen({
   commitOrchestrator,
   onBack,
   onGoToSync,
+  initialQuestion,
 }: ChatScreenProps) {
   const token = getToken();
   // 自分のキー(接続テスト済み)を使っている間は回数上限の対象外(docs/v2/architecture.md §5)。
@@ -64,6 +72,9 @@ export default function ChatScreen({
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [commitState, setCommitState] = useState<'idle' | 'committing' | 'committed' | 'error'>('idle');
   const [commitErrorMessage, setCommitErrorMessage] = useState<string | null>(null);
+  // initialQuestionの二重送信防止(v1 ../../../src/ui/pc/ChatScreen.tsx:106)。StrictModeの
+  // 二重effect実行・再レンダリング両方に効かせるため、stateではなくrefで持つ。
+  const initialQuestionSent = useRef(false);
 
   const reloadMessages = useCallback(async () => {
     setMessages(await chatRepo.getMessages(sessionId));
@@ -91,6 +102,19 @@ export default function ChatScreen({
         /* 残量表示は付加情報のため、取得失敗時は無表示にするだけで良い */
       });
   }, [token, usingOwnApiKey]);
+
+  // 検索画面の「AIで検索」から来た場合、打った文字列を最初の質問として1回だけ自動送信する
+  // (v1 ../../../src/ui/pc/ChatScreen.tsx:102-113を移植)。sessionが読み込まれる(=セッション取得
+  // ・主題解決が済む)前に送ると、subjectが未確定のままAI呼び出しへ渡ってしまうため待つ。
+  // 既に取り込み済み(committed)のセッションを再送で再開した場合はApp.tsx側でinitialQuestionを
+  // 渡さないため、ここでは呼び出し元の保証に従うだけでよい。
+  useEffect(() => {
+    if (!token || !session || !initialQuestion || initialQuestionSent.current) return;
+    initialQuestionSent.current = true;
+    void handleSend(initialQuestion);
+    // handleSendは毎レンダリング作り直されるため依存に入れない(入れると送信のたびに再実行される)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, session, initialQuestion]);
 
   if (!token) {
     return (
@@ -218,8 +242,19 @@ export default function ChatScreen({
               id="chat-input"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                // 日本語入力(IME)で漢字変換を確定するときもEnterキーが飛んでくる。
+                // isComposingを見ずに判定すると、文章を書き終える前に変換確定のたびに
+                // 送信されてしまう(v1 #4で実機報告された不具合。
+                // ../../../src/ui/pc/ChatScreen.tsx:184-192を移植)。変換中のEnterは無視する。
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  void handleSend(undefined, false);
+                }
+              }}
               disabled={sending}
               rows={3}
+              placeholder="質問を入力(Enterで送信、Shift+Enterで改行)"
             />
             <button type="submit" className="btn-primary" disabled={sending || draft.trim() === ''}>
               {sending ? '送信中…' : '送信'}

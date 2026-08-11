@@ -28,7 +28,19 @@ export type Screen =
    * AIチャット画面。要件定義書§5.3。戻り先(returnTo)は開いた場所を丸ごと保持する
    * (単語詳細から開けば単語詳細へ、検索の「取り込み待ち」一覧から開けば検索へ戻る)。
    */
-  | { name: 'chat'; sessionId: string; returnTo: Screen };
+  | {
+      name: 'chat';
+      sessionId: string;
+      returnTo: Screen;
+      /**
+       * 画面を開いた直後に一度だけ自動送信する質問(検索欄の「AIで検索」で入力した文字列を
+       * そのまま渡す。v1のinitialQuestion方式(../../src/App.tsx openDetail周辺)を移植)。
+       * 新規セッションを立てたときだけ入る——既にやり取りがあるセッションの再開・
+       * リロード復元では同じ質問の二重送信になるため入れない(screenPersistence.tsで
+       * 保存対象からも除く)。
+       */
+      initialQuestion?: string;
+    };
 
 export function screenKey(screen: Screen): string {
   if (screen.name === 'detail') return `detail:${screen.termId}`;

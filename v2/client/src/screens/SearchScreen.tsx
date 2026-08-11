@@ -22,6 +22,25 @@ export interface SearchScreenProps {
   onAskAi: (query: string) => void;
   /** 「取り込み待ち」一覧からチャットへ戻る */
   onResumeChat: (sessionId: string) => void;
+  /**
+   * 「取り込み待ち」一覧から、チャット画面を開かずその場で単語帳へ取り込む
+   * (v1 ../../../src/ui/pc/SearchScreen.tsx:224-254を移植)。未ログイン時の誘導は
+   * 呼び出し元(App.tsx)の責務——ここではボタンが押されたことだけを伝える。
+   */
+  onCommitPending: (sessionId: string) => void;
+  /**
+   * 「登録しない」。AIの判定に登録可否を委ねず、利用者が明示的に拒否できるようにする
+   * (v1同機能を移植)。会話は削除しない——ローカル操作のみのためログイン不要。
+   */
+  onDeclineSession: (sessionId: string) => void;
+  /** 前回の取り込みに失敗したセッションIDの集合。一覧に失敗マークを表示するために使う */
+  failedCommitSessionIds: Set<string>;
+  /**
+   * この画面の外でセッションの状態が変わった度に増分する(取り込みの完了等)。
+   * 一覧の再取得トリガー。このコンポーネント自身の操作(取り込み・登録しないボタン)では
+   * 上がらない——そちらは直接stateを更新するので不要。
+   */
+  pendingRefreshTick: number;
   /** シード取り込みが異常終了した場合のみ渡される。通常時はnull */
   seedError: string | null;
   /** シード取り込み(再試行含む)が完了するたびに増分される。termsの再読み込みトリガー */
@@ -42,6 +61,10 @@ export default function SearchScreen({
   onSelectTerm,
   onAskAi,
   onResumeChat,
+  onCommitPending,
+  onDeclineSession,
+  failedCommitSessionIds,
+  pendingRefreshTick,
   seedError,
   seedRefreshTick,
   onRetrySeed,
@@ -59,7 +82,9 @@ export default function SearchScreen({
 
   // 取り込み待ち(open)・登録しなかった(declined)セッション一覧(v1 SearchScreenの「取り込み
   // 待ち」相当)。この画面はApp.tsxの<main key={screenKey(screen)}>により検索へ戻るたびに
-  // 再マウントされるため、マウント時の取得だけで最新の状態に追従できる。
+  // 再マウントされるため通常は再取得不要だが、この画面を開いたまま(チャット画面へ行かず)
+  // 取り込み・確定処理が完了した場合に一覧を追従させるため、pendingRefreshTickも依存に持つ
+  // (v1 App.tsxのpendingRefreshTickと同じ役割)。
   useEffect(() => {
     void chatRepo.getRecentSessions(30).then(async (sessions) => {
       const targets = sessions.filter((s) => s.status === 'open' || s.status === 'declined');
@@ -71,7 +96,27 @@ export default function SearchScreen({
       );
       setPending(withLabels);
     });
-  }, [chatRepo, termsRepo]);
+  }, [chatRepo, termsRepo, pendingRefreshTick]);
+
+  // 取り込みはバックグラウンドで進む(App.tsx側)。押した時点でこの一覧からは消してよい
+  // ——結果を待たせない(v1 ../../../src/ui/pc/SearchScreen.tsx:114-117を移植)。
+  function handleCommitPending(sessionId: string) {
+    onCommitPending(sessionId);
+    setPending((prev) => prev.filter((p) => p.session.id !== sessionId));
+  }
+
+  // 「登録しない」。会話は消えないので、ここでは一覧から消すだけでよい(v1同箇所を移植)。
+  function handleDeclineSession(sessionId: string) {
+    onDeclineSession(sessionId);
+    setPending((prev) => prev.filter((p) => p.session.id !== sessionId));
+  }
+
+  // 「まとめて単語帳に取り込む」。個別の「取り込む」も残す——1件だけ入れたい場合があるため
+  // (v1 ../../../src/ui/pc/SearchScreen.tsx:125-131を移植)。
+  function handleCommitAll() {
+    for (const p of pending) onCommitPending(p.session.id);
+    setPending([]);
+  }
 
   const results = useMemo(() => {
     if (debouncedQuery.trim() === '') return [];
@@ -184,12 +229,32 @@ export default function SearchScreen({
       {pending.length > 0 && (
         <section className="search-pending">
           <h3>取り込み待ち({pending.length}件)</h3>
+          <button type="button" className="btn-primary search-pending-commit-all" onClick={handleCommitAll}>
+            まとめて単語帳に取り込む({pending.length}件)
+          </button>
           <ul>
             {pending.map(({ session, label }) => (
-              <li key={session.id}>
-                <button type="button" className="btn-text" onClick={() => onResumeChat(session.id)}>
+              <li key={session.id} className="search-pending-row">
+                <button type="button" className="btn-text search-pending-item" onClick={() => onResumeChat(session.id)}>
                   {label}
                   {session.status === 'declined' && '(登録しない、を選択済み)'}
+                  {failedCommitSessionIds.has(session.id) && (
+                    <span className="error-text search-pending-failed">前回の取り込みに失敗しました</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary search-pending-commit"
+                  onClick={() => handleCommitPending(session.id)}
+                >
+                  取り込む
+                </button>
+                <button
+                  type="button"
+                  className="btn-text search-pending-decline"
+                  onClick={() => handleDeclineSession(session.id)}
+                >
+                  登録しない
                 </button>
               </li>
             ))}
