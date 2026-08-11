@@ -336,7 +336,15 @@ body {
   margin-top: 16px;
 }
 
-.term-detail-diagram-code {
+.mermaid-diagram {
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+/* mermaidの構文エラー・描画失敗時のフォールバック(元コードブロック表示)。
+   v1にはこの見た目を定義したCSSは無かった(未装飾)が、v2のTermDetailScreenが
+   元々コードブロック表示に使っていたクラス名の見た目を引き継ぐ。 */
+.mermaid-fallback {
   white-space: pre-wrap;
   background: color-mix(in srgb, var(--muted) 15%, var(--bg));
   padding: 8px;

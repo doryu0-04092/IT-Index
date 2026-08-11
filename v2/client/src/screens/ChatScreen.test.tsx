@@ -13,6 +13,12 @@ import { clearAiCredential, saveVerifiedCredential } from '../sync/apiKeyStore';
 import { ApiRequestError } from '../sync/apiClient';
 import ChatScreen from './ChatScreen';
 
+// diagrams描画の実体(mermaidの実描画)はMermaidDiagram.test.tsxで検証済み。ここでは
+// assistant発言が(ChatMessageBody経由で)MermaidDiagramへ渡っていることだけを確認する。
+vi.mock('../lib/MermaidDiagram', () => ({
+  default: ({ code }: { code: string }) => <div data-testid="mermaid-stub">{code}</div>,
+}));
+
 function fakeCommitOrchestrator(): CommitOrchestrator {
   return { triggerCommit: vi.fn().mockResolvedValue(undefined) };
 }
@@ -92,6 +98,41 @@ describe('ChatScreen', () => {
     fireEvent.click(screen.getByText('送信'));
 
     await waitFor(() => expect(screen.getByText('境界を信用しない考え方です。')).toBeTruthy());
+  });
+
+  it('AIの返答に```mermaidブロックが含まれる場合はMermaidDiagramへ渡す', async () => {
+    setToken('tok-1');
+    const session = await chatRepo.createSession(null, 'ゼロトラスト');
+    const aiClient: AiClient = {
+      send: vi.fn().mockResolvedValue({
+        text: '図で説明します。\n```mermaid\ngraph TD;A-->B;\n```\n以上です。',
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
+    };
+
+    render(
+      <ChatScreen
+        sessionId={session.id}
+        chatRepo={chatRepo}
+        termsRepo={termsRepo}
+        notesRepo={notesRepo}
+        aiClient={aiClient}
+        commitOrchestrator={fakeCommitOrchestrator()}
+        onBack={() => {}}
+        onGoToSync={() => {}}
+        onChangeSubject={() => {}}
+      />,
+    );
+
+    const textarea = await screen.findByLabelText('メッセージ');
+    fireEvent.change(textarea, { target: { value: '図で教えて' } });
+    fireEvent.click(screen.getByText('送信'));
+
+    await waitFor(() => expect(screen.getByTestId('mermaid-stub')).toBeTruthy());
+    expect(screen.getByTestId('mermaid-stub').textContent).toBe('graph TD;A-->B;');
+    expect(screen.getByText(/図で説明します。/)).toBeTruthy();
+    expect(screen.getByText(/以上です。/)).toBeTruthy();
   });
 
   it('refusalでtextが空の場合は案内文を表示する', async () => {

@@ -3,6 +3,7 @@ import type { AiClient } from '../ai/aiClient';
 import { sendChatTurn } from '../ai/chat';
 import type { CommitOrchestrator } from '../ai/commitOrchestrator';
 import { buildQuerySubject, buildSubjectContext, type SubjectContext } from '../ai/subjectContext';
+import ChatMessageBody from '../lib/ChatMessageBody';
 import type { ChatMessageRecord, ChatSessionRecord } from '../types';
 import type { ChatRepository } from '../repositories/chat';
 import type { NotesRepository } from '../repositories/notes';
@@ -209,7 +210,13 @@ export default function ChatScreen({
             {visibleMessages.map((m) => (
               <li key={m.id} className={`chat-message chat-message-${m.role}`}>
                 <span className="chat-message-role">{m.role === 'user' ? 'あなた' : 'AI'}</span>
-                <p className="chat-message-content">{m.content}</p>
+                {m.role === 'assistant' ? (
+                  <div className="chat-message-content">
+                    <ChatMessageBody content={m.content} />
+                  </div>
+                ) : (
+                  <p className="chat-message-content">{m.content}</p>
+                )}
               </li>
             ))}
             {/* 送信中スピナー(移植元: ../../../src/ui/pc/ChatScreen.tsx:168-172の
