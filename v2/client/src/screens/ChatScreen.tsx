@@ -10,6 +10,7 @@ import type { TermsRepository } from '../repositories/terms';
 import { ApiRequestError } from '../sync/apiClient';
 import { fetchAiQuota } from '../sync/apiClient';
 import { getToken } from '../sync/tokenStore';
+import { getApiKey } from '../sync/apiKeyStore';
 
 export interface ChatScreenProps {
   sessionId: string;
@@ -47,6 +48,9 @@ export default function ChatScreen({
   onGoToSync,
 }: ChatScreenProps) {
   const token = getToken();
+  // 自分のキーを使っている間は回数上限の対象外(docs/v2/architecture.md §5)。
+  // 残量(/api/ai/quota)はサーバー側キーの残量しか表さないため、取得も表示もしない。
+  const usingOwnApiKey = getApiKey() !== null;
 
   const [session, setSession] = useState<ChatSessionRecord | null | undefined>(undefined);
   const [subject, setSubject] = useState<SubjectContext | undefined>(undefined);
@@ -54,6 +58,8 @@ export default function ChatScreen({
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  /** 送信失敗が「設定したAPIキーが無効」だった場合のみ、設定画面への誘導を出す */
+  const [sendErrorCode, setSendErrorCode] = useState<string | null>(null);
   const [quota, setQuota] = useState<{ used: number; limit: number } | null>(null);
   const [commitState, setCommitState] = useState<'idle' | 'committing' | 'committed' | 'error'>('idle');
   const [commitErrorMessage, setCommitErrorMessage] = useState<string | null>(null);
@@ -77,13 +83,13 @@ export default function ChatScreen({
   }, [token, chatRepo, sessionId, termsRepo, notesRepo, reloadMessages]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || usingOwnApiKey) return;
     void fetchAiQuota(token)
       .then(setQuota)
       .catch(() => {
         /* 残量表示は付加情報のため、取得失敗時は無表示にするだけで良い */
       });
-  }, [token]);
+  }, [token, usingOwnApiKey]);
 
   if (!token) {
     return (
@@ -104,12 +110,14 @@ export default function ChatScreen({
     if (text === '' || sending) return;
     setSending(true);
     setSendError(null);
+    setSendErrorCode(null);
     if (overrideText === undefined) setDraft('');
     try {
       await sendChatTurn(sessionId, text, { chatRepo, aiClient, subject }, hideQuestion);
       await reloadMessages();
     } catch (err) {
       setSendError(err instanceof ApiRequestError ? err.message : 'AIとの通信に失敗しました');
+      setSendErrorCode(err instanceof ApiRequestError ? err.code : null);
       if (overrideText === undefined) setDraft(text); // 送信できなかった内容を戻す
     } finally {
       setSending(false);
@@ -144,10 +152,14 @@ export default function ChatScreen({
           ← 戻る
         </button>
         {subjectLabel && <h2 className="chat-subject">{subjectLabel}について</h2>}
-        {quota && (
-          <span className="status-text chat-quota">
-            本日の利用: {quota.used}/{quota.limit}
-          </span>
+        {usingOwnApiKey ? (
+          <span className="status-text chat-quota">自分のAPIキーを使用中(回数上限なし)</span>
+        ) : (
+          quota && (
+            <span className="status-text chat-quota">
+              本日の利用: {quota.used}/{quota.limit}
+            </span>
+          )
         )}
       </div>
 
@@ -166,6 +178,11 @@ export default function ChatScreen({
           </ul>
 
           {sendError && <p className="error-text">{sendError}</p>}
+          {sendErrorCode === 'user_api_key_invalid' && (
+            <button type="button" className="btn-secondary" onClick={onGoToSync}>
+              設定画面へ
+            </button>
+          )}
 
           <div className="chat-quick-asks">
             <button

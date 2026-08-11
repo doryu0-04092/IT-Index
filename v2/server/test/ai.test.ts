@@ -388,6 +388,259 @@ describe('POST /api/ai/chat (AI_PROVIDER=openai)', () => {
   });
 });
 
+// 利用者持ち込みキー(BYOK)。docs/v2/architecture.md §5「2つのキー経路」。
+describe('POST /api/ai/chat (利用者のAPIキー)', () => {
+  const originalProvider = env.AI_PROVIDER;
+  const originalOpenAiKey = env.OPENAI_API_KEY;
+  const originalPerUserLimit = env.AI_DAILY_LIMIT_PER_USER;
+  const USER_KEY = 'sk-user-provided-key-for-test';
+
+  afterEach(() => {
+    env.AI_PROVIDER = originalProvider;
+    env.OPENAI_API_KEY = originalOpenAiKey;
+    env.AI_DAILY_LIMIT_PER_USER = originalPerUserLimit;
+  });
+
+  const SERVER_KEY = 'test-only-server-openai-key';
+
+  function useOpenAi() {
+    env.AI_PROVIDER = 'openai';
+    env.OPENAI_API_KEY = SERVER_KEY;
+  }
+
+  async function todayUserUsageCount(token: string): Promise<number> {
+    const res = await quota(token);
+    const body = await res.json<{ used: number }>();
+    return body.used;
+  }
+
+  it('(a) 上流へは利用者のキーが使われ、サーバー側キーは使われない', async () => {
+    useOpenAi();
+    const mock = mockAnthropicOnce((url) => {
+      expect(url).toBe(OPENAI_URL);
+      return openAiSuccessResponse({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      });
+    });
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: USER_KEY,
+    });
+
+    expect(res.status).toBe(200);
+    expect(mock.calls).toHaveLength(1);
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders.authorization).toBe(`Bearer ${USER_KEY}`);
+    expect(sentHeaders.authorization).not.toContain(SERVER_KEY);
+    // 転送ボディにapiKeyフィールドが混ざらない(上流の契約外フィールドを送らない)
+    const sentBody = JSON.parse(mock.calls[0].init.body as string) as Record<string, unknown>;
+    expect(sentBody.apiKey).toBeUndefined();
+  });
+
+  it('(b) 利用者キー利用時はai_usageが増えない(上限の対象外)', async () => {
+    useOpenAi();
+    mockAnthropicOnce(() =>
+      openAiSuccessResponse({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      })
+    );
+
+    const token = await signupAndGetToken();
+    const globalBefore = await todayGlobalUsageCount();
+
+    // 上限を0にしても、利用者キーを付けたリクエストは通る(判定自体を行わない)
+    env.AI_DAILY_LIMIT_PER_USER = '0';
+    const res = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: USER_KEY,
+    });
+    expect(res.status).toBe(200);
+
+    env.AI_DAILY_LIMIT_PER_USER = originalPerUserLimit;
+    expect(await todayUserUsageCount(token)).toBe(0);
+    expect(await todayGlobalUsageCount()).toBe(globalBefore);
+  });
+
+  it('(b2) 空文字のapiKeyは未指定と同じ扱い(サーバー側キー+上限が効く)', async () => {
+    useOpenAi();
+    const mock = mockAnthropicOnce(() =>
+      openAiSuccessResponse({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      })
+    );
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, { messages: [{ role: 'user', content: 'hi' }], apiKey: '   ' });
+    expect(res.status).toBe(200);
+
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders.authorization).toBe(`Bearer ${SERVER_KEY}`);
+    expect(await todayUserUsageCount(token)).toBe(1);
+  });
+
+  it('(c) apiKey未指定なら従来どおり利用者上限が効く', async () => {
+    useOpenAi();
+    env.AI_DAILY_LIMIT_PER_USER = '1';
+    mockAnthropicOnce(() =>
+      openAiSuccessResponse({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      })
+    );
+
+    const token = await signupAndGetToken();
+    expect((await chat(token, { messages: [{ role: 'user', content: 'hi' }] })).status).toBe(200);
+
+    const second = await chat(token, { messages: [{ role: 'user', content: 'hi' }] });
+    expect(second.status).toBe(429);
+    expect((await second.json<{ error: { code: string } }>()).error.code).toBe('ai_limit_exceeded');
+
+    // 同じ上限状態でも、自分のキーを付ければ通る
+    const third = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: USER_KEY,
+    });
+    expect(third.status).toBe(200);
+  });
+
+  it('(d) apiKeyが長さ上限(200文字)を超えると400。上流には転送されない', async () => {
+    useOpenAi();
+    const mock = installFetchMock(() => {
+      throw new Error('fetchが呼ばれるべきではない');
+    });
+    activeMock = mock;
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: 'a'.repeat(201),
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json<{ error: { code: string } }>()).error.code).toBe('invalid_request');
+    expect(mock.calls).toHaveLength(0);
+  });
+
+  it('(d2) apiKeyが文字列以外・制御文字入りは400(ヘッダ注入を塞ぐ)', async () => {
+    useOpenAi();
+    const mock = installFetchMock(() => {
+      throw new Error('fetchが呼ばれるべきではない');
+    });
+    activeMock = mock;
+
+    const token = await signupAndGetToken();
+    const notString = await chat(token, { messages: [{ role: 'user', content: 'hi' }], apiKey: 123 });
+    expect(notString.status).toBe(400);
+
+    const withCrlf = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: 'sk-abc\r\nx-injected: 1',
+    });
+    expect(withCrlf.status).toBe(400);
+    expect((await withCrlf.json<{ error: { code: string } }>()).error.code).toBe('invalid_request');
+    expect(mock.calls).toHaveLength(0);
+  });
+
+  it('(e) 利用者キーが上流で401のときは専用コードで返る(ai_config_errorにしない)', async () => {
+    useOpenAi();
+    mockAnthropicOnce(
+      () =>
+        new Response(JSON.stringify({ error: { code: 'invalid_api_key' } }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })
+    );
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: USER_KEY,
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe('user_api_key_invalid');
+    expect(body.error.message).toBe('設定したAPIキーが無効です。設定画面で確認してください');
+    // 無効キーでもai_usageは消費しない
+    expect(await todayUserUsageCount(token)).toBe(0);
+  });
+
+  it('(f) 応答・エラーの本文にキーの値が一切含まれない', async () => {
+    useOpenAi();
+    mockAnthropicOnce(() =>
+      openAiSuccessResponse({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      })
+    );
+
+    const token = await signupAndGetToken();
+    const ok = await chat(token, { messages: [{ role: 'user', content: 'hi' }], apiKey: USER_KEY });
+    expect(await ok.text()).not.toContain(USER_KEY);
+
+    activeMock?.restore();
+    mockAnthropicOnce(() => new Response('{}', { status: 401 }));
+    const failed = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: USER_KEY,
+    });
+    expect(await failed.text()).not.toContain(USER_KEY);
+
+    activeMock?.restore();
+    activeMock = installFetchMock(() => {
+      throw new Error('fetchが呼ばれるべきではない');
+    });
+    const tooLong = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: `${USER_KEY}${'a'.repeat(200)}`,
+    });
+    expect(await tooLong.text()).not.toContain(USER_KEY);
+  });
+
+  it('Anthropic経路ではBYOKを受け付けず400(上限の抜け道にしない)', async () => {
+    env.AI_PROVIDER = 'anthropic';
+    const mock = installFetchMock(() => {
+      throw new Error('fetchが呼ばれるべきではない');
+    });
+    activeMock = mock;
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: USER_KEY,
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json<{ error: { code: string } }>()).error.code).toBe(
+      'user_api_key_unsupported'
+    );
+    expect(mock.calls).toHaveLength(0);
+    expect(await todayUserUsageCount(token)).toBe(0);
+  });
+
+  it('サーバー側キー未設定でも利用者キーがあれば動く', async () => {
+    env.AI_PROVIDER = 'openai';
+    env.OPENAI_API_KEY = undefined;
+    const mock = mockAnthropicOnce(() =>
+      openAiSuccessResponse({
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      })
+    );
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: [{ role: 'user', content: 'hi' }],
+      apiKey: USER_KEY,
+    });
+    expect(res.status).toBe(200);
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders.authorization).toBe(`Bearer ${USER_KEY}`);
+  });
+});
+
 describe('GET /api/ai/quota', () => {
   it('未利用時はused=0、limitは設定値', async () => {
     const token = await signupAndGetToken();

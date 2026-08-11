@@ -3,6 +3,7 @@ import type { ItIndexDB } from '../db';
 import { ApiRequestError, fetchMe, login, signup } from '../sync/apiClient';
 import { importV1Snapshot, pullFromRelay, pushToRelay, type SyncEngineDeps } from '../sync/syncEngine';
 import { clearToken, getToken, setToken } from '../sync/tokenStore';
+import { clearApiKey, getApiKey, maskApiKey, setApiKey } from '../sync/apiKeyStore';
 import type { AsksRepository } from '../repositories/asks';
 import type { NoteConflictRecord } from '../types';
 import type { NoteConflictsRepository } from '../repositories/noteConflicts';
@@ -265,7 +266,80 @@ export default function SyncScreen({
         {importBusy && <p className="status-text">取り込んでいます…</p>}
         {importMessage && <p className="status-text">{importMessage}</p>}
       </div>
+
+      <ApiKeySection />
     </section>
+  );
+}
+
+/**
+ * 利用者が自分のOpenAI APIキーを持ち込む設定(BYOK。docs/v2/architecture.md §5)。
+ *
+ * 新画面を作らず同期画面に置いた理由: この設定はアカウント・サーバー利用に紐づく設定で、
+ * 同期画面が既に「サーバーとのやり取りの設定」を集めている唯一の場所であること。
+ * また未ログインではAIチャット自体が使えず、この画面はログイン時のみ本体を描画するため、
+ * 「設定できるのに使えない」状態が構造的に起きない(navigation.tsを増やさずに済む)。
+ */
+function ApiKeySection() {
+  // localStorageの読み取りはこの画面がマウントされた時点の状態でよい(保存・削除は
+  // すべてこのコンポーネント内の操作なので、stateを唯一の表示源にできる)。
+  const [savedKey, setSavedKey] = useState<string | null>(() => getApiKey());
+  const [draft, setDraft] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+
+  function handleSave() {
+    const trimmed = draft.trim();
+    if (trimmed === '') return;
+    setApiKey(trimmed);
+    setSavedKey(trimmed);
+    setDraft(''); // 入力欄にキーを残さない(画面に平文が出続けないようにする)
+    setMessage('自分のAPIキーを保存しました。以降のAIチャットはこのキーで実行されます。');
+  }
+
+  function handleClear() {
+    clearApiKey();
+    setSavedKey(null);
+    setDraft('');
+    setMessage('自分のAPIキーを削除しました。以降は共有のキー(回数上限あり)で実行されます。');
+  }
+
+  return (
+    <div className="sync-api-key">
+      <h3>自分のOpenAI APIキーを使う</h3>
+      <p className="status-text">
+        自分のキーを使うと回数上限なしでAIチャットを利用できます。キーはこの端末にのみ保存され、
+        サーバーには保存されません。未設定の場合は共有のキー(1日あたりの回数上限あり)で動きます。
+      </p>
+      <p className="status-text">
+        <strong>
+          必ずOpenAIのコンソールで支出上限(Monthly budget)を設定してください。
+        </strong>
+        キーが漏れた場合の被害を、その上限までに抑えるための備えです。
+      </p>
+
+      <p className="status-text" data-testid="api-key-status">
+        {savedKey === null ? '現在の状態: 未設定(共有のキーを使用)' : `現在の状態: 設定済み(${maskApiKey(savedKey)})`}
+      </p>
+
+      <label htmlFor="sync-api-key-input">OpenAI APIキー</label>
+      <input
+        id="sync-api-key-input"
+        type="password"
+        autoComplete="off"
+        value={draft}
+        placeholder={savedKey === null ? '' : '(保存済み。変更する場合のみ入力)'}
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <div className="sync-api-key-actions">
+        <button type="button" className="btn-primary" onClick={handleSave} disabled={draft.trim() === ''}>
+          保存する
+        </button>
+        <button type="button" className="btn-secondary" onClick={handleClear} disabled={savedKey === null}>
+          削除する
+        </button>
+      </div>
+      {message && <p className="status-text">{message}</p>}
+    </div>
   );
 }
 

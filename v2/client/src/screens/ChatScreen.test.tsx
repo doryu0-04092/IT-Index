@@ -9,6 +9,8 @@ import { createTermsRepository, type TermsRepository } from '../repositories/ter
 import type { AiClient } from '../ai/aiClient';
 import type { CommitOrchestrator } from '../ai/commitOrchestrator';
 import { clearToken, setToken } from '../sync/tokenStore';
+import { clearApiKey, setApiKey } from '../sync/apiKeyStore';
+import { ApiRequestError } from '../sync/apiClient';
 import ChatScreen from './ChatScreen';
 
 function fakeCommitOrchestrator(): CommitOrchestrator {
@@ -32,6 +34,7 @@ describe('ChatScreen', () => {
   afterEach(async () => {
     cleanup();
     clearToken();
+    clearApiKey();
     vi.unstubAllGlobals();
     await db.delete();
   });
@@ -162,5 +165,97 @@ describe('ChatScreen', () => {
     await waitFor(() => expect(onBack).toHaveBeenCalled());
     const stored = await chatRepo.getSession(session.id);
     expect(stored?.status).toBe('declined');
+  });
+
+  // 利用者持ち込みキー(BYOK)。docs/v2/architecture.md §5。
+  describe('自分のAPIキー使用時', () => {
+    function renderChat(overrides: { aiClient?: AiClient; onGoToSync?: () => void } = {}, sessionId?: string) {
+      render(
+        <ChatScreen
+          sessionId={sessionId ?? ''}
+          chatRepo={chatRepo}
+          termsRepo={termsRepo}
+          notesRepo={notesRepo}
+          aiClient={overrides.aiClient ?? { send: vi.fn() }}
+          commitOrchestrator={fakeCommitOrchestrator()}
+          onBack={() => {}}
+          onGoToSync={overrides.onGoToSync ?? (() => {})}
+        />,
+      );
+    }
+
+    it('サーバー側キー利用時は残量を表示する', async () => {
+      setToken('tok-1');
+      const session = await chatRepo.createSession(null, 'なにか');
+      renderChat({}, session.id);
+
+      expect(await screen.findByText('本日の利用: 1/50')).toBeTruthy();
+    });
+
+    it('自分のキー設定時は残量を取得せず「回数上限なし」に切り替える', async () => {
+      setToken('tok-1');
+      setApiKey('sk-user-1234567890');
+      const session = await chatRepo.createSession(null, 'なにか');
+      renderChat({}, session.id);
+
+      expect(await screen.findByText('自分のAPIキーを使用中(回数上限なし)')).toBeTruthy();
+      expect(screen.queryByText(/本日の利用:/)).toBeNull();
+      // /api/ai/quota は利用者キー利用時に意味を持たないため呼ばない
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('user_api_key_invalidが返ったら日本語で案内し設定画面へ誘導する', async () => {
+      setToken('tok-1');
+      setApiKey('sk-bad-key');
+      const session = await chatRepo.createSession(null, 'なにか');
+      const onGoToSync = vi.fn();
+      const aiClient: AiClient = {
+        send: vi.fn().mockRejectedValue(
+          new ApiRequestError(
+            {
+              code: 'user_api_key_invalid',
+              message: '設定したAPIキーが無効です。設定画面で確認してください',
+            },
+            400,
+          ),
+        ),
+      };
+
+      renderChat({ aiClient, onGoToSync }, session.id);
+
+      const textarea = await screen.findByLabelText('メッセージ');
+      fireEvent.change(textarea, { target: { value: 'しつもん' } });
+      fireEvent.click(screen.getByText('送信'));
+
+      await waitFor(() =>
+        expect(screen.getByText('設定したAPIキーが無効です。設定画面で確認してください')).toBeTruthy(),
+      );
+      fireEvent.click(screen.getByText('設定画面へ'));
+      expect(onGoToSync).toHaveBeenCalled();
+    });
+
+    it('通常のエラーでは設定画面への誘導を出さない', async () => {
+      setToken('tok-1');
+      const session = await chatRepo.createSession(null, 'なにか');
+      const aiClient: AiClient = {
+        send: vi.fn().mockRejectedValue(
+          new ApiRequestError(
+            { code: 'ai_limit_exceeded', message: '本日の利用回数の上限に達しました。明日また利用できます' },
+            429,
+          ),
+        ),
+      };
+
+      renderChat({ aiClient }, session.id);
+
+      const textarea = await screen.findByLabelText('メッセージ');
+      fireEvent.change(textarea, { target: { value: 'しつもん' } });
+      fireEvent.click(screen.getByText('送信'));
+
+      await waitFor(() =>
+        expect(screen.getByText('本日の利用回数の上限に達しました。明日また利用できます')).toBeTruthy(),
+      );
+      expect(screen.queryByText('設定画面へ')).toBeNull();
+    });
   });
 });

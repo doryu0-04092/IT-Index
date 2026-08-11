@@ -23,13 +23,23 @@ function normalizeStopReason(finishReason: string): string {
   return finishReason;
 }
 
+/**
+ * userApiKeyが与えられた場合はそれで上流を呼び、サーバー側のOPENAI_API_KEYは一切参照しない
+ * (docs/v2/architecture.md §5「2つのキー経路」)。利用者キーは保存もログ出力もしない:
+ * この関数の外へ出るのはAuthorizationヘッダとしての上流リクエストだけで、
+ * 成功応答にもエラー(mapUpstreamError)にも値は載らない。
+ */
 export async function callOpenAi(
   env: Env,
   messages: ChatMessage[],
-  system: string | undefined
+  system: string | undefined,
+  userApiKey?: string
 ): Promise<AiResult> {
+  const usingUserKey = userApiKey !== undefined;
   // OPENAI_API_KEYはEnv型上は任意。使う瞬間(この関数が呼ばれた時)に無ければai_config_errorにする。
-  if (!env.OPENAI_API_KEY) {
+  // 利用者キー利用時はサーバー側キーの有無を問わない(未設定でも動く)。
+  const apiKey = userApiKey ?? env.OPENAI_API_KEY;
+  if (!apiKey) {
     return {
       ok: false,
       error: { status: 500, code: 'ai_config_error', message: 'サーバーのAI設定に問題があります' },
@@ -58,7 +68,7 @@ export async function callOpenAi(
     res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        authorization: `Bearer ${apiKey}`,
         'content-type': 'application/json',
       },
       body: JSON.stringify(requestBody),
@@ -72,7 +82,7 @@ export async function callOpenAi(
   }
 
   if (!res.ok) {
-    return { ok: false, error: mapUpstreamError(res.status) };
+    return { ok: false, error: mapUpstreamError(res.status, usingUserKey) };
   }
 
   const data = (await res.json()) as OpenAiChatCompletionResponse;
@@ -91,9 +101,20 @@ export async function callOpenAi(
   };
 }
 
-function mapUpstreamError(status: number): AiFailure {
+function mapUpstreamError(status: number, usingUserKey: boolean): AiFailure {
   if (status === 401 || status === 403) {
     // キーの値はログにも出さない。ステータス以外の詳細も返さない。
+    // 利用者キーが無効な場合はサーバー設定の問題と混同させない別コードにする
+    // (利用者が自分で直せる問題なので、設定画面へ誘導する文言にする)。
+    // 401ではなく400で返すのは、クライアント側で401が「ログインの失効」として
+    // 扱われる余地を作らないため(不正なのはリクエストのapiKeyフィールドである)。
+    if (usingUserKey) {
+      return {
+        status: 400,
+        code: 'user_api_key_invalid',
+        message: '設定したAPIキーが無効です。設定画面で確認してください',
+      };
+    }
     return { status: 500, code: 'ai_config_error', message: 'サーバーのAI設定に問題があります' };
   }
   if (status === 429) {
