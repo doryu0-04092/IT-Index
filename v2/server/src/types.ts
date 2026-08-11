@@ -15,5 +15,8 @@ export type Env = {
   AI_MAX_TOKENS?: string;
   AI_DAILY_LIMIT_PER_USER?: string;
   AI_DAILY_LIMIT_GLOBAL?: string;
+  // 接続テスト(POST /api/ai/test)のアカウント別日次上限。利用者キーのテストなので費用は
+  // 本人負担だが、上流への踏み台にされないための乱用防止として持つ(既定20。index.ts参照)。
+  AI_TEST_DAILY_LIMIT?: string;
   CORS_ALLOWED_ORIGIN?: string;
 };

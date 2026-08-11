@@ -1,5 +1,9 @@
-import { chatWithAi } from '../sync/apiClient';
-import { getApiKey as getStoredApiKey } from '../sync/apiKeyStore';
+import { ApiRequestError, chatWithAi } from '../sync/apiClient';
+import {
+  getVerifiedCredential,
+  markCredentialUnverified,
+  type AiCredential,
+} from '../sync/apiKeyStore';
 
 /**
  * v1(../../../src/ai/aiClient.ts)のプロバイダ非依存契約を踏襲するが、v2は呼び出し経路が
@@ -38,13 +42,18 @@ export interface AiClient {
  * 未ログイン時にAPIを呼ばないための最終防御として、トークンが無ければここで例外にする
  * (呼び出し元のUI側でも「ログインが必要です」と案内した上でチャット入口を塞ぐ。二重の防御)。
  *
- * 利用者が自分のOpenAIキーを設定している場合はそれも呼び出しごとに読み直して同送する
- * (BYOK。docs/v2/architecture.md §5)。トークンと同じ理由で毎回読み直す——設定画面で
- * キーを保存/削除した直後から、この参照を作り直さずに反映される。
+ * 利用者が自分のキーを設定し接続テストに通している場合は、その資格情報(キー+プロバイダ+
+ * モデル名)も呼び出しごとに読み直して同送する(BYOK。docs/v2/architecture.md §5)。
+ * トークンと同じ理由で毎回読み直す——設定画面で保存/削除した直後から、この参照を
+ * 作り直さずに反映される。
+ *
+ * サーバーがキーを拒否した場合(user_api_key_invalid)はここで検証済みフラグを解除する。
+ * 以降の送信は共有キー+回数上限の経路に落ち、設定画面には「無効になっている」ことが出る
+ * (無効なキーで送り続けて毎回失敗する状態を作らないため)。
  */
 export function createProxyAiClient(
   getToken: () => string | null,
-  getApiKey: () => string | null = getStoredApiKey,
+  getCredential: () => AiCredential | null = getVerifiedCredential,
 ): AiClient {
   return {
     async send(request) {
@@ -52,8 +61,15 @@ export function createProxyAiClient(
       if (!token) {
         throw new Error('AIチャットにはログインが必要です');
       }
-      const result = await chatWithAi(token, request.messages, request.system, getApiKey());
-      return result;
+      const credential = getCredential();
+      try {
+        return await chatWithAi(token, request.messages, request.system, credential);
+      } catch (err) {
+        if (credential !== null && err instanceof ApiRequestError && err.code === 'user_api_key_invalid') {
+          markCredentialUnverified();
+        }
+        throw err;
+      }
     },
   };
 }

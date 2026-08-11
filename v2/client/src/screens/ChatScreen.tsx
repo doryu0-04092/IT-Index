@@ -10,7 +10,7 @@ import type { TermsRepository } from '../repositories/terms';
 import { ApiRequestError } from '../sync/apiClient';
 import { fetchAiQuota } from '../sync/apiClient';
 import { getToken } from '../sync/tokenStore';
-import { getApiKey } from '../sync/apiKeyStore';
+import { getVerifiedCredential, providerLabel } from '../sync/apiKeyStore';
 
 export interface ChatScreenProps {
   sessionId: string;
@@ -48,9 +48,10 @@ export default function ChatScreen({
   onGoToSync,
 }: ChatScreenProps) {
   const token = getToken();
-  // 自分のキーを使っている間は回数上限の対象外(docs/v2/architecture.md §5)。
+  // 自分のキー(接続テスト済み)を使っている間は回数上限の対象外(docs/v2/architecture.md §5)。
   // 残量(/api/ai/quota)はサーバー側キーの残量しか表さないため、取得も表示もしない。
-  const usingOwnApiKey = getApiKey() !== null;
+  const ownCredential = getVerifiedCredential();
+  const usingOwnApiKey = ownCredential !== null;
 
   const [session, setSession] = useState<ChatSessionRecord | null | undefined>(undefined);
   const [subject, setSubject] = useState<SubjectContext | undefined>(undefined);
@@ -152,8 +153,10 @@ export default function ChatScreen({
           ← 戻る
         </button>
         {subjectLabel && <h2 className="chat-subject">{subjectLabel}について</h2>}
-        {usingOwnApiKey ? (
-          <span className="status-text chat-quota">自分のAPIキーを使用中(回数上限なし)</span>
+        {ownCredential ? (
+          <span className="status-text chat-quota">
+            自分のAPIキーを使用中({providerLabel(ownCredential.provider)}・回数上限なし)
+          </span>
         ) : (
           quota && (
             <span className="status-text chat-quota">

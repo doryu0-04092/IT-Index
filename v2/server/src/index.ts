@@ -5,6 +5,7 @@ import { hashPassword, verifyPassword } from './crypto';
 import { issueToken, requireAuth, type AuthedVariables } from './auth';
 import {
   AI_GLOBAL_USAGE_ACCOUNT_ID,
+  aiTestUsageAccountId,
   getAiUsageCount,
   incrementAiUsage,
   insertSyncBlob,
@@ -12,7 +13,7 @@ import {
   pullSyncBlobs,
   todayUtc,
 } from './db';
-import { callAi, resolveProvider, validateChatRequest } from './ai';
+import { callAi, runConnectionTest, validateChatRequest, validateTestRequest } from './ai';
 
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
@@ -184,21 +185,11 @@ app.post('/api/ai/chat', requireAuth, async (c) => {
     return c.json({ error: { code: 'invalid_request', message: validation.error } }, 400);
   }
 
-  // 利用者持ち込みキー(BYOK)はOpenAI経路のみ対応(docs/v2/architecture.md §5)。
-  // Anthropic運用時に黙ってサーバー側キーへ落とすと「キーを付ければ上限を回避できる」
-  // 抜け道になるため、明示的に400で断る。
+  // 利用者持ち込みキー(BYOK)はプロバイダをリクエストごとに選べる(docs/v2/architecture.md §5)。
+  // apiProviderが指定されていればその経路、未指定なら'openai'(ai.ts resolveCallProvider)。
+  // サーバー運用のAI_PROVIDERは見ない——利用者キーが付いたリクエストがサーバー側キーへ
+  // 落ちる経路を作らないことで、「キーを付ければ上限だけ回避できる」抜け道を塞ぐ。
   const userApiKey = validation.userApiKey;
-  if (userApiKey !== undefined && resolveProvider(c.env) !== 'openai') {
-    return c.json(
-      {
-        error: {
-          code: 'user_api_key_unsupported',
-          message: 'このサーバーでは自分のAPIキーを使えません',
-        },
-      },
-      400
-    );
-  }
 
   // 利用者が自分のキーを使う場合は費用が本人負担のため、回数上限の判定もカウントも行わない
   // (ai_usageに一切書かない)。上限をスキップする条件は「この後の上流呼び出しに実際に
@@ -237,7 +228,11 @@ app.post('/api/ai/chat', requireAuth, async (c) => {
     }
   }
 
-  const result = await callAi(c.env, validation.messages, validation.system, userApiKey);
+  const result = await callAi(c.env, validation.messages, validation.system, {
+    userApiKey,
+    apiProvider: validation.apiProvider,
+    model: validation.model,
+  });
   if (!result.ok) {
     return c.json(
       { error: { code: result.error.code, message: result.error.message } },
@@ -250,6 +245,53 @@ app.post('/api/ai/chat', requireAuth, async (c) => {
     stopReason: result.value.stopReason,
     usage: result.value.usage,
   });
+});
+
+/**
+ * 利用者が持ち込むキーの接続テスト(docs/v2/architecture.md §5、要件定義書§5.7)。
+ * 上流へ最小のリクエストを1件だけ投げ、成功すればプロバイダ・モデル・usageを返す。
+ * 失敗は理由ごとの日本語messageで返す(キーの値は応答にもログにも一切出さない)。
+ *
+ * チャットの回数上限(ai_usage の accountId 行)は消費しない: 上流を呼ぶのは利用者自身の
+ * キーであり、費用は本人負担のため。ただし認証済みアカウントを踏み台に上流を叩かれないよう、
+ * テスト専用の別枠(db.ts aiTestUsageAccountId)で日次回数を数える。
+ */
+app.post('/api/ai/test', requireAuth, async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const validation = validateTestRequest(body);
+  if (!validation.ok) {
+    return c.json({ error: { code: 'invalid_request', message: validation.error } }, 400);
+  }
+
+  const accountId = c.get('accountId');
+  const day = todayUtc();
+  const testLimit = Number(c.env.AI_TEST_DAILY_LIMIT ?? '20');
+  const testCount = await incrementAiUsage(c.env.DB, aiTestUsageAccountId(accountId), day);
+  if (testCount > testLimit) {
+    return c.json(
+      {
+        error: {
+          code: 'ai_test_limit_exceeded',
+          message: '接続テストの回数が本日の上限に達しました。明日また試せます',
+        },
+      },
+      429
+    );
+  }
+
+  const result = await runConnectionTest(c.env, {
+    apiKey: validation.apiKey,
+    apiProvider: validation.apiProvider,
+    model: validation.model,
+  });
+  if (!result.ok) {
+    return c.json(
+      { error: { code: result.error.code, message: result.error.message } },
+      result.error.status as 400 | 429 | 500 | 502 | 503
+    );
+  }
+
+  return c.json({ ok: true, provider: result.provider, model: result.model, usage: result.usage });
 });
 
 app.get('/api/ai/quota', requireAuth, async (c) => {

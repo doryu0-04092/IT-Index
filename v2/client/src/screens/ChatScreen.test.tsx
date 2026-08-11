@@ -9,7 +9,7 @@ import { createTermsRepository, type TermsRepository } from '../repositories/ter
 import type { AiClient } from '../ai/aiClient';
 import type { CommitOrchestrator } from '../ai/commitOrchestrator';
 import { clearToken, setToken } from '../sync/tokenStore';
-import { clearApiKey, setApiKey } from '../sync/apiKeyStore';
+import { clearAiCredential, saveVerifiedCredential } from '../sync/apiKeyStore';
 import { ApiRequestError } from '../sync/apiClient';
 import ChatScreen from './ChatScreen';
 
@@ -34,7 +34,7 @@ describe('ChatScreen', () => {
   afterEach(async () => {
     cleanup();
     clearToken();
-    clearApiKey();
+    clearAiCredential();
     vi.unstubAllGlobals();
     await db.delete();
   });
@@ -194,11 +194,11 @@ describe('ChatScreen', () => {
 
     it('自分のキー設定時は残量を取得せず「回数上限なし」に切り替える', async () => {
       setToken('tok-1');
-      setApiKey('sk-user-1234567890');
+      saveVerifiedCredential({ key: 'sk-user-1234567890', provider: 'openai' });
       const session = await chatRepo.createSession(null, 'なにか');
       renderChat({}, session.id);
 
-      expect(await screen.findByText('自分のAPIキーを使用中(回数上限なし)')).toBeTruthy();
+      expect(await screen.findByText('自分のAPIキーを使用中(OpenAI・回数上限なし)')).toBeTruthy();
       expect(screen.queryByText(/本日の利用:/)).toBeNull();
       // /api/ai/quota は利用者キー利用時に意味を持たないため呼ばない
       expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -206,7 +206,7 @@ describe('ChatScreen', () => {
 
     it('user_api_key_invalidが返ったら日本語で案内し設定画面へ誘導する', async () => {
       setToken('tok-1');
-      setApiKey('sk-bad-key');
+      saveVerifiedCredential({ key: 'sk-bad-key', provider: 'openai' });
       const session = await chatRepo.createSession(null, 'なにか');
       const onGoToSync = vi.fn();
       const aiClient: AiClient = {

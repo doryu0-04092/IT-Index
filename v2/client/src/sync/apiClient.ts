@@ -103,23 +103,70 @@ export interface AiProxyChatResult {
   usage: { inputTokens: number; outputTokens: number };
 }
 
+/** 利用者が持ち込むキーの送信単位(sync/apiKeyStore.tsのAiCredentialから作る) */
+export interface AiProxyCredential {
+  key: string;
+  provider: 'openai' | 'anthropic';
+  /** 未指定ならサーバー側のプロバイダごとの既定モデルを使う */
+  model?: string;
+}
+
 /**
- * apiKeyは利用者が自分のOpenAIキーを設定している場合にのみ付ける(BYOK。
- * docs/v2/architecture.md §5)。付けた場合サーバーはそのキーで上流を呼び、回数上限を
- * 適用しない。未設定(undefined・空文字)ならフィールド自体を送らず、サーバー側キー+
- * 回数上限の通常経路になる。
+ * credentialは利用者が自分のキーを設定し、接続テストに通っている場合にのみ付ける(BYOK。
+ * docs/v2/architecture.md §5)。付けた場合サーバーはそのキーで指定プロバイダの上流を呼び、
+ * 回数上限を適用しない。未設定(undefined・null・空キー)ならフィールド自体を送らず、
+ * サーバー側キー+回数上限の通常経路になる。
  */
 export async function chatWithAi(
   token: string,
   messages: AiProxyMessage[],
   system?: string,
-  apiKey?: string | null,
+  credential?: AiProxyCredential | null,
 ): Promise<AiProxyChatResult> {
-  const body: { messages: AiProxyMessage[]; system?: string; apiKey?: string } = { messages };
+  const body: {
+    messages: AiProxyMessage[];
+    system?: string;
+    apiKey?: string;
+    apiProvider?: 'openai' | 'anthropic';
+    model?: string;
+  } = { messages };
   if (system !== undefined) body.system = system;
-  if (apiKey !== undefined && apiKey !== null && apiKey !== '') body.apiKey = apiKey;
+  if (credential && credential.key !== '') {
+    body.apiKey = credential.key;
+    body.apiProvider = credential.provider;
+    if (credential.model !== undefined && credential.model !== '') body.model = credential.model;
+  }
 
   return apiFetch('/ai/chat', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify(body),
+  });
+}
+
+export interface AiConnectionTestResult {
+  ok: true;
+  provider: 'openai' | 'anthropic';
+  model: string;
+  usage: { inputTokens: number; outputTokens: number };
+}
+
+/**
+ * 利用者のキーが実際に上流へ通るかを確かめる(POST /api/ai/test。要件定義書§5.7の接続テスト)。
+ * 失敗時はサーバーが返す日本語messageを持つApiRequestErrorになるため、呼び出し元はそれを
+ * そのまま表示すればよい(理由の切り分けはサーバー側のcodeが持つ)。
+ */
+export async function testAiConnection(
+  token: string,
+  credential: AiProxyCredential,
+): Promise<AiConnectionTestResult> {
+  const body: { apiKey: string; apiProvider: 'openai' | 'anthropic'; model?: string } = {
+    apiKey: credential.key,
+    apiProvider: credential.provider,
+  };
+  if (credential.model !== undefined && credential.model !== '') body.model = credential.model;
+
+  return apiFetch('/ai/test', {
     method: 'POST',
     headers: authHeader(token),
     body: JSON.stringify(body),
