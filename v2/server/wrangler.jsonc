@@ -1,6 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "it-index-v2-server",
+  // 公開URLの先頭部分になる(https://<name>.<アカウントのサブドメイン>.workers.dev)。
+  // 内部呼称(-v2-server)が利用者に見えるURLへ出ないよう、アプリ名そのものにしている(2026-08-10変更)。
+  // この値を変えると別のWorkerとして作られるため、シークレットの再投入が必要になる。
+  "name": "it-index",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-08",
   "d1_databases": [
@@ -17,7 +20,7 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*"]
   },
-  // 本番運用はOpenAI(モデルgpt-5.6-luna)に一本化(2026-08-10)。ANTHROPIC_API_KEYへ戻す場合は
+  // 本番運用はOpenAIに一本化(2026-08-10)。ANTHROPIC_API_KEYへ戻す場合は
   // AI_PROVIDERを"anthropic"に変更しAI_MODELをAnthropic側のモデルIDに変更する。
   // vitest-pool-workersはこのwrangler.jsoncを読むが、vitest.config.tsのminiflare bindingsで
   // AI_PROVIDER/AI_MODELを明示的に上書きしているため既存(Anthropic経路)のテストは影響を受けない。
