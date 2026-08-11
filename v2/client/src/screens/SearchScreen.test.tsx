@@ -22,6 +22,14 @@ function fakeTermsRepo(): TermsRepository {
   };
 }
 
+/** 「取り込み待ち」まわりの新規propsの既定値。個々のテストで上書きする */
+const pendingDefaults = {
+  onCommitPending: () => {},
+  onDeclineSession: () => {},
+  failedCommitSessionIds: new Set<string>(),
+  pendingRefreshTick: 0,
+};
+
 function fakeChatRepo(sessions: ChatSessionRecord[] = []): ChatRepository {
   return {
     createSession: () => Promise.reject(new Error('not implemented')),
@@ -52,6 +60,7 @@ describe('SearchScreen', () => {
         onSelectTerm={onSelectTerm}
         onAskAi={() => {}}
         onResumeChat={() => {}}
+        {...pendingDefaults}
         seedError={null}
         seedRefreshTick={0}
         onRetrySeed={() => {}}
@@ -75,6 +84,7 @@ describe('SearchScreen', () => {
         onSelectTerm={onSelectTerm}
         onAskAi={() => {}}
         onResumeChat={() => {}}
+        {...pendingDefaults}
         seedError={null}
         seedRefreshTick={0}
         onRetrySeed={() => {}}
@@ -97,6 +107,7 @@ describe('SearchScreen', () => {
         onSelectTerm={() => {}}
         onAskAi={() => {}}
         onResumeChat={() => {}}
+        {...pendingDefaults}
         seedError="取り込みを中止しました: 理由"
         seedRefreshTick={0}
         onRetrySeed={onRetrySeed}
@@ -116,6 +127,7 @@ describe('SearchScreen', () => {
         onSelectTerm={() => {}}
         onAskAi={onAskAi}
         onResumeChat={() => {}}
+        {...pendingDefaults}
         seedError={null}
         seedRefreshTick={0}
         onRetrySeed={() => {}}
@@ -146,6 +158,7 @@ describe('SearchScreen', () => {
         onSelectTerm={() => {}}
         onAskAi={() => {}}
         onResumeChat={onResumeChat}
+        {...pendingDefaults}
         seedError={null}
         seedRefreshTick={0}
         onRetrySeed={() => {}}
@@ -156,5 +169,126 @@ describe('SearchScreen', () => {
     fireEvent.click(button);
 
     expect(onResumeChat).toHaveBeenCalledWith('session-1');
+  });
+
+  it('「取り込む」を押すとonCommitPendingが呼ばれ一覧から消える', async () => {
+    const onCommitPending = vi.fn();
+    const session: ChatSessionRecord = {
+      id: 'session-1',
+      termId: null,
+      subjectLabel: 'ゼロトラスト',
+      startedAt: 1,
+      lastActiveAt: 1,
+      status: 'open',
+    };
+    render(
+      <SearchScreen
+        termsRepo={fakeTermsRepo()}
+        chatRepo={fakeChatRepo([session])}
+        onSelectTerm={() => {}}
+        onAskAi={() => {}}
+        onResumeChat={() => {}}
+        {...pendingDefaults}
+        onCommitPending={onCommitPending}
+        seedError={null}
+        seedRefreshTick={0}
+        onRetrySeed={() => {}}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText('ゼロトラスト')).toBeTruthy());
+    fireEvent.click(screen.getByText('取り込む'));
+
+    expect(onCommitPending).toHaveBeenCalledWith('session-1');
+    await waitFor(() => expect(screen.queryByText('ゼロトラスト')).toBeNull());
+  });
+
+  it('「登録しない」を押すとonDeclineSessionが呼ばれ一覧から消える', async () => {
+    const onDeclineSession = vi.fn();
+    const session: ChatSessionRecord = {
+      id: 'session-1',
+      termId: null,
+      subjectLabel: 'ゼロトラスト',
+      startedAt: 1,
+      lastActiveAt: 1,
+      status: 'open',
+    };
+    render(
+      <SearchScreen
+        termsRepo={fakeTermsRepo()}
+        chatRepo={fakeChatRepo([session])}
+        onSelectTerm={() => {}}
+        onAskAi={() => {}}
+        onResumeChat={() => {}}
+        {...pendingDefaults}
+        onDeclineSession={onDeclineSession}
+        seedError={null}
+        seedRefreshTick={0}
+        onRetrySeed={() => {}}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText('ゼロトラスト')).toBeTruthy());
+    fireEvent.click(screen.getByText('登録しない'));
+
+    expect(onDeclineSession).toHaveBeenCalledWith('session-1');
+    await waitFor(() => expect(screen.queryByText('ゼロトラスト')).toBeNull());
+  });
+
+  it('「まとめて単語帳に取り込む」を押すと全件についてonCommitPendingが呼ばれ一覧が空になる', async () => {
+    const onCommitPending = vi.fn();
+    const sessions: ChatSessionRecord[] = [
+      { id: 'session-1', termId: null, subjectLabel: 'ゼロトラスト', startedAt: 1, lastActiveAt: 2, status: 'open' },
+      { id: 'session-2', termId: null, subjectLabel: 'コンテナ', startedAt: 1, lastActiveAt: 1, status: 'open' },
+    ];
+    render(
+      <SearchScreen
+        termsRepo={fakeTermsRepo()}
+        chatRepo={fakeChatRepo(sessions)}
+        onSelectTerm={() => {}}
+        onAskAi={() => {}}
+        onResumeChat={() => {}}
+        {...pendingDefaults}
+        onCommitPending={onCommitPending}
+        seedError={null}
+        seedRefreshTick={0}
+        onRetrySeed={() => {}}
+      />,
+    );
+
+    const commitAll = await waitFor(() => screen.getByText('まとめて単語帳に取り込む(2件)'), { timeout: 1000 });
+    fireEvent.click(commitAll);
+
+    expect(onCommitPending).toHaveBeenCalledWith('session-1');
+    expect(onCommitPending).toHaveBeenCalledWith('session-2');
+    expect(onCommitPending).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.queryByText('取り込み待ち')).toBeNull());
+  });
+
+  it('failedCommitSessionIdsに含まれるセッションには失敗マークを表示する', async () => {
+    const session: ChatSessionRecord = {
+      id: 'session-1',
+      termId: null,
+      subjectLabel: 'ゼロトラスト',
+      startedAt: 1,
+      lastActiveAt: 1,
+      status: 'open',
+    };
+    render(
+      <SearchScreen
+        termsRepo={fakeTermsRepo()}
+        chatRepo={fakeChatRepo([session])}
+        onSelectTerm={() => {}}
+        onAskAi={() => {}}
+        onResumeChat={() => {}}
+        {...pendingDefaults}
+        failedCommitSessionIds={new Set(['session-1'])}
+        seedError={null}
+        seedRefreshTick={0}
+        onRetrySeed={() => {}}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText('前回の取り込みに失敗しました')).toBeTruthy());
   });
 });

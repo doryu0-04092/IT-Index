@@ -167,6 +167,86 @@ describe('ChatScreen', () => {
     expect(stored?.status).toBe('declined');
   });
 
+  it('Enterで送信され、Shift+EnterもIME変換中のEnterも送信しない', async () => {
+    setToken('tok-1');
+    const session = await chatRepo.createSession(null, 'なにか');
+    const aiClient: AiClient = {
+      send: vi.fn().mockResolvedValue({ text: '回答です。', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } }),
+    };
+
+    render(
+      <ChatScreen
+        sessionId={session.id}
+        chatRepo={chatRepo}
+        termsRepo={termsRepo}
+        notesRepo={notesRepo}
+        aiClient={aiClient}
+        commitOrchestrator={fakeCommitOrchestrator()}
+        onBack={() => {}}
+        onGoToSync={() => {}}
+      />,
+    );
+
+    const textarea = await screen.findByLabelText('メッセージ');
+
+    // IME変換確定のEnterは送信しない
+    fireEvent.change(textarea, { target: { value: 'へんかんちゅう' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', nativeEvent: { isComposing: true } });
+    expect(aiClient.send).not.toHaveBeenCalled();
+
+    // Shift+Enterは改行のみで送信しない
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true, nativeEvent: { isComposing: false } });
+    expect(aiClient.send).not.toHaveBeenCalled();
+
+    // 通常のEnterは送信する
+    fireEvent.change(textarea, { target: { value: 'しつもんです' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', nativeEvent: { isComposing: false } });
+
+    await waitFor(() => expect(aiClient.send).toHaveBeenCalled());
+  });
+
+  it('initialQuestionが渡されるとセッション読み込み後に1回だけ自動送信する', async () => {
+    setToken('tok-1');
+    const session = await chatRepo.createSession(null, 'ゼロトラスト');
+    const aiClient: AiClient = {
+      send: vi.fn().mockResolvedValue({ text: '境界を信用しない考え方です。', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } }),
+    };
+
+    const { rerender } = render(
+      <ChatScreen
+        sessionId={session.id}
+        chatRepo={chatRepo}
+        termsRepo={termsRepo}
+        notesRepo={notesRepo}
+        aiClient={aiClient}
+        commitOrchestrator={fakeCommitOrchestrator()}
+        onBack={() => {}}
+        onGoToSync={() => {}}
+        initialQuestion="ゼロトラストって何？"
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText('境界を信用しない考え方です。')).toBeTruthy());
+    expect(aiClient.send).toHaveBeenCalledTimes(1);
+
+    // 再レンダリングしても二重送信しない
+    rerender(
+      <ChatScreen
+        sessionId={session.id}
+        chatRepo={chatRepo}
+        termsRepo={termsRepo}
+        notesRepo={notesRepo}
+        aiClient={aiClient}
+        commitOrchestrator={fakeCommitOrchestrator()}
+        onBack={() => {}}
+        onGoToSync={() => {}}
+        initialQuestion="ゼロトラストって何？"
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    expect(aiClient.send).toHaveBeenCalledTimes(1);
+  });
+
   // 利用者持ち込みキー(BYOK)。docs/v2/architecture.md §5。
   describe('自分のAPIキー使用時', () => {
     function renderChat(overrides: { aiClient?: AiClient; onGoToSync?: () => void } = {}, sessionId?: string) {
