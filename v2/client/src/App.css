@@ -401,11 +401,6 @@ body {
   text-align: center;
 }
 
-/* 検索0件時、「AIで検索」を強調する(SearchScreen.tsx参照) */
-.search-ask-ai-primary {
-  margin: 8px 0;
-}
-
 /*
  * 画面フェードイン・検索結果のstagger表示(移植元: ../../../src/index.css
  * @keyframes result-fade-in/screen-fade-in、.stagger-row/.screen-fade-in)。

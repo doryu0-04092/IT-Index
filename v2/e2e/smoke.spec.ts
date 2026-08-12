@@ -46,6 +46,28 @@ test('シード取り込み後に検索して結果から用語詳細を開け�
   await expect(page.getByRole('combobox', { name: '用語を検索' })).toBeVisible();
 });
 
+test('チャットを開いてすぐ戻ると、検索画面の「取り込み待ち」に出ない(v1 SearchScreen.tsx:93「まだ何もやり取りしていないセッションは表示不要」)', async ({ page }) => {
+  await page.goto('/');
+  await dismissOnboarding(page);
+  await expect(page.getByText(/登録単語数\(\d+語\)/)).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole('combobox', { name: '用語を検索' }).fill('TCP/IP');
+  await page.getByRole('option', { name: 'TCP/IP ティーシーピーアイピー ネットワーク' }).click();
+  await expect(page.getByRole('heading', { name: 'TCP/IP ティーシーピーアイピー' })).toBeVisible();
+
+  // 「AIに聞く」でチャットセッションが作られるが、送信せずに即座に戻る
+  await page.getByRole('button', { name: 'AIに聞く' }).click();
+  await expect(page.getByText('← 戻る').first()).toBeVisible();
+  await page.getByText('← 戻る').first().click();
+
+  // 単語詳細から検索へ戻る
+  await page.getByText('← 戻る').click();
+  await expect(page.getByRole('combobox', { name: '用語を検索' })).toBeVisible();
+
+  // messages.length===0のセッションは除外され、「取り込み待ち」自体が出ない
+  await expect(page.getByText(/単語帳への取り込み待ち/)).toHaveCount(0);
+});
+
 test('索引タブと履歴タブに切り替えられる', async ({ page }) => {
   await page.goto('/');
   await dismissOnboarding(page);
