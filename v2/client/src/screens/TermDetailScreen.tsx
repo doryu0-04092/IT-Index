@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { NoteRecord, TermRecord } from '@it-index/shared';
+import MermaidDiagram from '../lib/MermaidDiagram';
 import Skeleton from '../lib/Skeleton';
 import type { NotesRepository } from '../repositories/notes';
 import type { TermsRepository } from '../repositories/terms';
@@ -20,9 +21,9 @@ export interface TermDetailScreenProps {
 /**
  * 用語詳細画面。要件定義書§4.1の通り、term/readings/field/summaryは不変(「思い出す用」)、
  * ノートbody(Markdownテキスト)はそのまま<pre>で表示+テキストエリアで編集保存する
- * (Markdownレンダラは追加しない。§5「やらないこと」)。diagramsはMermaidの描画をせず、
- * コードブロック表示のみに留める(v1(../../../src/ui/pc/TermDetailScreen.tsx)は
- * MermaidDiagramで描画していたが、v2では新規依存を追加しない方針のため見送る)。
+ * (Markdownレンダラは追加しない。§5「やらないこと」)。diagramsは移植元
+ * (../../../src/ui/pc/TermDetailScreen.tsx)と同じくMermaidDiagramで描画する
+ * (構文エラー時はMermaidDiagram側でコードブロック表示にフォールバックする)。
  */
 export default function TermDetailScreen({
   termId,
@@ -124,11 +125,7 @@ export default function TermDetailScreen({
             <h3>AI補足ノート</h3>
             {note && note.diagrams.length > 0 && (
               <div className="term-detail-diagrams">
-                {note.diagrams.map((d, i) => (
-                  <pre key={i} className="term-detail-diagram-code">
-                    {d}
-                  </pre>
-                ))}
+                {note.diagrams.map((d, i) => <MermaidDiagram key={i} code={d} />)}
               </div>
             )}
             <textarea

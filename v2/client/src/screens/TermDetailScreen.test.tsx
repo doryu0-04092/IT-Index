@@ -5,6 +5,12 @@ import type { NotesRepository } from '../repositories/notes';
 import type { TermsRepository } from '../repositories/terms';
 import TermDetailScreen from './TermDetailScreen';
 
+// diagrams描画の実体(mermaidの実描画)はMermaidDiagram.test.tsxで検証済み。ここでは
+// TermDetailScreenがdiagramsをMermaidDiagramへ渡していることだけを確認する。
+vi.mock('../lib/MermaidDiagram', () => ({
+  default: ({ code }: { code: string }) => <div data-testid="mermaid-stub">{code}</div>,
+}));
+
 const term = buildTermRecord({ term: 'HTTP', readings: ['エイチティーティーピー'], summary: '通信規約', field: 'ネットワーク', origin: 'seed', now: 1 });
 
 function fakeTermsRepo(): TermsRepository {
@@ -106,6 +112,32 @@ describe('TermDetailScreen', () => {
     fireEvent.click(screen.getByText('保存する'));
 
     await waitFor(() => expect(notesRepo.saveBody).toHaveBeenCalledWith(term.id, 'ポート80/443を使う', 'device-1', expect.any(Number)));
+  });
+
+  it('ノートにdiagramsがある場合、各コードをMermaidDiagramへ渡す', async () => {
+    const note: NoteRecord = {
+      termId: term.id,
+      body: '調べたこと',
+      diagrams: ['graph TD;A-->B;', 'sequenceDiagram;A->>B: hi'],
+      updatedAt: 1,
+      lastEditedBy: 'device-1',
+      noteHistory: [],
+    };
+    render(
+      <TermDetailScreen
+        termId={term.id}
+        termsRepo={fakeTermsRepo()}
+        notesRepo={fakeNotesRepo(note)}
+        deviceId="device-1"
+        onBack={() => {}}
+        onDeleted={() => {}}
+        onOpenChat={() => {}}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getAllByTestId('mermaid-stub')).toHaveLength(2));
+    expect(screen.getAllByTestId('mermaid-stub')[0].textContent).toBe('graph TD;A-->B;');
+    expect(screen.getAllByTestId('mermaid-stub')[1].textContent).toBe('sequenceDiagram;A->>B: hi');
   });
 
   it('削除確認→削除するとonDeletedが呼ばれる', async () => {
