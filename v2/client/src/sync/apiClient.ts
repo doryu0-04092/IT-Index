@@ -4,7 +4,11 @@
  *
  * ベースURL: 既定は同一オリジンの相対パス"/api"。import.meta.env.VITE_API_BASEが
  * 設定されていれば、それを前置する(開発時にwrangler dev(localhost:8787)を指す用)。
+ * さらに、利用者が設定タブ「接続先サーバー」で接続テストに成功したURLを保存していれば
+ * それを最優先で使う(sync/serverConfig.ts参照)。認証・同期・AIの全リクエストはこのファイルの
+ * apiFetch()を経由するため、apiUrl()の1箇所を読み替えるだけで基底URLが一元的に切り替わる。
  */
+import { getServerBaseUrl } from './serverConfig';
 
 export interface ApiErrorBody {
   code: string;
@@ -24,7 +28,7 @@ export class ApiRequestError extends Error {
 }
 
 function apiUrl(path: string): string {
-  const base = import.meta.env.VITE_API_BASE ?? '';
+  const base = getServerBaseUrl() ?? import.meta.env.VITE_API_BASE ?? '';
   return `${base}/api${path}`;
 }
 
@@ -62,8 +66,28 @@ export async function login(email: string, password: string): Promise<{ token: s
   return apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
 }
 
-export async function fetchMe(token: string): Promise<{ accountId: string; email: string }> {
+export async function fetchMe(
+  token: string,
+): Promise<{ accountId: string; email: string; licensed: boolean }> {
   return apiFetch('/auth/me', { method: 'GET', headers: authHeader(token) });
+}
+
+/**
+ * 決済モック(requirements.md §4.2)。成功時はサーバーが即時発行・有効化したコードを返す
+ * (画面で「決済が確定されました。ライセンスコード: {code}」と表示するためのcode)。
+ * 既に有効なライセンスがある場合は409(code: 'license_already_active')。
+ */
+export async function purchaseLicense(token: string): Promise<{ code: string; activatedAt: number }> {
+  return apiFetch('/license/purchase', { method: 'POST', headers: authHeader(token) });
+}
+
+/** ライセンスコードの有効化。失敗時はサーバーの日本語messageを持つApiRequestError(403/400/429) */
+export async function activateLicense(token: string, code: string): Promise<{ activatedAt: number }> {
+  return apiFetch('/license/activate', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ code }),
+  });
 }
 
 export async function pushSyncBlob(token: string, deviceId: string, payload: string): Promise<{ seq: number }> {

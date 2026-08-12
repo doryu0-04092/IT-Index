@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from './App';
 import { db } from './db';
 import { createChatRepository } from './repositories/chat';
@@ -48,6 +48,20 @@ describe('App', () => {
 
     fireEvent.click(screen.getByText('← 戻る'));
     await waitFor(() => expect(screen.getByRole('combobox')).toBeTruthy());
+  });
+
+  it('5つのタブ(検索/索引/履歴/設定/同期)が表示され、設定タブに切り替えられる', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
+
+    const nav = screen.getByRole('navigation', { name: '画面切り替え' });
+    for (const label of ['検索', '索引', '履歴', '設定', '同期']) {
+      expect(within(nav).getByRole('button', { name: label })).toBeTruthy();
+    }
+
+    fireEvent.click(within(nav).getByRole('button', { name: '設定' }));
+    await waitFor(() => expect(screen.getByText('ライセンス')).toBeTruthy());
+    expect(screen.getByRole('button', { name: '設定' }).getAttribute('aria-current')).toBe('page');
   });
 
   it('索引タブへ切り替えられる', async () => {

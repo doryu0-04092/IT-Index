@@ -62,3 +62,24 @@ test('索引タブと履歴タブに切り替えられる', async ({ page }) => 
   await page.getByRole('button', { name: '重み付け' }).click();
   await expect(page.getByText('最近も繰り返し聞いている語ほど上位')).toBeVisible();
 });
+
+test('設定タブに切り替えられ、ライセンス・AI設定・接続先サーバー・表示・データの5セクションが並ぶ', async ({ page }) => {
+  await page.goto('/');
+  await dismissOnboarding(page);
+  await expect(page.getByText(/登録単語数\(\d+語\)/)).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole('button', { name: '設定', exact: true }).click();
+  await expect(page.getByRole('button', { name: '設定', exact: true })).toHaveAttribute('aria-current', 'page');
+
+  await expect(page.getByRole('heading', { name: 'ライセンス' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'AI設定' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '接続先サーバー' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '表示' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'データ' })).toBeVisible();
+
+  // 未ログインでは同期タブ(AI設定・テーマは移設済みでここには無い)への誘導が出る
+  await expect(page.getByText('ライセンスの購入にはログインが必要です。')).toBeVisible();
+
+  await page.getByRole('button', { name: '同期', exact: true }).click();
+  await expect(page.getByLabel('メールアドレス')).toBeVisible();
+});

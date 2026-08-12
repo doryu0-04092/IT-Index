@@ -727,3 +727,30 @@ body {
   color: var(--accent-fg);
   border-color: var(--accent);
 }
+
+/*
+ * 設定タブ(SettingsScreen.tsx)。ライセンス・AI設定・接続先サーバー・表示・データの5セクションを
+ * 縦に並べるため、区切り線だけ入れる(他画面の見出し・段落は既存クラス(status-text等)に
+ * 委ねている)。
+ */
+.settings-section {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-section-danger {
+  border-bottom: none;
+}
+
+/* 決済モックの注記(要件定義書§4.2)。コンテスト来訪者を誤認させないための小さな併記 */
+.status-text-small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* ライセンスコード表示。クリックで選択→コピーしやすくする(依頼者指定) */
+.license-code {
+  user-select: all;
+  font-family: monospace;
+}

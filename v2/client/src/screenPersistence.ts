@@ -29,6 +29,7 @@ function isValidScreen(value: unknown, depth: number): value is Screen {
     case 'search':
     case 'index':
     case 'sync':
+    case 'settings':
       return true;
     case 'history':
       return typeof v.view === 'string' && VALID_HISTORY_VIEWS.includes(v.view as HistoryView);
