@@ -43,9 +43,11 @@ describe('auth', () => {
       headers: { authorization: `Bearer ${loginBody.token}` },
     });
     expect(meRes.status).toBe(200);
-    const me = await meRes.json<{ accountId: string; email: string }>();
+    const me = await meRes.json<{ accountId: string; email: string; licensed: boolean }>();
     expect(me.email).toBe(email);
     expect(typeof me.accountId).toBe('string');
+    // 作成直後のアカウントはライセンスを持たない(公式ホストの既定=ゲート有効)。
+    expect(me.licensed).toBe(false);
   });
 
   it('duplicate signup returns 409', async () => {

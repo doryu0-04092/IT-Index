@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env } from './types';
 import { hashPassword, verifyPassword } from './crypto';
@@ -14,11 +14,73 @@ import {
   todayUtc,
 } from './db';
 import { callAi, runConnectionTest, validateChatRequest, validateTestRequest } from './ai';
+import {
+  LICENSE_DAILY_ATTEMPT_LIMIT,
+  activateExistingLicense,
+  findLicenseByCode,
+  hasActiveLicense,
+  insertOperatorLicense,
+  isLicenseEnabled,
+  issuePurchasedLicense,
+  licenseUsageAccountId,
+  matchesOperatorCode,
+  validateCodeInput,
+} from './license';
 
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
 
 const app = new Hono<{ Bindings: Env; Variables: AuthedVariables }>();
+
+type AppContext = Context<{ Bindings: Env; Variables: AuthedVariables }>;
+
+/**
+ * ライセンスゲート(requirements.md §4 / architecture.md §4・§5)。
+ * 公式ホストでは端末間同期と運営者キーでのAI利用を、有効なライセンスを持つアカウントに限る。
+ *
+ * **置き場所がここ(ルートハンドラ側)である理由**: ai.tsのresolveCallProviderは
+ * 「利用者キーが有るか無いか」だけを判定し、それが上限スキップの唯一の条件という既存の
+ * 不変条件を担っている。公式ホスト限定の追加条件をあの関数へ混ぜないため、ai.tsは触らない。
+ *
+ * LICENSE_ENABLED='0'(セルフホスト)では確認自体を行わない。
+ * 通してよい場合はundefinedを返す(呼び出し側は戻り値があればそれを返す)。
+ */
+async function licenseDenial(c: AppContext): Promise<Response | undefined> {
+  if (!isLicenseEnabled(c.env)) return undefined;
+  if (await hasActiveLicense(c.env.DB, c.get('accountId'))) return undefined;
+  return c.json(
+    {
+      error: {
+        code: 'license_required',
+        message:
+          '同期と共有AIの利用にはライセンスが必要です。設定画面から購入(モック)するか、自分のサーバーを設定してください。',
+      },
+    },
+    403
+  );
+}
+
+/**
+ * ライセンス操作(購入・有効化)の日次試行上限。ai_usageの予約キー方式(license.ts)で数える。
+ * 上限に達したら429。上限判定はコード照合より前に置く(総当たりの試行そのものを数えるため)。
+ */
+async function licenseAttemptDenial(c: AppContext): Promise<Response | undefined> {
+  const attempts = await incrementAiUsage(
+    c.env.DB,
+    licenseUsageAccountId(c.get('accountId')),
+    todayUtc()
+  );
+  if (attempts <= LICENSE_DAILY_ATTEMPT_LIMIT) return undefined;
+  return c.json(
+    {
+      error: {
+        code: 'license_attempts_exceeded',
+        message: 'ライセンス操作の回数が本日の上限に達しました。明日また試せます',
+      },
+    },
+    429
+  );
+}
 
 // CORS_ALLOWED_ORIGIN未設定時は何もしない(本番は同一オリジン配信のためCORS不要)。
 // ローカル開発でvite dev(5173)からwrangler dev(8787)を叩く場合のみ設定する。
@@ -122,10 +184,111 @@ app.get('/api/auth/me', requireAuth, async (c) => {
   if (!account) {
     return c.json({ error: { code: 'unauthorized', message: '認証が必要です' } }, 401);
   }
-  return c.json({ accountId: account.id, email: account.email });
+  // licensedは「このアカウントで同期・共有AIを使える状態か」を表す。
+  // LICENSE_ENABLED='0'(セルフホスト)ではライセンス概念が無いため常にtrueになり、
+  // クライアントはこの1つの値だけで購入導線の出し分けを決められる
+  // (=ゲートの判定条件とクライアントの表示条件が食い違わない)。
+  const licensed = !isLicenseEnabled(c.env) || (await hasActiveLicense(c.env.DB, accountId));
+  return c.json({ accountId: account.id, email: account.email, licensed });
+});
+
+/**
+ * 決済モック(requirements.md §4.2)。実際の課金は行わず、サーバーがコードを発行して
+ * そのアカウントで即時有効化する。応答のcodeは「決済が確定されました。ライセンスコード: …」を
+ * クライアントが表示するためのもので、**本人の購入応答にコードを載せるのは仕様**。
+ */
+app.post('/api/license/purchase', requireAuth, async (c) => {
+  const accountId = c.get('accountId');
+
+  // 既に有効なライセンスがあるなら発行しない(重複購入の誤操作防止。実課金でないため機会損失なし)。
+  // この判定は書き込みを伴わないため試行上限より前に置く——購入済みの利用者が画面の再読み込みで
+  // 日次の試行枠を使い切らないようにするため。
+  if (await hasActiveLicense(c.env.DB, accountId)) {
+    return c.json(
+      {
+        error: {
+          code: 'license_already_active',
+          message: 'このアカウントには既に有効なライセンスがあります',
+        },
+      },
+      409
+    );
+  }
+
+  const attemptDenied = await licenseAttemptDenial(c);
+  if (attemptDenied) return attemptDenied;
+
+  const { code, activatedAt } = await issuePurchasedLicense(c.env.DB, accountId, Date.now());
+  return c.json({ code, activatedAt }, 201);
+});
+
+/**
+ * ライセンスコードの有効化。有効化できるのは
+ * (a) 運営者コード(環境変数LICENSE_CODES。初回使用時にsource='operator'の行を作る)
+ * (b) licensesテーブルに存在する未有効化のコード(発行済み在庫)
+ * のいずれか。1コード=1アカウントで、2回目以降の同一コードは(b)の経路で使用済みになる。
+ *
+ * **エラー応答はコード値も部分一致情報も返さない**。存在しないコードと他人が使用済みの
+ * コードは同じ403・同じmessageにしてある(区別すると「そのコードは存在する」という
+ * 総当たりのヒントになるため)。本人が自分の有効化済みコードを再送した場合だけ200で冪等。
+ */
+app.post('/api/license/activate', requireAuth, async (c) => {
+  const body = await c.req.json<{ code?: unknown }>().catch(() => null);
+  const validation = validateCodeInput(body?.code);
+  if (!validation.ok) {
+    return c.json({ error: { code: 'invalid_request', message: validation.error } }, 400);
+  }
+
+  const accountId = c.get('accountId');
+  const invalidCode = () =>
+    c.json(
+      {
+        error: {
+          code: 'license_invalid',
+          message: 'ライセンスコードが正しくありません。入力内容を確認してください',
+        },
+      },
+      403
+    );
+
+  // 上限判定はコード照合より前。成否に関わらず1回消費する(失敗だけ数える方式では
+  // 当たりを引くまでの試行回数に上限がかからない)。
+  const attemptDenied = await licenseAttemptDenial(c);
+  if (attemptDenied) return attemptDenied;
+
+  const code = validation.code;
+  const now = Date.now();
+  const existing = await findLicenseByCode(c.env.DB, code);
+
+  if (existing === null) {
+    // 未登録のコード。運営者コードの初回使用ならここで行を作って有効化する。
+    if (await matchesOperatorCode(c.env, code)) {
+      const inserted = await insertOperatorLicense(c.env.DB, code, accountId, now);
+      if (inserted) return c.json({ activatedAt: now });
+      // 同時実行で他アカウントが先に使った場合。使用済みと同じ扱いにする。
+    }
+    return invalidCode();
+  }
+
+  if (existing.activated_at !== null) {
+    if (existing.account_id === accountId) {
+      // 本人による再送。リトライ安全のため冪等に200(activated_atは最初の値のまま)。
+      return c.json({ activatedAt: existing.activated_at });
+    }
+    return invalidCode();
+  }
+
+  const activated = await activateExistingLicense(c.env.DB, code, accountId, now);
+  if (!activated) return invalidCode();
+  return c.json({ activatedAt: now });
 });
 
 app.post('/api/sync/push', requireAuth, async (c) => {
+  // ゲート順: 認証(requireAuth)→ライセンス→本文の検証・保存。
+  // 未ライセンスならpayloadを読む前に返す(D1への書き込みも発生しない)。
+  const licenseDenied = await licenseDenial(c);
+  if (licenseDenied) return licenseDenied;
+
   const contentLength = c.req.header('content-length');
   if (contentLength && Number(contentLength) > MAX_PAYLOAD_BYTES) {
     return c.json(
@@ -156,6 +319,9 @@ app.post('/api/sync/push', requireAuth, async (c) => {
 });
 
 app.get('/api/sync/pull', requireAuth, async (c) => {
+  const licenseDenied = await licenseDenial(c);
+  if (licenseDenied) return licenseDenied;
+
   const sinceRaw = c.req.query('since') ?? '0';
   const since = Number(sinceRaw);
   if (!Number.isFinite(since) || since < 0) {
@@ -195,6 +361,15 @@ app.post('/api/ai/chat', requireAuth, async (c) => {
   // (ai_usageに一切書かない)。上限をスキップする条件は「この後の上流呼び出しに実際に
   // 利用者キーが使われること」と同一で、サーバー側キーが使われる経路では必ず上限が効く。
   if (userApiKey === undefined) {
+    // 運営者キー経路。公式ホストでは有効なライセンスを持つアカウントに限る
+    // (architecture.md §5の不変条件)。ゲート順は 認証→ライセンス→上限 で、
+    // incrementAiUsageより前に403を返すため、**未ライセンスのリクエストは
+    // 利用者・全体いずれの残量も消費しない**。
+    // 判定条件はこの`userApiKey === undefined`(=上限が効く条件、=上流を運営者キーで
+    // 呼ぶ条件)と同一で、ライセンス判定を別に組み直していない。
+    const licenseDenied = await licenseDenial(c);
+    if (licenseDenied) return licenseDenied;
+
     const accountId = c.get('accountId');
     const day = todayUtc();
     const perUserLimit = Number(c.env.AI_DAILY_LIMIT_PER_USER ?? '50');

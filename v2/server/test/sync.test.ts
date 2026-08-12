@@ -1,21 +1,12 @@
 import { exports } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
+import { BASE, authHeaders, signupAccount } from './helpers';
 
-const BASE = 'https://example.com';
-
+// 同期は公式ホストでは要ライセンス(src/license.ts)。ここでは同期そのものの振る舞いを
+// 見たいので、アカウントには既定でライセンスを付与する。
+// 未ライセンス時に403になることはlicense.test.tsで検証する。
 async function signupAndGetToken(): Promise<string> {
-  const email = `sync-${crypto.randomUUID()}@example.com`;
-  const res = await exports.default.fetch(`${BASE}/api/auth/signup`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password: 'password123' }),
-  });
-  const body = await res.json<{ token: string }>();
-  return body.token;
-}
-
-function authHeaders(token: string) {
-  return { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+  return (await signupAccount('sync')).token;
 }
 
 async function push(token: string, deviceId: string, payload: string) {

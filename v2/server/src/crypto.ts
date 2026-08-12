@@ -59,3 +59,20 @@ function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
   for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
   return diff === 0;
 }
+
+/**
+ * 文字列の定数時間比較(ライセンスコードの照合に使う。license.ts参照)。
+ *
+ * 上のtimingSafeEqualは長さが違えば早期returnするため、そのまま文字列に使うと
+ * 「正解の長さと一致しているか」が実行時間に出てしまう。ここでは両方をSHA-256で
+ * **必ず32バイトの固定長**にしてから比較するので、入力の長さに関わらず比較経路は同一になる
+ * (長さによる分岐が一切発生しない)。ダイジェスト化は秘密の保護ではなく長さの平坦化が目的。
+ */
+export async function timingSafeEqualString(a: string, b: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [digestA, digestB] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(a)),
+    crypto.subtle.digest('SHA-256', encoder.encode(b)),
+  ]);
+  return timingSafeEqual(new Uint8Array(digestA), new Uint8Array(digestB));
+}

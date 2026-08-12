@@ -19,4 +19,11 @@ export type Env = {
   // 本人負担だが、上流への踏み台にされないための乱用防止として持つ(既定20。index.ts参照)。
   AI_TEST_DAILY_LIMIT?: string;
   CORS_ALLOWED_ORIGIN?: string;
+  // ライセンス基盤(requirements.md §4)。
+  // LICENSE_ENABLED: '0'のときだけライセンス確認を全面的に止める(セルフホスト用キルスイッチ)。
+  // 未設定・'1'はゲート有効。公式ホストは未設定のまま(wrangler.jsoncのvarsには置かない)。
+  LICENSE_ENABLED?: string;
+  // LICENSE_CODES: 運営者が手動発行するコード。カンマ区切りで複数可(Workers Secret想定)。
+  // 値は秘密として扱い、応答・ログ・エラーメッセージには一切出さない(license.ts)。
+  LICENSE_CODES?: string;
 };
