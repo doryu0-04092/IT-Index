@@ -27,6 +27,11 @@ describe('screenPersistence', () => {
     expect(readPersistedScreen()).toEqual({ name: 'chat', sessionId: 'session-1', returnTo: { name: 'search' } });
   });
 
+  it('settingsをそのまま保存・復元できる(設定タブ新設)', () => {
+    persistScreen({ name: 'settings' });
+    expect(readPersistedScreen()).toEqual({ name: 'settings' });
+  });
+
   it('historyはviewが妥当な値の場合のみ復元する', () => {
     persistScreen({ name: 'history', view: 'weighted' });
     expect(readPersistedScreen()).toEqual({ name: 'history', view: 'weighted' });

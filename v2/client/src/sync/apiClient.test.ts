@@ -1,15 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  activateLicense,
   ApiRequestError,
   chatWithAi,
   fetchAiQuota,
   fetchMe,
   login,
   pullSyncBlobs,
+  purchaseLicense,
   pushSyncBlob,
   signup,
   testAiConnection,
 } from './apiClient';
+import { clearServerBaseUrl, setServerBaseUrl } from './serverConfig';
 
 function mockFetchOnce(status: number, body: unknown) {
   return vi.fn().mockResolvedValue({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) });
@@ -18,6 +21,7 @@ function mockFetchOnce(status: number, body: unknown) {
 describe('apiClient', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    clearServerBaseUrl();
   });
 
   it('signupは既定で/api/auth/signupへ相対パスでPOSTし、tokenを返す', async () => {
@@ -255,5 +259,69 @@ describe('apiClient', () => {
 
     expect(result).toEqual({ used: 3, limit: 50 });
     expect(fetchMock.mock.calls[0][0]).toBe('/api/ai/quota');
+  });
+
+  it('purchaseLicenseは/api/license/purchaseへAuthorization付きでPOSTし、code/activatedAtを受け取る', async () => {
+    const fetchMock = mockFetchOnce(201, { code: 'ABCD-1234', activatedAt: 1000 });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await purchaseLicense('tok');
+
+    expect(result).toEqual({ code: 'ABCD-1234', activatedAt: 1000 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/license/purchase');
+    expect(init.method).toBe('POST');
+    expect(init.headers.Authorization).toBe('Bearer tok');
+  });
+
+  it('purchaseLicenseは既に有効な場合409をcode付きのApiRequestErrorとして投げる', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetchOnce(409, {
+        error: { code: 'license_already_active', message: 'このアカウントには既に有効なライセンスがあります' },
+      }),
+    );
+
+    await expect(purchaseLicense('tok')).rejects.toMatchObject({
+      code: 'license_already_active',
+      message: 'このアカウントには既に有効なライセンスがあります',
+      status: 409,
+    });
+  });
+
+  it('activateLicenseはcodeを送りactivatedAtを受け取る', async () => {
+    const fetchMock = mockFetchOnce(200, { activatedAt: 2000 });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await activateLicense('tok', 'CODE-1');
+
+    expect(result).toEqual({ activatedAt: 2000 });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/license/activate');
+    expect(JSON.parse(init.body)).toEqual({ code: 'CODE-1' });
+  });
+
+  it('activateLicenseは無効なコードで403をcode付きのApiRequestErrorとして投げる', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetchOnce(403, {
+        error: { code: 'license_invalid', message: 'ライセンスコードが正しくありません。入力内容を確認してください' },
+      }),
+    );
+
+    await expect(activateLicense('tok', 'bad-code')).rejects.toMatchObject({
+      code: 'license_invalid',
+      status: 403,
+    });
+  });
+
+  it('接続先サーバーが設定されていれば、全リクエストの基底URLがそれに切り替わる(一元化点: apiUrl())', async () => {
+    setServerBaseUrl('https://self-hosted.example.workers.dev');
+    const fetchMock = mockFetchOnce(200, { token: 'tok-x' });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await login('a@example.com', 'password123');
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://self-hosted.example.workers.dev/api/auth/login');
   });
 });

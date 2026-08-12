@@ -25,6 +25,12 @@ export interface ChatScreenProps {
   /** 未ログイン時の案内から同期画面へ誘導する */
   onGoToSync: () => void;
   /**
+   * ライセンスが必要(license_required)な場合の案内から設定タブへ誘導する(要件定義書§4)。
+   * ChatScreenを直接テストする既存ケースに影響しないよう任意にしてある——未指定時は
+   * ボタンを出さないだけで、通常経路(App.tsx)では必ず渡す。
+   */
+  onGoToSettings?: () => void;
+  /**
    * 「話題を変える」で用語を選んだ(移植元: ../../../src/ui/pc/ChatScreen.tsx onChangeSubject。
    * v1のTermPickerをそのまま移植)。呼び出し元(App.tsx)がApp.tsxの既存openChatForTerm
    * (「AIに聞く」と同じ処理)でこの画面のsessionId/subjectを入れ替える。
@@ -61,6 +67,7 @@ export default function ChatScreen({
   commitOrchestrator,
   onBack,
   onGoToSync,
+  onGoToSettings,
   onChangeSubject,
   initialQuestion,
 }: ChatScreenProps) {
@@ -235,11 +242,24 @@ export default function ChatScreen({
             ← 戻る
           </button>
 
-          {sendError && <p className="error-text">{sendError}</p>}
+          {sendError && sendErrorCode !== 'license_required' && <p className="error-text">{sendError}</p>}
           {sendErrorCode === 'user_api_key_invalid' && (
             <button type="button" className="btn-secondary" onClick={onGoToSync}>
               設定画面へ
             </button>
+          )}
+          {/* 公式ホストでライセンスが無い場合、サーバーは403 license_requiredを返す
+              (docs/v2/architecture.md §4・§5)。設定タブへ誘導する(既存のuser_api_key_invalid
+              誘導と同じ流儀)。 */}
+          {sendErrorCode === 'license_required' && onGoToSettings && (
+            <div className="chat-license-required">
+              <p className="error-text">
+                ライセンスが必要です。設定タブから購入(モック)するか、自分のサーバーを設定してください。
+              </p>
+              <button type="button" className="btn-secondary" onClick={onGoToSettings}>
+                設定タブへ
+              </button>
+            </div>
           )}
 
           <div className="chat-quick-asks">

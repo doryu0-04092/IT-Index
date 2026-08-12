@@ -13,13 +13,14 @@ import { persistScreen, readPersistedScreen } from './screenPersistence';
 import ChatScreen from './screens/ChatScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import SearchScreen from './screens/SearchScreen';
+import SettingsScreen from './screens/SettingsScreen';
 import SyncScreen from './screens/SyncScreen';
 import TermDetailScreen from './screens/TermDetailScreen';
 import TermIndexScreen from './screens/TermIndexScreen';
 import { getToken } from './sync/tokenStore';
 import { useAppInit } from './useAppInit';
 
-type NavTarget = 'search' | 'index' | 'history' | 'sync';
+type NavTarget = 'search' | 'index' | 'history' | 'settings' | 'sync';
 
 function navLabel(target: NavTarget): string {
   switch (target) {
@@ -29,6 +30,8 @@ function navLabel(target: NavTarget): string {
       return '索引';
     case 'history':
       return '履歴';
+    case 'settings':
+      return '設定';
     case 'sync':
       return '同期';
   }
@@ -269,7 +272,11 @@ export function App() {
   }
 
   const navCurrent: NavTarget | null =
-    screen.name === 'search' || screen.name === 'index' || screen.name === 'history' || screen.name === 'sync'
+    screen.name === 'search' ||
+    screen.name === 'index' ||
+    screen.name === 'history' ||
+    screen.name === 'settings' ||
+    screen.name === 'sync'
       ? screen.name
       : null;
 
@@ -278,7 +285,7 @@ export function App() {
       <header className="app-header">
         <h1>IT-Index v2</h1>
         <nav className="app-nav" aria-label="画面切り替え">
-          {(['search', 'index', 'history', 'sync'] as const).map((target) => (
+          {(['search', 'index', 'history', 'settings', 'sync'] as const).map((target) => (
             <button
               key={target}
               type="button"
@@ -325,6 +332,13 @@ export function App() {
             onChangeView={(view) => setScreen({ name: 'history', view })}
             onSelectTerm={(termId) => openDetail(termId, screen)}
           />
+        ) : screen.name === 'settings' ? (
+          <SettingsScreen
+            db={db}
+            themeChoice={themeChoice}
+            onThemeChange={setThemeChoice}
+            onGoToSync={() => setScreen({ name: 'sync' })}
+          />
         ) : screen.name === 'sync' ? (
           <SyncScreen
             db={db}
@@ -334,8 +348,6 @@ export function App() {
             asksRepo={asksRepo}
             noteConflictsRepo={noteConflictsRepo}
             syncStateRepo={syncStateRepo}
-            themeChoice={themeChoice}
-            onThemeChange={setThemeChoice}
             onSyncNotify={notify}
           />
         ) : screen.name === 'chat' ? (
@@ -348,6 +360,7 @@ export function App() {
             commitOrchestrator={commitOrchestrator}
             onBack={() => setScreen(screen.returnTo)}
             onGoToSync={() => setScreen({ name: 'sync' })}
+            onGoToSettings={() => setScreen({ name: 'settings' })}
             onChangeSubject={(termId) => void openChatForTerm(termId, screen.returnTo)}
             initialQuestion={screen.initialQuestion}
           />

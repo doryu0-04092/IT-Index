@@ -23,6 +23,11 @@ export type Screen =
   | { name: 'detail'; termId: string; returnTo: Screen }
   | { name: 'index' }
   | { name: 'history'; view: HistoryView }
+  /**
+   * 設定タブ(ライセンス・AI設定・接続先サーバー・表示・データ)。要件定義書§4「提供形態」。
+   * 同期タブから移設したAI設定・表示(テーマ)をここに集約し、同期タブは同期機能に純化する。
+   */
+  | { name: 'settings' }
   | { name: 'sync' }
   /**
    * AIチャット画面。要件定義書§5.3。戻り先(returnTo)は開いた場所を丸ごと保持する

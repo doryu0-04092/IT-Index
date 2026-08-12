@@ -330,6 +330,50 @@ describe('ChatScreen', () => {
     expect(aiClient.send).toHaveBeenCalledTimes(1);
   });
 
+  it('license_requiredが返ったら設定タブへの誘導を表示する(要件定義書§4)', async () => {
+    setToken('tok-1');
+    const session = await chatRepo.createSession(null, 'なにか');
+    const onGoToSettings = vi.fn();
+    const aiClient: AiClient = {
+      send: vi.fn().mockRejectedValue(
+        new ApiRequestError(
+          {
+            code: 'license_required',
+            message: '同期と共有AIの利用にはライセンスが必要です。設定画面から購入(モック)するか、自分のサーバーを設定してください。',
+          },
+          403,
+        ),
+      ),
+    };
+
+    render(
+      <ChatScreen
+        sessionId={session.id}
+        chatRepo={chatRepo}
+        termsRepo={termsRepo}
+        notesRepo={notesRepo}
+        aiClient={aiClient}
+        commitOrchestrator={fakeCommitOrchestrator()}
+        onBack={() => {}}
+        onGoToSync={() => {}}
+        onGoToSettings={onGoToSettings}
+        onChangeSubject={() => {}}
+      />,
+    );
+
+    const textarea = await screen.findByLabelText('メッセージ');
+    fireEvent.change(textarea, { target: { value: 'しつもん' } });
+    fireEvent.click(screen.getByText('送信'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText('ライセンスが必要です。設定タブから購入(モック)するか、自分のサーバーを設定してください。'),
+      ).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByText('設定タブへ'));
+    expect(onGoToSettings).toHaveBeenCalled();
+  });
+
   // 利用者持ち込みキー(BYOK)。docs/v2/architecture.md §5。
   describe('自分のAPIキー使用時', () => {
     function renderChat(overrides: { aiClient?: AiClient; onGoToSync?: () => void } = {}, sessionId?: string) {
