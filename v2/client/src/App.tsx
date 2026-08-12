@@ -348,7 +348,9 @@ export function App() {
             asksRepo={asksRepo}
             noteConflictsRepo={noteConflictsRepo}
             syncStateRepo={syncStateRepo}
+            aiClient={aiClient}
             onSyncNotify={notify}
+            onGoToSettings={() => setScreen({ name: 'settings' })}
           />
         ) : screen.name === 'chat' ? (
           <ChatScreen
