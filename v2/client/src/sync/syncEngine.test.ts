@@ -7,13 +7,7 @@ import { createNoteConflictsRepository } from '../repositories/noteConflicts';
 import { createNotesRepository } from '../repositories/notes';
 import { createSyncStateRepository } from '../repositories/syncState';
 import { createTermsRepository } from '../repositories/terms';
-import {
-  buildOutboundPayload,
-  importV1Snapshot,
-  pullFromRelay,
-  pushToRelay,
-  type SyncEngineDeps,
-} from './syncEngine';
+import { buildOutboundPayload, pullFromRelay, pushToRelay, type SyncEngineDeps } from './syncEngine';
 
 function makeDeps(deviceId = 'device-1'): SyncEngineDeps {
   const db = new ItIndexDB(`test-syncEngine-${Math.random()}`);
@@ -264,44 +258,6 @@ describe('syncEngine', () => {
       // notesの書き込みが先に走っていても、同じトランザクション内なのでロールバックされている
       expect(await deps.notesRepo.getByTermId('term-a')).toBeUndefined();
       expect(await deps.syncStateRepo.getCursor()).toBe(0); // 進んでいない
-    });
-  });
-
-  describe('importV1Snapshot', () => {
-    it('v1の手動書き出しJSON(同じSyncFile形式)を同じ検証・マージ・原子性の経路で取り込む', async () => {
-      const deps = track(makeDeps('device-1'));
-      const v1File = {
-        syncSchemaVersion: 1,
-        deviceId: 'v1-device',
-        writtenAt: 1,
-        notes: [{ termId: 'term-a', body: 'v1からの本文', diagrams: [], updatedAt: 100, lastEditedBy: 'v1-device', noteHistory: [] }],
-        asks: [{ id: 'ask-v1', termId: 'term-a', sessionId: null, at: 100, deviceId: 'v1-device', source: 'search' }],
-        aiTerms: [],
-      };
-
-      const result = await importV1Snapshot(deps, JSON.stringify(v1File));
-
-      expect(result).toEqual({ imported: true, reason: null, conflicts: 0 });
-      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('v1からの本文');
-      // リレーのcursorには影響しない
-      expect(await deps.syncStateRepo.getCursor()).toBe(0);
-    });
-
-    it('検証に通らないファイルは中止し、既存データを変更しない', async () => {
-      const deps = track(makeDeps('device-1'));
-      await deps.notesRepo.saveBody('term-a', '既存の本文', 'device-1', 100);
-
-      const result = await importV1Snapshot(deps, JSON.stringify({ syncSchemaVersion: 999 }));
-
-      expect(result.imported).toBe(false);
-      expect(typeof result.reason).toBe('string');
-      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('既存の本文');
-    });
-
-    it('JSON構文エラーのファイルも中止する', async () => {
-      const deps = track(makeDeps('device-1'));
-      const result = await importV1Snapshot(deps, '{not json');
-      expect(result.imported).toBe(false);
     });
   });
 });

@@ -285,7 +285,11 @@ body {
 
 .term-index-scroll-top {
   position: fixed;
-  right: 16px;
+  /* コンテンツ列(.appのmax-width:720pxを中央寄せ)の右端は50vw+360pxの位置にある。
+     一覧のすぐ右(列の右端から約52px外側)に見えるよう50vw-412pxを基準にしつつ、
+     画面が狭くビューポート中央寄せの余地が無い場合は従来のrightいっぱいの16pxまで縮める
+     (依頼者指定: 索引の「上に戻る」ボタンを単語一覧の少し右側に移動)。 */
+  right: max(16px, calc(50vw - 412px));
   bottom: 16px;
   width: 44px;
   height: 44px;
@@ -811,4 +815,73 @@ body {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
+}
+
+/*
+ * 設定タブ・同期タブのフォーム密着対策(依頼者指定・UIレビュー反映)。JSXが参照するクラスの
+ * 多くがここまで未定義で、かつlabel/input/selectの素スタイルが0件だったため項目同士が
+ * 密着していた。検索欄(.search-input)や他画面には影響させないため、.settings-section・
+ * .sync-screen・.sync-auth配下に限定する(ApiKeySection.tsxはこのスコープ内に描画されるため
+ * tsxを変更せずに揃う)。
+ */
+.settings-section label,
+.sync-screen label,
+.sync-auth label {
+  display: block;
+  margin: 12px 0 4px;
+}
+
+.settings-section input:not([type='checkbox']),
+.settings-section select,
+.sync-screen input:not([type='checkbox']),
+.sync-auth input:not([type='checkbox']) {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.sync-api-key-actions,
+.sync-actions,
+.sync-auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+/* 商品カード(ライセンス購入モック)。枠線・paddingを付け、内部(見出し・注記・ボタン・
+   エラー文)の縦間隔をgapで揃える */
+.license-product-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 「コードをお持ちの方」。inputとボタンの間隔だけを補う(label/inputの縦間隔は上のルールで
+   既に付いている) */
+.license-activate {
+  margin-top: 12px;
+}
+
+.license-activate button {
+  margin-top: 8px;
+}
+
+/* ログイン/新規登録フォーム(AuthForms.tsx)。送信ボタンとその上のpassword入力欄の間隔 */
+.sync-auth form button[type='submit'] {
+  margin-top: 12px;
+}
+
+/* ログイン中の行(SyncScreen.tsx)。メールアドレス表示とインラインのログアウトボタンの間隔 */
+.sync-login-status button {
+  margin-left: 8px;
 }
