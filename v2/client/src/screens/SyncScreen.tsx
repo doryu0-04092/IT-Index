@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { AiClient } from '../ai/aiClient';
 import { resolveConflict } from '../ai/resolveConflict';
 import type { ItIndexDB } from '../db';
 import { ApiRequestError } from '../sync/apiClient';
 import AuthForms from '../sync/AuthForms';
-import { importV1Snapshot, pullFromRelay, pushToRelay, type SyncEngineDeps } from '../sync/syncEngine';
+import { pullFromRelay, pushToRelay, type SyncEngineDeps } from '../sync/syncEngine';
 import { useAuthState } from '../sync/useAuthState';
 import type { AsksRepository } from '../repositories/asks';
 import type { NoteConflictRecord } from '../types';
@@ -42,10 +42,11 @@ interface SyncResultSummary {
 
 /**
  * 未ログイン時はサインアップ/ログインフォーム、ログイン済みならリレー同期の実行と
- * 競合解決、v1データ移行の入口をまとめる画面(要件定義書§4.2「サーバーリレー同期」)。
+ * 競合解決をまとめる画面(要件定義書§4.2「サーバーリレー同期」)。
  *
  * 設定タブ新設(PR)に伴い、AI設定(BYOK)とテーマ切替はSettingsScreen.tsxへ移設し、
- * この画面はアカウント(ログイン/サインアップ)・同期実行・競合解決・v1取り込みに純化した。
+ * この画面はアカウント(ログイン/サインアップ)・同期実行・競合解決に純化した
+ * (v1ファイル取り込みは以降のUIレビュー反映で廃止した)。
  * 認証状態とログインフォームはsync/useAuthState.ts・sync/AuthForms.tsxへ切り出し、
  * SettingsScreen(ライセンスのログイン誘導)と共有する。
  */
@@ -75,10 +76,6 @@ export default function SyncScreen({
   const [mergingId, setMergingId] = useState<string | null>(null);
   const [mergeErrors, setMergeErrors] = useState<Record<string, string | null>>({});
   const [mergeErrorCodes, setMergeErrorCodes] = useState<Record<string, string | null>>({});
-
-  const [importBusy, setImportBusy] = useState(false);
-  const [importMessage, setImportMessage] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadConflicts = useCallback(async () => {
     setConflicts(await noteConflictsRepo.getUnresolved());
@@ -197,28 +194,6 @@ export default function SyncScreen({
     }
   }
 
-  async function handleImportV1File(file: File) {
-    if (!deviceId) return;
-    setImportBusy(true);
-    setImportMessage(null);
-    try {
-      const text = await file.text();
-      const deps: SyncEngineDeps = { db, termsRepo, notesRepo, asksRepo, noteConflictsRepo, syncStateRepo, deviceId };
-      const result = await importV1Snapshot(deps, text);
-      if (result.imported) {
-        setImportMessage(`取り込みました(競合${result.conflicts}件)。`);
-        await loadConflicts();
-      } else {
-        setImportMessage(`取り込みを中止しました: ${result.reason}`);
-      }
-    } catch (err) {
-      setImportMessage(`取り込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setImportBusy(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  }
-
   if (auth.status === 'checking') {
     return <p className="status-text">同期の状態を確認しています…</p>;
   }
@@ -229,7 +204,7 @@ export default function SyncScreen({
 
   return (
     <section className="sync-screen">
-      <p>
+      <p className="sync-login-status">
         ログイン中: {auth.email} <button type="button" className="btn-secondary" onClick={handleLogoutAndReset}>ログアウト</button>
       </p>
 
@@ -291,24 +266,6 @@ export default function SyncScreen({
           </ul>
         </div>
       )}
-
-      <div className="sync-v1-import">
-        <h3>v1のファイルを取り込む</h3>
-        <label htmlFor="v1-import-input">v1の手動書き出しJSON</label>
-        <input
-          id="v1-import-input"
-          ref={fileInputRef}
-          type="file"
-          accept="application/json"
-          disabled={importBusy || !deviceId}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleImportV1File(file);
-          }}
-        />
-        {importBusy && <p className="status-text">取り込んでいます…</p>}
-        {importMessage && <p className="status-text">{importMessage}</p>}
-      </div>
     </section>
   );
 }

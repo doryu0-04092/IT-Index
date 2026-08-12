@@ -193,6 +193,19 @@ describe('SyncScreen', () => {
     expect(screen.queryByText('テーマ')).toBeNull();
   });
 
+  // v1ファイル取り込みの廃止(UIレビュー反映)の回帰防止: 同期タブから
+  // 「v1のファイルを取り込む」の入口(見出し・ファイル入力)が無いことを確認する。
+  it('v1ファイル取り込みのUIが無い(廃止済み)', async () => {
+    localStorage.setItem('it-index-v2:token', 'tok-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' })));
+
+    renderSyncScreen();
+    await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
+
+    expect(screen.queryByText('v1のファイルを取り込む')).toBeNull();
+    expect(screen.queryByLabelText('v1の手動書き出しJSON')).toBeNull();
+  });
+
   function stubAuthedFetch() {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' })));
     localStorage.setItem('it-index-v2:token', 'tok-1');
