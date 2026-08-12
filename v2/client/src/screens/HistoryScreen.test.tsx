@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { buildTermRecord, type AskRecord, type TermRecord } from '@it-index/shared';
 import type { AsksRepository } from '../repositories/asks';
+import type { ChatRepository } from '../repositories/chat';
 import type { TermsRepository } from '../repositories/terms';
+import type { ChatMessageRecord, ChatSessionRecord } from '../types';
 import HistoryScreen from './HistoryScreen';
 
 function fakeAsksRepo(asks: AskRecord[]): AsksRepository {
@@ -24,6 +26,33 @@ function fakeTermsRepo(terms: TermRecord[]): TermsRepository {
     softDelete: () => Promise.resolve(),
     upsertFromSync: () => Promise.resolve(),
     upsertFromAi: () => Promise.resolve(),
+  };
+}
+
+/**
+ * @param sessions セッション一覧
+ * @param emptySessionIds messages.length===0にしたいセッションID(既定では全セッションに
+ *   1件メッセージがある前提にする。SearchScreen.test.tsxのfakeChatRepoと同じ方針)
+ */
+function fakeChatRepo(sessions: ChatSessionRecord[] = [], emptySessionIds: Set<string> = new Set()): ChatRepository {
+  return {
+    createSession: () => Promise.reject(new Error('not implemented')),
+    appendMessage: () => Promise.resolve(),
+    touchSession: () => Promise.resolve(),
+    getOpenSessions: () => Promise.resolve(sessions.filter((s) => s.status === 'open')),
+    findOpenSessionByTermId: () => Promise.resolve(undefined),
+    findOpenSessionBySubjectLabel: () => Promise.resolve(undefined),
+    getSession: (id) => Promise.resolve(sessions.find((s) => s.id === id)),
+    beginCommit: () => Promise.resolve(false),
+    abortCommit: () => Promise.resolve(),
+    commitSession: () => Promise.resolve(),
+    declineSession: () => Promise.resolve(),
+    getMessages: (sessionId) => {
+      if (emptySessionIds.has(sessionId)) return Promise.resolve([]);
+      const message: ChatMessageRecord = { id: `${sessionId}-m1`, sessionId, role: 'user', content: 'hi', at: 1 };
+      return Promise.resolve([message]);
+    },
+    getRecentSessions: () => Promise.resolve(sessions),
   };
 }
 
@@ -59,19 +88,29 @@ function ask(termId: string, at: number): AskRecord {
   return { id: `${termId}-${at}`, termId, sessionId: null, at, deviceId: 'd1', source: 'search' };
 }
 
-function renderHistory(asksRepo: AsksRepository, termsRepo: TermsRepository, view: 'timeline' | 'weighted' = 'timeline') {
+function renderHistory(
+  asksRepo: AsksRepository,
+  termsRepo: TermsRepository,
+  view: 'timeline' | 'weighted' | 'commits' = 'timeline',
+  chatRepo: ChatRepository = fakeChatRepo(),
+) {
   const onChangeView = vi.fn();
   const onSelectTerm = vi.fn();
+  const onOpenChatSession = vi.fn();
+  const onCommitPending = vi.fn();
   const utils = render(
     <HistoryScreen
       asksRepo={asksRepo}
       termsRepo={termsRepo}
+      chatRepo={chatRepo}
       view={view}
       onChangeView={onChangeView}
       onSelectTerm={onSelectTerm}
+      onOpenChatSession={onOpenChatSession}
+      onCommitPending={onCommitPending}
     />,
   );
-  return { ...utils, onChangeView, onSelectTerm };
+  return { ...utils, onChangeView, onSelectTerm, onOpenChatSession, onCommitPending };
 }
 
 describe('HistoryScreen', () => {
@@ -83,6 +122,7 @@ describe('HistoryScreen', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '時系列' })).toBeTruthy());
     expect(screen.getByRole('button', { name: '時系列' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByRole('button', { name: '重み付け' }).getAttribute('aria-current')).toBeNull();
+    expect(screen.getByRole('button', { name: '取り込み履歴' }).getAttribute('aria-current')).toBeNull();
   });
 
   it('同じ語を2回聞いた場合、時系列は最新1件のみ表示する', async () => {
@@ -137,5 +177,100 @@ describe('HistoryScreen', () => {
 
     await waitFor(() => expect(screen.getByText('HTTP')).toBeTruthy());
     expect(screen.queryByText('削除済み語')).toBeNull();
+  });
+
+  describe('取り込み履歴タブ(本人指定「検索機能周りに関してはV1を踏襲」。declinedセッションのみ対象)', () => {
+    it('タブ順は時系列→重み付け→取り込み履歴', async () => {
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]));
+      await waitFor(() => expect(screen.getAllByRole('button').length).toBeGreaterThan(0));
+      const tabs = screen.getAllByRole('button').filter((b) => b.className.includes('app-nav-link'));
+      expect(tabs.map((b) => b.textContent)).toEqual(['時系列', '重み付け', '取り込み履歴']);
+    });
+
+    it('declinedセッションを一覧表示し(ラベル+日時)、行タップでonOpenChatSessionが呼ばれる', async () => {
+      const at = new Date('2026-02-03T04:05:06').getTime();
+      const declined: ChatSessionRecord = {
+        id: 'session-declined',
+        termId: null,
+        subjectLabel: '登録しなかった語',
+        startedAt: 1,
+        lastActiveAt: at,
+        status: 'declined',
+      };
+      const { onOpenChatSession } = renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'commits', fakeChatRepo([declined]));
+
+      await waitFor(() => expect(screen.getByText('登録しなかった語')).toBeTruthy());
+      expect(screen.getByText(new Date(at).toLocaleString('ja-JP'))).toBeTruthy();
+
+      fireEvent.click(screen.getByText('登録しなかった語'));
+      expect(onOpenChatSession).toHaveBeenCalledWith('session-declined');
+    });
+
+    it('「取り込む」を押すとonCommitPendingが呼ばれ一覧から消える', async () => {
+      const declined: ChatSessionRecord = {
+        id: 'session-declined',
+        termId: null,
+        subjectLabel: '登録しなかった語',
+        startedAt: 1,
+        lastActiveAt: 1,
+        status: 'declined',
+      };
+      const { onCommitPending } = renderHistory(
+        fakeAsksRepo([]),
+        fakeTermsRepo([]),
+        'commits',
+        fakeChatRepo([declined]),
+      );
+
+      await waitFor(() => expect(screen.getByText('登録しなかった語')).toBeTruthy());
+      fireEvent.click(screen.getByText('取り込む'));
+
+      expect(onCommitPending).toHaveBeenCalledWith('session-declined');
+      await waitFor(() => expect(screen.queryByText('登録しなかった語')).toBeNull());
+    });
+
+    it('open(取り込み待ち)・committed(取り込み済み)のセッションは対象外(declinedのみ)', async () => {
+      const sessions: ChatSessionRecord[] = [
+        { id: 'session-open', termId: null, subjectLabel: '取り込み待ちの語', startedAt: 1, lastActiveAt: 1, status: 'open' },
+        {
+          id: 'session-committed',
+          termId: null,
+          subjectLabel: '取り込み済みの語',
+          startedAt: 1,
+          lastActiveAt: 1,
+          status: 'committed',
+        },
+        { id: 'session-declined', termId: null, subjectLabel: '登録しなかった語', startedAt: 1, lastActiveAt: 1, status: 'declined' },
+      ];
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'commits', fakeChatRepo(sessions));
+
+      await waitFor(() => expect(screen.getByText('登録しなかった語')).toBeTruthy());
+      expect(screen.queryByText('取り込み待ちの語')).toBeNull();
+      expect(screen.queryByText('取り込み済みの語')).toBeNull();
+    });
+
+    it('messages.length===0のdeclinedセッションは一覧に出さない', async () => {
+      const declined: ChatSessionRecord = {
+        id: 'session-declined-empty',
+        termId: null,
+        subjectLabel: '開いてすぐ戻った語',
+        startedAt: 1,
+        lastActiveAt: 1,
+        status: 'declined',
+      };
+      renderHistory(
+        fakeAsksRepo([]),
+        fakeTermsRepo([]),
+        'commits',
+        fakeChatRepo([declined], new Set(['session-declined-empty'])),
+      );
+
+      await waitFor(() => expect(screen.getByText('まだ記録がありません。')).toBeTruthy());
+    });
+
+    it('0件時は「まだ記録がありません。」を表示する', async () => {
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'commits');
+      await waitFor(() => expect(screen.getByText('まだ記録がありません。')).toBeTruthy());
+    });
   });
 });

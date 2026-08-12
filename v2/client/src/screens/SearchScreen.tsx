@@ -1,18 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { score, type TermRecord } from '@it-index/shared';
 import { NO_ACTIVE_INDEX, nextActiveIndex } from '../lib/activeIndex';
+import { loadSessionLabelRows, type SessionLabelRow } from '../lib/chatSessionLabels';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import type { ChatRepository } from '../repositories/chat';
 import type { TermsRepository } from '../repositories/terms';
-import type { ChatSessionRecord } from '../types';
 
 const MAX_RESULTS = 30;
 
-export interface PendingSession {
-  session: ChatSessionRecord;
-  /** 表示用の見出し(termIdがあれば辞書側の正式名、無ければsubjectLabel) */
-  label: string;
-}
+export type PendingSession = SessionLabelRow;
 
 export interface SearchScreenProps {
   termsRepo: TermsRepository;
@@ -80,22 +76,22 @@ export default function SearchScreen({
     void termsRepo.getAll().then(setTerms);
   }, [termsRepo, seedRefreshTick]);
 
-  // 取り込み待ち(open)・登録しなかった(declined)セッション一覧(v1 SearchScreenの「取り込み
-  // 待ち」相当)。この画面はApp.tsxの<main key={screenKey(screen)}>により検索へ戻るたびに
-  // 再マウントされるため通常は再取得不要だが、この画面を開いたまま(チャット画面へ行かず)
-  // 取り込み・確定処理が完了した場合に一覧を追従させるため、pendingRefreshTickも依存に持つ
+  // 取り込み待ち(status:'open')セッション一覧(v1 ../../../src/ui/pc/SearchScreen.tsx:86-111を
+  // 移植)。「登録しない」を選んだ(declined)セッションはここには出さない——履歴タブの
+  // 「取り込み履歴」に移した(本人指定「検索機能周りに関してはV1を踏襲」)。この画面は
+  // App.tsxの<main key={screenKey(screen)}>により検索へ戻るたびに再マウントされるため
+  // 通常は再取得不要だが、この画面を開いたまま(チャット画面へ行かず)取り込み・確定処理が
+  // 完了した場合に一覧を追従させるため、pendingRefreshTickも依存に持つ
   // (v1 App.tsxのpendingRefreshTickと同じ役割)。
   useEffect(() => {
-    void chatRepo.getRecentSessions(30).then(async (sessions) => {
-      const targets = sessions.filter((s) => s.status === 'open' || s.status === 'declined');
-      const withLabels = await Promise.all(
-        targets.map(async (session) => {
-          const term = session.termId ? await termsRepo.getById(session.termId) : undefined;
-          return { session, label: term?.term ?? session.subjectLabel ?? '(不明)' };
-        }),
-      );
-      setPending(withLabels);
+    let cancelled = false;
+    void chatRepo.getOpenSessions().then(async (sessions) => {
+      const rows = await loadSessionLabelRows(chatRepo, termsRepo, sessions);
+      if (!cancelled) setPending(rows);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [chatRepo, termsRepo, pendingRefreshTick]);
 
   // 取り込みはバックグラウンドで進む(App.tsx側)。押した時点でこの一覧からは消してよい
@@ -174,6 +170,18 @@ export default function SearchScreen({
         autoFocus
       />
 
+      {/*
+        入力した文字列そのものをAIに聞く導線。検索欄のすぐ下に置く——辞書に無い語を打った時に
+        「見つかりません」で行き止まりにせず、そのままAIへ繋ぐのが狙い(v1
+        ../../../src/ui/pc/SearchScreen.tsx:195-204を移植)。主題は検索結果の語ではなく
+        **入力した文字列**(デバウンス前のqueryをそのまま使う点もv1と同じ)。
+      */}
+      {query.trim() !== '' && (
+        <button type="button" className="btn-primary btn-block search-ask-ai" onClick={() => onAskAi(query)}>
+          「{query.trim()}」をAIで検索
+        </button>
+      )}
+
       <p className="status-text">
         {terms.length > 0 ? `登録単語数(${terms.length}語)` : seedError ? '辞書の取り込みに失敗しました' : '辞書を読み込み中です…'}
       </p>
@@ -186,36 +194,55 @@ export default function SearchScreen({
         </p>
       )}
 
-      {debouncedQuery.trim() !== '' && results.length === 0 && (
-        <p className="status-text" role="status">
-          「{debouncedQuery.trim()}」に一致する語は辞書にありませんでした。
-        </p>
-      )}
-
-      {debouncedQuery.trim() !== '' && (
-        <button type="button" className="btn-text search-ask-ai" onClick={() => onAskAi(debouncedQuery.trim())}>
-          「{debouncedQuery.trim()}」についてAIで検索
-        </button>
+      {/*
+        検索していない(ホーム)間だけ表示する。確定する前にチャット画面を離れた語がここに並ぶ
+        ——クエリを入力した瞬間に通常の検索結果一覧に切り替わる
+        (v1 ../../../src/ui/pc/SearchScreen.tsx:218-222を移植)。
+      */}
+      {debouncedQuery.trim() === '' && pending.length > 0 && (
+        <section className="search-pending">
+          <h3>単語帳への取り込み待ち({pending.length}件)</h3>
+          <button type="button" className="btn-primary btn-block search-pending-commit-all" onClick={handleCommitAll}>
+            まとめて単語帳に取り込む({pending.length}件)
+          </button>
+          <ul>
+            {pending.map(({ session, label }) => (
+              <li key={session.id} className="search-pending-row">
+                <button type="button" className="btn-text search-pending-item" onClick={() => onResumeChat(session.id)}>
+                  {label}
+                  {failedCommitSessionIds.has(session.id) && (
+                    <span className="error-text search-pending-failed">前回の取り込みに失敗しました</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary search-pending-commit"
+                  onClick={() => handleCommitPending(session.id)}
+                >
+                  取り込む
+                </button>
+                <button
+                  type="button"
+                  className="btn-text search-pending-decline"
+                  onClick={() => handleDeclineSession(session.id)}
+                >
+                  登録しない
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {/*
-        1件も一致しなかった時に何も出さないと「まだ検索中なのか、壊れているのか」が区別できない。
-        行き止まりにはせず、「AIで検索」へ強調して繋ぐ(移植元: ../../../src/ui/pc/SearchScreen.tsx
-        :196-204,265-269。v1では入力するだけで常時表示される検索欄直下のボタン
-        (btn-primary btn-block)がその強調枠を兼ねていたが、v2は上のbtn-textボタンを既に
-        常時表示しているため、0件時にはそれとは別に強調表示のボタンを追加する。
-        文言はv1の0件時メッセージ("「〜」に一致する語は辞書にありませんでした。上の「AIで検索」
-        から質問できます。")をそのまま使うと"上の"がこの位置(ボタンの下)と食い違うため、
-        指示語を落として必要最小限だけ変更する)。
+        1件も一致しなかった時に何も出さないと「まだ検索中なのか、壊れているのか」が
+        区別できない。行き止まりにはせず、上の「AIで検索」へ繋ぐ一文を添える
+        (v1 ../../../src/ui/pc/SearchScreen.tsx:265-269の文言をそのまま移植)。
       */}
       {debouncedQuery.trim() !== '' && results.length === 0 && (
-        <button
-          type="button"
-          className="btn-primary btn-block search-ask-ai-primary"
-          onClick={() => onAskAi(debouncedQuery.trim())}
-        >
-          「{debouncedQuery.trim()}」についてAIで検索
-        </button>
+        <p className="status-text" role="status">
+          「{debouncedQuery.trim()}」に一致する語は辞書にありませんでした。上の「AIで検索」から質問できます。
+        </p>
       )}
 
       {results.length > 0 && (
@@ -250,42 +277,6 @@ export default function SearchScreen({
           </li>
         ))}
       </ul>
-
-      {pending.length > 0 && (
-        <section className="search-pending">
-          <h3>取り込み待ち({pending.length}件)</h3>
-          <button type="button" className="btn-primary search-pending-commit-all" onClick={handleCommitAll}>
-            まとめて単語帳に取り込む({pending.length}件)
-          </button>
-          <ul>
-            {pending.map(({ session, label }) => (
-              <li key={session.id} className="search-pending-row">
-                <button type="button" className="btn-text search-pending-item" onClick={() => onResumeChat(session.id)}>
-                  {label}
-                  {session.status === 'declined' && '(登録しない、を選択済み)'}
-                  {failedCommitSessionIds.has(session.id) && (
-                    <span className="error-text search-pending-failed">前回の取り込みに失敗しました</span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary search-pending-commit"
-                  onClick={() => handleCommitPending(session.id)}
-                >
-                  取り込む
-                </button>
-                <button
-                  type="button"
-                  className="btn-text search-pending-decline"
-                  onClick={() => handleDeclineSession(session.id)}
-                >
-                  登録しない
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </div>
   );
 }

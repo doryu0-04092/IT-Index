@@ -328,9 +328,12 @@ export function App() {
           <HistoryScreen
             asksRepo={asksRepo}
             termsRepo={termsRepo}
+            chatRepo={chatRepo}
             view={screen.view}
             onChangeView={(view) => setScreen({ name: 'history', view })}
             onSelectTerm={(termId) => openDetail(termId, screen)}
+            onOpenChatSession={(sessionId) => setScreen({ name: 'chat', sessionId, returnTo: screen })}
+            onCommitPending={commitPendingTerm}
           />
         ) : screen.name === 'settings' ? (
           <SettingsScreen
