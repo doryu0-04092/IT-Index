@@ -100,16 +100,30 @@ export default function ChatScreen({
 
   useEffect(() => {
     if (!token) return; // 未ログイン時はAPIもDBの主題解決も不要(ガード表示のみ)
-    void chatRepo.getSession(sessionId).then(async (s) => {
-      setSession(s ?? null);
-      if (!s) return;
-      if (s.termId) {
-        setSubject((await buildSubjectContext(s.termId, { termsRepo, notesRepo })) ?? undefined);
-      } else if (s.subjectLabel) {
-        setSubject(buildQuerySubject(s.subjectLabel));
-      }
-      await reloadMessages();
-    });
+    // アンマウント後(画面遷移・テスト終了によるDBクローズ)に読み込みが解決・失敗しても
+    // 反映しない。catchが無いとDexieのDatabaseClosedErrorが未処理例外になる。
+    let cancelled = false;
+    void chatRepo
+      .getSession(sessionId)
+      .then(async (s) => {
+        if (cancelled) return;
+        setSession(s ?? null);
+        if (!s) return;
+        if (s.termId) {
+          const subjectContext = await buildSubjectContext(s.termId, { termsRepo, notesRepo });
+          if (cancelled) return;
+          setSubject(subjectContext ?? undefined);
+        } else if (s.subjectLabel) {
+          setSubject(buildQuerySubject(s.subjectLabel));
+        }
+        await reloadMessages();
+      })
+      .catch(() => {
+        if (!cancelled) setSession(null);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [token, chatRepo, sessionId, termsRepo, notesRepo, reloadMessages]);
 
   useEffect(() => {

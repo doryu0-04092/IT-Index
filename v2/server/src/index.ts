@@ -14,6 +14,8 @@ import {
   todayUtc,
 } from './db';
 import { callAi, runConnectionTest, validateChatRequest, validateTestRequest } from './ai';
+import { listAnthropicModels } from './providers/anthropic';
+import { listOpenAiModels } from './providers/openai';
 import {
   LICENSE_DAILY_ATTEMPT_LIMIT,
   activateExistingLicense,
@@ -76,6 +78,33 @@ async function licenseAttemptDenial(c: AppContext): Promise<Response | undefined
       error: {
         code: 'license_attempts_exceeded',
         message: 'ライセンス操作の回数が本日の上限に達しました。明日また試せます',
+      },
+    },
+    429
+  );
+}
+
+/**
+ * 接続確認系(POST /api/ai/test・POST /api/ai/models)の日次回数上限。
+ * どちらも「利用者キーで上流を1回叩いて確かめる」操作で、費用は本人負担のためチャットの
+ * 残量(ai_usage の accountId 行)は消費しない。ただし認証済みアカウントを踏み台に上流を
+ * 叩かれないよう、テスト専用の予約キー(db.ts aiTestUsageAccountId)の**同じ1枠**で数える
+ * ——モデル一覧の取得は疎通確認そのもの(キーが無効なら401で分かる)であり、別枠を増やすと
+ * 「一覧取得なら何回でも叩ける」抜け道になる。
+ */
+async function aiConnectionAttemptDenial(c: AppContext): Promise<Response | undefined> {
+  const testLimit = Number(c.env.AI_TEST_DAILY_LIMIT ?? '20');
+  const testCount = await incrementAiUsage(
+    c.env.DB,
+    aiTestUsageAccountId(c.get('accountId')),
+    todayUtc()
+  );
+  if (testCount <= testLimit) return undefined;
+  return c.json(
+    {
+      error: {
+        code: 'ai_test_limit_exceeded',
+        message: '接続テストの回数が本日の上限に達しました。明日また試せます',
       },
     },
     429
@@ -438,21 +467,8 @@ app.post('/api/ai/test', requireAuth, async (c) => {
     return c.json({ error: { code: 'invalid_request', message: validation.error } }, 400);
   }
 
-  const accountId = c.get('accountId');
-  const day = todayUtc();
-  const testLimit = Number(c.env.AI_TEST_DAILY_LIMIT ?? '20');
-  const testCount = await incrementAiUsage(c.env.DB, aiTestUsageAccountId(accountId), day);
-  if (testCount > testLimit) {
-    return c.json(
-      {
-        error: {
-          code: 'ai_test_limit_exceeded',
-          message: '接続テストの回数が本日の上限に達しました。明日また試せます',
-        },
-      },
-      429
-    );
-  }
+  const attemptDenied = await aiConnectionAttemptDenial(c);
+  if (attemptDenied) return attemptDenied;
 
   const result = await runConnectionTest(c.env, {
     apiKey: validation.apiKey,
@@ -467,6 +483,46 @@ app.post('/api/ai/test', requireAuth, async (c) => {
   }
 
   return c.json({ ok: true, provider: result.provider, model: result.model, usage: result.usage });
+});
+
+/**
+ * 利用者キーで選べるモデルの一覧(v1 src/ai/providers/index.ts listModelsForProvider の移植)。
+ * 設定画面はモデル名を自由入力させず、この一覧から選ばせる(誤ったモデル名を打ち込めないように
+ * するため)。**一覧の取得自体が接続確認を兼ねる**ので、クライアントの「接続テスト」はこれを呼ぶ。
+ *
+ * 認証は必須・ライセンスは不要(利用者キーの経路なので費用は本人負担。/api/ai/testと同じ扱い)。
+ * 検証はvalidateTestRequestを再利用する——必要な入力(apiKey必須・apiProvider必須)と
+ * 文字種チェック(ヘッダ注入を塞ぐAPI_KEY_PATTERN)が接続テストと同一のため、
+ * 同じ規則を2箇所に書き分けない。modelは受け取っても使わない(一覧取得に無関係)。
+ *
+ * 日次回数は接続テストと同じ枠で数える(aiConnectionAttemptDenial)。
+ * 応答・エラーにキーの値は一切載せない(providers側で固定文言のみ返す)。
+ */
+app.post('/api/ai/models', requireAuth, async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const validation = validateTestRequest(body);
+  if (!validation.ok) {
+    return c.json({ error: { code: 'invalid_request', message: validation.error } }, 400);
+  }
+
+  const attemptDenied = await aiConnectionAttemptDenial(c);
+  if (attemptDenied) return attemptDenied;
+
+  // 呼び先の2分岐だけをここに置く(ai.tsのresolveCallProvider——「上限スキップの条件=利用者
+  // キーで上流を呼ぶ条件」という不変条件を担う関数——には手を入れない。この経路は常に
+  // 利用者キーで、サーバー側キーへ落ちる分岐を持たない)。
+  const result =
+    validation.apiProvider === 'openai'
+      ? await listOpenAiModels(validation.apiKey)
+      : await listAnthropicModels(validation.apiKey);
+  if (!result.ok) {
+    return c.json(
+      { error: { code: result.error.code, message: result.error.message } },
+      result.error.status as 400 | 429 | 500 | 502 | 503
+    );
+  }
+
+  return c.json({ provider: validation.apiProvider, models: result.models });
 });
 
 app.get('/api/ai/quota', requireAuth, async (c) => {

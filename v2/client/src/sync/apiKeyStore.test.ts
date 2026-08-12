@@ -5,8 +5,10 @@ import {
   getVerifiedCredential,
   markCredentialUnverified,
   maskApiKey,
+  pickDefaultModel,
   providerLabel,
   saveVerifiedCredential,
+  updateCredentialModel,
 } from './apiKeyStore';
 
 const STORAGE_KEY = 'it-index-v2:ai-credential';
@@ -83,6 +85,103 @@ describe('apiKeyStore', () => {
 
     expect(getAiCredential()).toBeNull();
     expect(localStorage.getItem(LEGACY_KEY)).toBeNull();
+  });
+
+  // モデル一覧(接続テスト=POST /api/ai/modelsの取得結果)の保存と、そこからの選び直し。
+  describe('モデル一覧', () => {
+    it('取得した一覧を保存・復元できる', () => {
+      saveVerifiedCredential({
+        key: 'sk-test-1234567890',
+        provider: 'openai',
+        model: 'gpt-5.6-luna',
+        models: ['gpt-4.1-mini', 'gpt-5.6-luna'],
+      });
+
+      expect(getAiCredential()?.models).toEqual(['gpt-4.1-mini', 'gpt-5.6-luna']);
+    });
+
+    it('一覧が0件・不正な要素だけの場合はundefined(未取得と同じ扱い)', () => {
+      saveVerifiedCredential({ key: 'sk-test-1234567890', provider: 'openai', models: [] });
+      expect(getAiCredential()?.models).toBeUndefined();
+
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ key: 'sk-x', provider: 'openai', models: [1, '', null], verified: true }),
+      );
+      expect(getAiCredential()?.models).toBeUndefined();
+    });
+
+    it('models無しの旧保存データも壊さず読める(後方互換)', () => {
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ key: 'sk-old-1234567890', provider: 'anthropic', model: 'claude-x', verified: true }),
+      );
+
+      const credential = getAiCredential();
+      expect(credential?.key).toBe('sk-old-1234567890');
+      expect(credential?.model).toBe('claude-x');
+      expect(credential?.models).toBeUndefined();
+      // 検証済みの扱いは変わらない(チャットにそのまま使える)
+      expect(getVerifiedCredential()?.model).toBe('claude-x');
+    });
+
+    it('updateCredentialModelはモデルだけを差し替える(キー・一覧・検証済みは維持)', () => {
+      saveVerifiedCredential({
+        key: 'sk-test-1234567890',
+        provider: 'openai',
+        model: 'gpt-5.6-luna',
+        models: ['gpt-4.1-mini', 'gpt-5.6-luna'],
+      });
+
+      const updated = updateCredentialModel('gpt-4.1-mini');
+
+      expect(updated?.model).toBe('gpt-4.1-mini');
+      // 即時に永続化されている(画面のstateだけの変更ではない)
+      expect(getAiCredential()).toEqual({
+        key: 'sk-test-1234567890',
+        provider: 'openai',
+        model: 'gpt-4.1-mini',
+        models: ['gpt-4.1-mini', 'gpt-5.6-luna'],
+        verified: true,
+      });
+    });
+
+    it('updateCredentialModelの空文字はundefined(サーバー側の既定モデル)にする', () => {
+      saveVerifiedCredential({ key: 'sk-test-1234567890', provider: 'openai', model: 'gpt-4.1-mini' });
+
+      expect(updateCredentialModel('  ')?.model).toBeUndefined();
+      expect(getAiCredential()?.key).toBe('sk-test-1234567890');
+    });
+
+    it('updateCredentialModelは資格情報が無ければ何もしない(キーを作らない)', () => {
+      expect(updateCredentialModel('gpt-4.1-mini')).toBeNull();
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+  });
+
+  describe('pickDefaultModel', () => {
+    it('OpenAIはgpt-5.6-lunaがあればそれを選ぶ', () => {
+      expect(pickDefaultModel('openai', ['chatgpt-4o-latest', 'gpt-5.6-luna', 'o3-mini'])).toBe('gpt-5.6-luna');
+    });
+
+    it('OpenAIでgpt-5.6-lunaが無ければ先頭', () => {
+      expect(pickDefaultModel('openai', ['gpt-4.1-mini', 'o3-mini'])).toBe('gpt-4.1-mini');
+    });
+
+    it('AnthropicはHaiku系を優先し、一覧の並び(新しい順)で最初のものを選ぶ', () => {
+      expect(
+        pickDefaultModel('anthropic', ['claude-sonnet-5', 'claude-haiku-5', 'claude-3-5-haiku-latest']),
+      ).toBe('claude-haiku-5');
+    });
+
+    it('AnthropicでHaiku系が無ければ先頭', () => {
+      expect(pickDefaultModel('anthropic', ['claude-sonnet-5', 'claude-opus-4-1'])).toBe('claude-sonnet-5');
+    });
+
+    it('一覧が空ならundefined(モデル名の直接入力へフォールバックする)', () => {
+      expect(pickDefaultModel('openai', [])).toBeUndefined();
+      expect(pickDefaultModel('anthropic', [])).toBeUndefined();
+    });
   });
 
   it('maskApiKeyはキー全体を返さない(先頭数文字だけ)', () => {

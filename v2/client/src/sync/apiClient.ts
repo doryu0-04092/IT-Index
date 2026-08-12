@@ -197,6 +197,28 @@ export async function testAiConnection(
   });
 }
 
+export interface AiModelsResult {
+  provider: 'openai' | 'anthropic';
+  models: string[];
+}
+
+/**
+ * 利用者のキーで選べるモデルの一覧を取得する(POST /api/ai/models)。
+ * **一覧の取得がそのままキーの疎通確認になる**(キーが無効なら400 user_api_key_invalidが返る)
+ * ため、設定画面の「接続テスト」はこの関数を呼ぶ(v1 src/ai/providers/index.tsと同じ考え方)。
+ * 失敗時はサーバーの日本語messageを持つApiRequestErrorになる。
+ */
+export async function fetchAiModels(
+  token: string,
+  credential: { key: string; provider: 'openai' | 'anthropic' },
+): Promise<AiModelsResult> {
+  return apiFetch('/ai/models', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ apiKey: credential.key, apiProvider: credential.provider }),
+  });
+}
+
 export async function fetchAiQuota(token: string): Promise<{ used: number; limit: number }> {
   return apiFetch('/ai/quota', { method: 'GET', headers: authHeader(token) });
 }

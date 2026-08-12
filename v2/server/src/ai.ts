@@ -226,6 +226,15 @@ export type AiFailure = { status: number; code: string; message: string };
 
 export type AiResult = { ok: true; value: AiSuccess } | { ok: false; error: AiFailure };
 
+/**
+ * モデル一覧取得(POST /api/ai/models。providers/openai.ts listOpenAiModels・
+ * providers/anthropic.ts listAnthropicModels)の結果。
+ * 失敗はチャット・接続テストと同じAiFailure(providers/upstreamError.tsのmapUpstreamError)で表す
+ * ため、エンドポイント側のエラー変換を1通りに保てる。
+ * このファイルの既存ロジック(resolveCallProvider等の不変条件)には関与しない型定義のみ。
+ */
+export type ModelListResult = { ok: true; models: string[] } | { ok: false; error: AiFailure };
+
 /** providers/*.tsへ渡す確定済みのパラメータ(既定値の決定はこのファイルに集約する) */
 export type ProviderCallOptions = {
   model: string;

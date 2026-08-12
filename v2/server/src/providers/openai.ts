@@ -4,7 +4,7 @@
 // (max_tokensはo-series等の新世代モデルと非互換のため廃止予定)。
 // temperature/top_p等のサンプリングパラメータは送らない(新世代モデルは既定値以外を拒否しうる)。
 import type { Env } from '../types';
-import type { ChatMessage, AiResult, ProviderCallOptions } from '../ai';
+import type { ChatMessage, AiResult, ModelListResult, ProviderCallOptions } from '../ai';
 import { detectModelUnknown, mapUpstreamError } from './upstreamError';
 
 type OpenAiChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
@@ -100,4 +100,48 @@ export async function callOpenAi(
       },
     },
   };
+}
+
+/**
+ * チャットに使えるモデルIDだけに絞る簡易フィルタ(v1 src/ai/providers/openai.ts からそのまま移植)。
+ * OpenAIの一覧にはWhisper・DALL-E・埋め込み等チャット非対応のモデルも混在するため、
+ * 「チャット系と思われる接頭辞」で拾い、「明らかにチャットでないもの」を除く(完全ではない)。
+ */
+const CHAT_MODEL_PREFIX = /^(gpt-|o1|o3|o4|chatgpt)/;
+const NON_CHAT_MODEL = /(whisper|embedding|tts|dall-e|moderation|audio|realtime|transcribe|instruct)/;
+
+/**
+ * 利用者キーで使えるモデルの一覧を取得する(GET /v1/models)。
+ * **この呼び出し自体がAPIキーの疎通確認を兼ねる**(キーが無効なら401でここで分かる。
+ * v1 src/ai/providers/index.ts の設計コメントと同じ考え方)。
+ *
+ * 上流へ出るのはauthorizationヘッダとしての利用者キーだけで、戻り値にもエラーにもキーの値は
+ * 載らない(失敗はmapUpstreamErrorの固定文言のみ)。modelUnknownを常にfalseにしているのは、
+ * この呼び出しがモデル名を送らないため——404が「モデル名が不正」を意味することはない。
+ */
+export async function listOpenAiModels(apiKey: string): Promise<ModelListResult> {
+  let res: Response;
+  try {
+    res = await fetch('https://api.openai.com/v1/models', {
+      headers: { authorization: `Bearer ${apiKey}` },
+    });
+  } catch {
+    return {
+      ok: false,
+      error: { status: 502, code: 'upstream_unreachable', message: 'AIサービスに接続できませんでした' },
+    };
+  }
+
+  if (!res.ok) {
+    return { ok: false, error: mapUpstreamError(res.status, { usingUserKey: true, modelUnknown: false }) };
+  }
+
+  const data = (await res.json()) as { data?: Array<{ id?: unknown }> };
+  const models = (data.data ?? [])
+    .map((entry) => entry.id)
+    .filter((id): id is string => typeof id === 'string')
+    .filter((id) => CHAT_MODEL_PREFIX.test(id))
+    .filter((id) => !NON_CHAT_MODEL.test(id))
+    .sort();
+  return { ok: true, models };
 }

@@ -977,6 +977,164 @@ describe('POST /api/ai/test', () => {
   });
 });
 
+// モデル一覧(POST /api/ai/models)。設定画面の「接続テスト」がこれを呼ぶ
+// (一覧の取得自体が疎通確認を兼ねる。src/index.tsのコメント参照)。
+describe('POST /api/ai/models', () => {
+  const originalTestLimit = env.AI_TEST_DAILY_LIMIT;
+  const USER_KEY = 'sk-models-endpoint-user-key';
+  const OPENAI_MODELS_URL = 'https://api.openai.com/v1/models';
+  const ANTHROPIC_MODELS_URL = 'https://api.anthropic.com/v1/models';
+
+  afterEach(() => {
+    env.AI_TEST_DAILY_LIMIT = originalTestLimit;
+  });
+
+  async function listModels(token: string, requestBody: unknown) {
+    return exports.default.fetch(`${BASE}/api/ai/models`, {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(requestBody),
+    });
+  }
+
+  async function testConnection(token: string, requestBody: unknown) {
+    return exports.default.fetch(`${BASE}/api/ai/test`, {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(requestBody),
+    });
+  }
+
+  function modelsResponse(ids: string[]): Response {
+    return new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  it('認証なしは401', async () => {
+    const res = await listModels('not-a-real-token', { apiKey: USER_KEY, apiProvider: 'openai' });
+    expect(res.status).toBe(401);
+  });
+
+  it('成功(openai): チャット非対応のモデルを除外し、昇順で返す', async () => {
+    const mock = mockAnthropicOnce((url) => {
+      expect(url).toBe(OPENAI_MODELS_URL);
+      return modelsResponse([
+        'gpt-5.6-luna',
+        'text-embedding-3-large',
+        'whisper-1',
+        'gpt-4.1-mini',
+        'dall-e-3',
+        'o3-mini',
+        'gpt-3.5-turbo-instruct',
+        'omni-moderation-latest',
+        'gpt-4o-realtime-preview',
+        'chatgpt-4o-latest',
+        'babbage-002',
+      ]);
+    });
+
+    const token = await signupAndGetToken();
+    const res = await listModels(token, { apiKey: USER_KEY, apiProvider: 'openai' });
+
+    expect(res.status).toBe(200);
+    const body = await res.json<{ provider: string; models: string[] }>();
+    expect(body.provider).toBe('openai');
+    expect(body.models).toEqual(['chatgpt-4o-latest', 'gpt-4.1-mini', 'gpt-5.6-luna', 'o3-mini']);
+
+    // 上流へは利用者キーだけを使う(サーバー側キーは使わない)
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders.authorization).toBe(`Bearer ${USER_KEY}`);
+  });
+
+  it('成功(anthropic): x-api-key・anthropic-versionを付け、上流の並び順のまま返す', async () => {
+    const mock = mockAnthropicOnce((url) => {
+      expect(url).toBe(ANTHROPIC_MODELS_URL);
+      return modelsResponse(['claude-haiku-5', 'claude-sonnet-5', 'claude-opus-4-1']);
+    });
+
+    const token = await signupAndGetToken();
+    const res = await listModels(token, { apiKey: USER_KEY, apiProvider: 'anthropic' });
+
+    expect(res.status).toBe(200);
+    const body = await res.json<{ provider: string; models: string[] }>();
+    expect(body.provider).toBe('anthropic');
+    // 並べ替えない(API順=新しい順を保つ)
+    expect(body.models).toEqual(['claude-haiku-5', 'claude-sonnet-5', 'claude-opus-4-1']);
+
+    const sentHeaders = mock.calls[0].init.headers as Record<string, string>;
+    expect(sentHeaders['x-api-key']).toBe(USER_KEY);
+    expect(sentHeaders['x-api-key']).not.toBe(env.ANTHROPIC_API_KEY);
+    expect(sentHeaders['anthropic-version']).toBe('2023-06-01');
+  });
+
+  it('認証失敗(401)はuser_api_key_invalidで返り、応答にキーの値を含まない', async () => {
+    mockAnthropicOnce(() => new Response(JSON.stringify({ error: { code: 'invalid_api_key' } }), { status: 401 }));
+
+    const token = await signupAndGetToken();
+    const res = await listModels(token, { apiKey: USER_KEY, apiProvider: 'openai' });
+
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).not.toContain(USER_KEY);
+    expect(JSON.parse(text).error.code).toBe('user_api_key_invalid');
+  });
+
+  it('到達不能(fetch自体の失敗)はupstream_unreachableで返る', async () => {
+    activeMock = installFetchMock(() => {
+      throw new TypeError('network down');
+    });
+
+    const token = await signupAndGetToken();
+    const res = await listModels(token, { apiKey: USER_KEY, apiProvider: 'anthropic' });
+    expect(res.status).toBe(502);
+    expect((await res.json<{ error: { code: string } }>()).error.code).toBe('upstream_unreachable');
+  });
+
+  it('apiKey・apiProviderの不備は400(ヘッダ注入を含む)。上流には転送されない', async () => {
+    const mock = installFetchMock(() => {
+      throw new Error('fetchが呼ばれるべきではない');
+    });
+    activeMock = mock;
+
+    const token = await signupAndGetToken();
+    expect((await listModels(token, { apiProvider: 'openai' })).status).toBe(400);
+    expect((await listModels(token, { apiKey: USER_KEY })).status).toBe(400);
+    expect((await listModels(token, { apiKey: USER_KEY, apiProvider: 'gemini' })).status).toBe(400);
+    const injected = await listModels(token, { apiKey: 'sk-a\r\nx-injected: 1', apiProvider: 'openai' });
+    expect(injected.status).toBe(400);
+    expect((await injected.json<{ error: { code: string } }>()).error.code).toBe('invalid_request');
+    expect(mock.calls).toHaveLength(0);
+  });
+
+  it('日次上限は接続テストと同じ枠を消費する(チャットの残量は消費しない)', async () => {
+    env.AI_TEST_DAILY_LIMIT = '1';
+    const mock = mockAnthropicOnce((url) =>
+      url === 'https://api.openai.com/v1/chat/completions'
+        ? openAiSuccessResponse({
+            choices: [{ message: { content: 'pong' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+          })
+        : modelsResponse(['gpt-5.6-luna'])
+    );
+
+    const token = await signupAndGetToken();
+    // 1回目は接続テストで枠を使い切る
+    expect((await testConnection(token, { apiKey: USER_KEY, apiProvider: 'openai' })).status).toBe(200);
+
+    // 別枠を持たないため、モデル一覧の取得は上限超過になる
+    const res = await listModels(token, { apiKey: USER_KEY, apiProvider: 'openai' });
+    expect(res.status).toBe(429);
+    expect((await res.json<{ error: { code: string } }>()).error.code).toBe('ai_test_limit_exceeded');
+    // 上限超過時は上流を呼ばない(fetchは接続テストの1回だけ)
+    expect(mock.calls).toHaveLength(1);
+    // チャットの残量には影響しない
+    const quotaBody = await (await quota(token)).json<{ used: number }>();
+    expect(quotaBody.used).toBe(0);
+  });
+});
+
 describe('GET /api/ai/quota', () => {
   it('未利用時はused=0、limitは設定値', async () => {
     const token = await signupAndGetToken();

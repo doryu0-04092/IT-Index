@@ -97,6 +97,14 @@ async function connectionTest(token: string) {
   });
 }
 
+async function modelList(token: string) {
+  return exports.default.fetch(`${BASE}/api/ai/models`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ apiKey: 'sk-user-key', apiProvider: 'anthropic' }),
+  });
+}
+
 async function me(token: string) {
   return exports.default.fetch(`${BASE}/api/auth/me`, { headers: authHeaders(token) });
 }
@@ -177,6 +185,15 @@ describe('ライセンスゲート(未ライセンス)', () => {
     const res = await connectionTest(account.token);
     expect(res.status).toBe(200);
     expect(mock.calls[0].url).toBe(ANTHROPIC_URL);
+  });
+
+  it('POST /api/ai/modelsはライセンス不要で200(利用者キーの経路)', async () => {
+    const account = await signupAccount('gate', { license: false });
+    const mock = mockUpstream({ data: [{ id: 'claude-haiku-5' }] });
+
+    const res = await modelList(account.token);
+    expect(res.status).toBe(200);
+    expect(mock.calls[0].url).toBe('https://api.anthropic.com/v1/models');
   });
 
   it('GET /api/auth/meはlicensed:falseを返す', async () => {
