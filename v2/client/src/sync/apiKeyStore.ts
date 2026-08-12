@@ -8,7 +8,8 @@
  * architecture.md §6 の第1層「漏れても被害が有限」——プロバイダ側の支出上限設定を
  * 利用者へ案内する——で被害を有限化する。
  *
- * 「検証済み(verified)」は接続テスト(POST /api/ai/test)が成功したことを表す。
+ * 「検証済み(verified)」は接続テストが成功したことを表す(設定画面の接続テストは
+ * POST /api/ai/models——モデル一覧の取得が疎通確認を兼ねる。screens/ApiKeySection.tsx)。
  * チャットで使うのは検証済みの資格情報だけで(getVerifiedCredential)、未検証のものは
  * 使わずサーバー側キー+回数上限の通常経路に落ちる。動作保証はしないが、
  * 「接続テストが通ったキーなら使える」という建て付けを、この1つのフラグで表現する。
@@ -23,6 +24,13 @@ export interface AiCredential {
   provider: AiProvider;
   /** 未指定(空)ならサーバー側のプロバイダごとの既定モデルを使う */
   model?: string;
+  /**
+   * 接続テスト(=モデル一覧取得。POST /api/ai/models)で取得できた、このキーで選べるモデルID。
+   * 設定画面のモデル選択(リストボックス)の選択肢として保存する——毎回プロバイダへ問い合わせずに
+   * モデルを変更できるようにするため。未取得(旧保存データ)はundefinedで、その場合は
+   * 接続テストの再実行で一覧を取り直す。
+   */
+  models?: string[];
   /** 接続テストに成功して保存されたか */
   verified: boolean;
 }
@@ -45,6 +53,13 @@ function normalizeOptional(value: unknown): string | undefined {
   return trimmed === '' ? undefined : trimmed;
 }
 
+/** 保存されたモデル一覧の読み取り。配列でない・文字列でない要素は捨てる(壊れた値で画面を壊さない) */
+function normalizeModels(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const models = value.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '');
+  return models.length === 0 ? undefined : models;
+}
+
 function write(credential: AiCredential): void {
   localStorage.setItem(CREDENTIAL_KEY, JSON.stringify(credential));
 }
@@ -57,7 +72,7 @@ function parseStored(raw: string): AiCredential | null {
     return null; // 壊れた値は「未設定」として扱う(黙って消さず、上書き保存で直せるようにする)
   }
   if (typeof parsed !== 'object' || parsed === null) return null;
-  const { key, provider, model, verified } = parsed as Record<string, unknown>;
+  const { key, provider, model, models, verified } = parsed as Record<string, unknown>;
   const normalizedKey = normalizeOptional(key);
   if (normalizedKey === undefined) return null;
   if (typeof provider !== 'string' || !VALID_PROVIDERS.includes(provider)) return null;
@@ -65,6 +80,7 @@ function parseStored(raw: string): AiCredential | null {
     key: normalizedKey,
     provider: provider as AiProvider,
     model: normalizeOptional(model),
+    models: normalizeModels(models),
     verified: verified === true,
   };
 }
@@ -95,20 +111,59 @@ export function getVerifiedCredential(): AiCredential | null {
 }
 
 /**
- * 接続テストに成功した資格情報を保存する。**保存はこの関数だけが行う**
+ * 接続テストに成功した資格情報を保存する。**キーの保存はこの関数だけが行う**
  * (=テストを通っていないキーは保存されない)。
  */
 export function saveVerifiedCredential(input: {
   key: string;
   provider: AiProvider;
   model?: string;
+  models?: string[];
 }): void {
   const key = input.key.trim();
   if (key === '') {
     clearAiCredential();
     return;
   }
-  write({ key, provider: input.provider, model: normalizeOptional(input.model), verified: true });
+  write({
+    key,
+    provider: input.provider,
+    model: normalizeOptional(input.model),
+    models: normalizeModels(input.models),
+    verified: true,
+  });
+}
+
+/**
+ * 保存済みの資格情報のモデルだけを差し替える(設定画面のモデル選択の即時保存)。
+ * キー・プロバイダ・検証済みフラグ・モデル一覧はそのまま——選び直したモデルは、既に接続テストに
+ * 通っている同じキーで使う値なので、再テストを求めずに切り替えられるようにする(v1
+ * SettingsModal.handleChangeModelと同じ扱い)。空文字はundefined(サーバー側の既定モデル)にする。
+ * 資格情報が無い場合は何もしない(この関数でキーを作ることはない)。
+ */
+export function updateCredentialModel(model: string): AiCredential | null {
+  const credential = getAiCredential();
+  if (credential === null) return null;
+  const updated: AiCredential = { ...credential, model: normalizeOptional(model) };
+  write(updated);
+  return updated;
+}
+
+/**
+ * 一覧から最初に選ばせるモデルを決める(依頼者指定の既定)。
+ * - OpenAI: `gpt-5.6-luna` があればそれ。無ければ一覧の先頭
+ * - Anthropic: idに`haiku`を含む最初のもの(一覧はAPI順=新しい順なので、最も新しいHaiku)。
+ *   無ければ一覧の先頭
+ * 一覧が空の場合はundefined(呼び出し側はモデル名の直接入力にフォールバックする)。
+ */
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-luna';
+
+export function pickDefaultModel(provider: AiProvider, models: string[]): string | undefined {
+  if (models.length === 0) return undefined;
+  if (provider === 'openai') {
+    return models.find((model) => model === DEFAULT_OPENAI_MODEL) ?? models[0];
+  }
+  return models.find((model) => model.includes('haiku')) ?? models[0];
 }
 
 /**

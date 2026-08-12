@@ -1,7 +1,10 @@
 // architecture.md §5: Anthropic Messages APIへの転送。
 import type { Env } from '../types';
-import type { ChatMessage, AiResult, ProviderCallOptions } from '../ai';
+import type { ChatMessage, AiResult, ModelListResult, ProviderCallOptions } from '../ai';
 import { detectModelUnknown, mapUpstreamError } from './upstreamError';
+
+// Messages APIとModels APIで同じ値を使う(バージョンが2箇所でずれないよう定数に寄せた)。
+const ANTHROPIC_VERSION = '2023-06-01';
 
 type AnthropicMessagesResponse = {
   content: Array<{ type: string; text?: string }>;
@@ -49,7 +52,7 @@ export async function callAnthropic(
       method: 'POST',
       headers: {
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': ANTHROPIC_VERSION,
         'content-type': 'application/json',
       },
       body: JSON.stringify(requestBody),
@@ -82,4 +85,40 @@ export async function callAnthropic(
       usage: { inputTokens: data.usage.input_tokens, outputTokens: data.usage.output_tokens },
     },
   };
+}
+
+/**
+ * 利用者キーで使えるモデルの一覧を取得する(GET /v1/models)。
+ * **この呼び出し自体がAPIキーの疎通確認を兼ねる**(キーが無効なら401でここで分かる)。
+ *
+ * 並び順は上流の応答のまま返す(v1 src/ai/providers/claude.ts と同じ。Anthropicは新しい順に
+ * 返すため、並べ替えると「新しいモデルが先頭」という利用者にとっての意味が失われる)。
+ * キーの値は戻り値にもエラーにも載らない。modelUnknownを常にfalseにしている理由は
+ * providers/openai.ts listOpenAiModels と同じ(モデル名を送らないため)。
+ */
+export async function listAnthropicModels(apiKey: string): Promise<ModelListResult> {
+  let res: Response;
+  try {
+    res = await fetch('https://api.anthropic.com/v1/models', {
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': ANTHROPIC_VERSION,
+      },
+    });
+  } catch {
+    return {
+      ok: false,
+      error: { status: 502, code: 'upstream_unreachable', message: 'AIサービスに接続できませんでした' },
+    };
+  }
+
+  if (!res.ok) {
+    return { ok: false, error: mapUpstreamError(res.status, { usingUserKey: true, modelUnknown: false }) };
+  }
+
+  const data = (await res.json()) as { data?: Array<{ id?: unknown }> };
+  const models = (data.data ?? [])
+    .map((entry) => entry.id)
+    .filter((id): id is string => typeof id === 'string');
+  return { ok: true, models };
 }

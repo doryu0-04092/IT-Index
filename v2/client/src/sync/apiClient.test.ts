@@ -3,6 +3,7 @@ import {
   activateLicense,
   ApiRequestError,
   chatWithAi,
+  fetchAiModels,
   fetchAiQuota,
   fetchMe,
   login,
@@ -227,6 +228,34 @@ describe('apiClient', () => {
     ).rejects.toMatchObject({
       code: 'user_model_invalid',
       message: '指定したモデル名が使えません。設定画面でモデル名を確認してください',
+      status: 400,
+    });
+  });
+
+  it('fetchAiModelsは/ai/modelsへapiKey・apiProviderを送り、provider/modelsを受け取る', async () => {
+    const fetchMock = mockFetchOnce(200, { provider: 'openai', models: ['gpt-4.1-mini', 'gpt-5.6-luna'] });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchAiModels('tok', { key: 'sk-user-key', provider: 'openai' });
+
+    expect(result).toEqual({ provider: 'openai', models: ['gpt-4.1-mini', 'gpt-5.6-luna'] });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/ai/models');
+    expect(init.method).toBe('POST');
+    expect(init.headers.Authorization).toBe('Bearer tok');
+    expect(JSON.parse(init.body)).toEqual({ apiKey: 'sk-user-key', apiProvider: 'openai' });
+  });
+
+  it('fetchAiModelsは失敗時サーバーの日本語messageとcodeを持つApiRequestErrorを投げる', async () => {
+    vi.stubGlobal(
+      'fetch',
+      mockFetchOnce(400, {
+        error: { code: 'user_api_key_invalid', message: '設定したAPIキーが無効です。設定画面で確認してください' },
+      }),
+    );
+
+    await expect(fetchAiModels('tok', { key: 'sk-bad', provider: 'anthropic' })).rejects.toMatchObject({
+      code: 'user_api_key_invalid',
       status: 400,
     });
   });
