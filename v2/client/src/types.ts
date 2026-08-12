@@ -65,8 +65,8 @@ export interface SyncStateRecord {
 }
 
 /**
- * v1のNoteConflictRecord相当(../../src/types.ts参照)。v2はAI統合(merged)を実装しないため
- * resolutionは'local'|'remote'のみ、mergedフィールドは持たない。
+ * v1のNoteConflictRecord相当(../../src/types.ts参照)。AI統合(merged)を実装する
+ * (docs不使用の依頼により、v1と同じ3択(local/remote/merged)・mergedキャッシュを持つ)。
  */
 export interface NoteConflictRecord {
   id: string;
@@ -79,6 +79,12 @@ export interface NoteConflictRecord {
   /** 検出時点の相手端末側の内容(不変) */
   remote: NoteRecord;
   /** 現在採用中の選択。未解決ならnull */
-  resolution: 'local' | 'remote' | null;
+  resolution: 'local' | 'remote' | 'merged' | null;
+  /**
+   * AIで統合した結果のキャッシュ(v1 ../../src/types.ts参照)。'merged'を一度選ぶと保存され、
+   * その後local/remoteへ選び直しても消さない——再度「AIで統合する」を選ぶ時に
+   * 再呼び出しせず再利用するため。
+   */
+  merged: { body: string; diagrams: string[] } | null;
   resolvedAt: number | null;
 }

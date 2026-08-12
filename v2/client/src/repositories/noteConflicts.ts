@@ -16,8 +16,19 @@ export interface NoteConflictsRepository {
   getAllOrdered(): Promise<NoteConflictRecord[]>;
   /** 未解決のみ(SyncScreenの解決UIの対象) */
   getUnresolved(): Promise<NoteConflictRecord[]>;
-  /** どちらを採用するか選ぶ(v2はAI統合(merged)を実装しないため'local'|'remote'のみ) */
-  setResolution(id: string, resolution: 'local' | 'remote', at: number): Promise<void>;
+  /** 解決済みのみ、新しい順(SyncScreenの「解決済み」一覧・選び直しの対象) */
+  getResolved(): Promise<NoteConflictRecord[]>;
+  /**
+   * どちらを採用するか選ぶ、またはAI統合を選ぶ(v1 ../../../src/repositories/noteConflicts.ts
+   * と同じ契約)。mergedは'merged'を選ぶ時だけ渡す——渡された場合のみ更新し、
+   * local/remoteへの選び直しで既存のキャッシュを消さない(再度AI統合を選ぶ時の再利用のため)。
+   */
+  setResolution(
+    id: string,
+    resolution: 'local' | 'remote' | 'merged',
+    merged: { body: string; diagrams: string[] } | null,
+    at: number,
+  ): Promise<void>;
 }
 
 export function createNoteConflictsRepository(db: ItIndexDB): NoteConflictsRepository {
@@ -31,6 +42,7 @@ export function createNoteConflictsRepository(db: ItIndexDB): NoteConflictsRepos
         local: conflict.local,
         remote: conflict.remote,
         resolution: null,
+        merged: null,
         resolvedAt: null,
       };
       await db.noteConflicts.add(record);
@@ -46,8 +58,18 @@ export function createNoteConflictsRepository(db: ItIndexDB): NoteConflictsRepos
       return db.noteConflicts.filter((c) => c.resolution === null).toArray();
     },
 
-    async setResolution(id, resolution, at) {
-      await db.noteConflicts.update(id, { resolution, resolvedAt: at });
+    async getResolved() {
+      const all = await db.noteConflicts.filter((c) => c.resolution !== null).toArray();
+      return all.sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0));
+    },
+
+    async setResolution(id, resolution, merged, at) {
+      await db.noteConflicts.update(id, {
+        resolution,
+        // 既にキャッシュ済みのmergedを、local/remote選択時に消さない(v1と同じ理由。上記コメント参照)
+        ...(merged ? { merged } : {}),
+        resolvedAt: at,
+      });
     },
   };
 }

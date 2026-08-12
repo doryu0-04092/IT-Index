@@ -1,32 +1,68 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import type { AiClient } from '../ai/aiClient';
 import { ItIndexDB } from '../db';
 import { createAsksRepository } from '../repositories/asks';
-import { createNoteConflictsRepository } from '../repositories/noteConflicts';
+import { createNoteConflictsRepository, type NoteConflict } from '../repositories/noteConflicts';
 import { createNotesRepository } from '../repositories/notes';
 import { createSyncStateRepository } from '../repositories/syncState';
 import { createTermsRepository } from '../repositories/terms';
+import { ApiRequestError } from '../sync/apiClient';
 import SyncScreen from './SyncScreen';
 
 function jsonResponse(status: number, body: unknown) {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) };
 }
 
-function renderSyncScreen(deviceId: string | null = 'device-1') {
+function fakeAiClient(overrides: Partial<AiClient> = {}): AiClient {
+  return { send: vi.fn(), ...overrides };
+}
+
+function makeConflict(termId = 'term-a'): NoteConflict {
+  const base = { termId, diagrams: [], noteHistory: [] };
+  return {
+    termId,
+    local: { ...base, body: 'この端末の内容', updatedAt: 100, lastEditedBy: 'device-1' },
+    remote: { ...base, body: '相手の端末の内容', updatedAt: 200, lastEditedBy: 'device-2' },
+  };
+}
+
+function createSyncDeps() {
   const db = new ItIndexDB(`test-syncscreen-${Math.random()}`);
+  return {
+    db,
+    termsRepo: createTermsRepository(db),
+    notesRepo: createNotesRepository(db),
+    asksRepo: createAsksRepository(db),
+    noteConflictsRepo: createNoteConflictsRepository(db),
+    syncStateRepo: createSyncStateRepository(db),
+  };
+}
+
+/**
+ * 競合を事前に仕込むテスト(AI統合・選び直し)は、renderより前にdb/repoを用意して
+ * noteConflictsRepo.add()しておく必要があるため、depsを引数で受け取れるようにしてある。
+ * 省略時は毎回新しいdbを作る(既存の単純なテストはこれで足りる)。
+ */
+function renderSyncScreen(
+  deps: ReturnType<typeof createSyncDeps> = createSyncDeps(),
+  options: { deviceId?: string | null; aiClient?: AiClient; onGoToSettings?: () => void } = {},
+) {
   render(
     <SyncScreen
-      db={db}
-      deviceId={deviceId}
-      termsRepo={createTermsRepository(db)}
-      notesRepo={createNotesRepository(db)}
-      asksRepo={createAsksRepository(db)}
-      noteConflictsRepo={createNoteConflictsRepository(db)}
-      syncStateRepo={createSyncStateRepository(db)}
+      db={deps.db}
+      deviceId={options.deviceId ?? 'device-1'}
+      termsRepo={deps.termsRepo}
+      notesRepo={deps.notesRepo}
+      asksRepo={deps.asksRepo}
+      noteConflictsRepo={deps.noteConflictsRepo}
+      syncStateRepo={deps.syncStateRepo}
+      aiClient={options.aiClient ?? fakeAiClient()}
+      onGoToSettings={options.onGoToSettings}
     />,
   );
-  return db;
+  return deps;
 }
 
 describe('SyncScreen', () => {
@@ -155,5 +191,121 @@ describe('SyncScreen', () => {
     expect(screen.queryByLabelText('APIキー')).toBeNull();
     expect(screen.queryByTestId('api-key-status')).toBeNull();
     expect(screen.queryByText('テーマ')).toBeNull();
+  });
+
+  function stubAuthedFetch() {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' })));
+    localStorage.setItem('it-index-v2:token', 'tok-1');
+  }
+
+  it('「AIで統合する」を適用するとnotesに反映され、再度統合を選んでもキャッシュがあれば再呼び出ししない', async () => {
+    const deps = createSyncDeps();
+    await deps.noteConflictsRepo.add(makeConflict('tcp-ip'), 'device-2', 1000);
+    const send = vi.fn().mockResolvedValue({
+      text: JSON.stringify({ body: '統合された説明', diagrams: [] }),
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+    stubAuthedFetch();
+
+    renderSyncScreen(deps, { aiClient: fakeAiClient({ send }) });
+    await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+
+    let item = screen.getByText('tcp-ip').closest('li')!;
+    fireEvent.click(within(item).getByRole('button', { name: 'AIで統合する' }));
+
+    await waitFor(() => expect(screen.getByText('解決済みの競合(1件)')).toBeTruthy());
+    expect(send).toHaveBeenCalledTimes(1);
+    expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('統合された説明');
+
+    // 選び直し: 一旦「この端末の内容」へ変更する(mergedキャッシュは消えない)
+    item = screen.getByText('tcp-ip').closest('li')!;
+    fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[0]);
+    await waitFor(async () => expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('この端末の内容'));
+
+    // 再度「AIで統合する」(キャッシュがあるためボタン名は「統合した内容を採用」)を選ぶ
+    // -> AIを再度呼ばずキャッシュのbodyをそのまま適用する
+    item = screen.getByText('tcp-ip').closest('li')!;
+    fireEvent.click(within(item).getByRole('button', { name: '統合した内容を採用' }));
+    await waitFor(async () => expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('統合された説明'));
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('AI統合が失敗した場合はエラーを表示し、license_requiredなら設定タブへ誘導する(未適用のまま)', async () => {
+    const deps = createSyncDeps();
+    await deps.noteConflictsRepo.add(makeConflict('tcp-ip'), 'device-2', 1000);
+    const send = vi.fn().mockRejectedValue(
+      new ApiRequestError(
+        { code: 'license_required', message: 'ライセンスが必要です。設定タブから購入(モック)するか、自分のサーバーを設定してください。' },
+        403,
+      ),
+    );
+    const onGoToSettings = vi.fn();
+    stubAuthedFetch();
+
+    renderSyncScreen(deps, { aiClient: fakeAiClient({ send }), onGoToSettings });
+    await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+
+    const item = screen.getByText('tcp-ip').closest('li')!;
+    fireEvent.click(within(item).getByRole('button', { name: 'AIで統合する' }));
+
+    await waitFor(() => expect(within(item).getByText(/ライセンスが必要です/)).toBeTruthy());
+    fireEvent.click(within(item).getByRole('button', { name: '設定タブへ' }));
+    expect(onGoToSettings).toHaveBeenCalled();
+
+    // 適用されていない(未解決のまま・notesは変わっていない)
+    expect(screen.queryByText('解決済みの競合(1件)')).toBeNull();
+    expect(await deps.notesRepo.getByTermId('tcp-ip')).toBeUndefined();
+  });
+
+  it('AI統合の応答を解釈できない場合もエラーを表示する(license_required以外の通常のエラー文言)', async () => {
+    const deps = createSyncDeps();
+    await deps.noteConflictsRepo.add(makeConflict('tcp-ip'), 'device-2', 1000);
+    const send = vi.fn().mockResolvedValue({ text: '壊れた応答', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } });
+    stubAuthedFetch();
+
+    renderSyncScreen(deps, { aiClient: fakeAiClient({ send }) });
+    await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+
+    const item = screen.getByText('tcp-ip').closest('li')!;
+    fireEvent.click(within(item).getByRole('button', { name: 'AIで統合する' }));
+
+    await waitFor(() => expect(within(item).getByText('AIの応答を解釈できませんでした。')).toBeTruthy());
+  });
+
+  it('解決済みの競合を選び直すと、この端末のnotesの内容が置き換わる', async () => {
+    const deps = createSyncDeps();
+    await deps.noteConflictsRepo.add(makeConflict('tcp-ip'), 'device-2', 1000);
+    stubAuthedFetch();
+
+    renderSyncScreen(deps);
+    await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+
+    let item = screen.getByText('tcp-ip').closest('li')!;
+    fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[0]); // 「この端末の内容」を採用
+    await waitFor(() => expect(screen.getByText('解決済みの競合(1件)')).toBeTruthy());
+    expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('この端末の内容');
+
+    // 解決済み一覧側で選び直す(残っているボタンは「相手の端末の内容」側)
+    item = screen.getByText('tcp-ip').closest('li')!;
+    fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[0]);
+    await waitFor(async () => expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('相手の端末の内容'));
+  });
+
+  it('解決済みの競合の一覧を表示する', async () => {
+    const deps = createSyncDeps();
+    await deps.noteConflictsRepo.add(makeConflict('tcp-ip'), 'device-2', 1000);
+    stubAuthedFetch();
+
+    renderSyncScreen(deps);
+    await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+    expect(screen.queryByText(/解決済みの競合/)).toBeNull();
+
+    const item = screen.getByText('tcp-ip').closest('li')!;
+    fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[1]); // 「相手の端末の内容」を採用
+
+    await waitFor(() => expect(screen.getByText('解決済みの競合(1件)')).toBeTruthy());
+    expect(screen.queryByText(/未解決の競合/)).toBeNull();
+    expect(screen.getByText(/現在の選択: 相手の端末の内容にしました。/)).toBeTruthy();
   });
 });

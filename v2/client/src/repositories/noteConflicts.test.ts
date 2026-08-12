@@ -46,7 +46,7 @@ describe('createNoteConflictsRepository', () => {
     const r = repo();
     const a = await r.add(makeConflict('term-a'), 'device-2', 1000);
     await r.add(makeConflict('term-b'), 'device-2', 2000);
-    await r.setResolution(a.id, 'local', 3000);
+    await r.setResolution(a.id, 'local', null, 3000);
 
     const unresolved = await r.getUnresolved();
     expect(unresolved.map((c) => c.termId)).toEqual(['term-b']);
@@ -65,10 +65,40 @@ describe('createNoteConflictsRepository', () => {
     const r = repo();
     const record = await r.add(makeConflict(), 'device-2', 1000);
 
-    await r.setResolution(record.id, 'remote', 5000);
+    await r.setResolution(record.id, 'remote', null, 5000);
 
     const [updated] = await r.getAllOrdered();
     expect(updated.resolution).toBe('remote');
     expect(updated.resolvedAt).toBe(5000);
+  });
+
+  it('setResolutionはmergedを渡した時だけキャッシュを更新する(local/remoteへの選び直しで消さない)', async () => {
+    const r = repo();
+    const record = await r.add(makeConflict(), 'device-2', 1000);
+    const merged = { body: '統合された説明', diagrams: [] };
+
+    await r.setResolution(record.id, 'merged', merged, 2000);
+    let [updated] = await r.getAllOrdered();
+    expect(updated.resolution).toBe('merged');
+    expect(updated.merged).toEqual(merged);
+
+    // local へ選び直す(merged は渡さない) -> resolution は変わるが merged キャッシュは残る
+    await r.setResolution(record.id, 'local', null, 3000);
+    [updated] = await r.getAllOrdered();
+    expect(updated.resolution).toBe('local');
+    expect(updated.merged).toEqual(merged);
+  });
+
+  it('getResolvedはresolution:null以外を解決日時の新しい順で返す', async () => {
+    const r = repo();
+    const a = await r.add(makeConflict('term-a'), 'device-2', 1000);
+    const b = await r.add(makeConflict('term-b'), 'device-2', 2000);
+    await r.add(makeConflict('term-c'), 'device-2', 3000); // 未解決のまま
+
+    await r.setResolution(a.id, 'local', null, 5000);
+    await r.setResolution(b.id, 'remote', null, 6000);
+
+    const resolved = await r.getResolved();
+    expect(resolved.map((c) => c.termId)).toEqual(['term-b', 'term-a']);
   });
 });

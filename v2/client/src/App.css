@@ -754,3 +754,61 @@ body {
   user-select: all;
   font-family: monospace;
 }
+
+/*
+ * 同期タブの競合解決(要件定義書§5.5・移植元: ../../../src/index.css .link-conflict-*)。
+ * 未解決・解決済み(選び直し)の両リストで共通のクラスを使う(screens/ConflictItem.tsx)。
+ */
+.sync-conflict-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sync-conflict {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.sync-resolved-conflicts {
+  margin-top: 24px;
+}
+
+/* 2案を並べて見比べる。狭い画面では自然に縦へ折り返す */
+.sync-conflict-sides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.sync-conflict-side {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 「どちらかを採る」の下に「AIで統合する」を置く(どちらも捨てたくない場合の第3の選択肢) */
+.sync-conflict-merge {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/*
+ * license_required時の設定タブ誘導(ChatScreen.tsx・ConflictItem.tsxで共通のクラス)。
+ * これまで未定義だったため、この機能追加に合わせて最小限のレイアウトだけ加える。
+ */
+.chat-license-required {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
