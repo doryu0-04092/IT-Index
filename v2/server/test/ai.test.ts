@@ -1,26 +1,9 @@
 import { exports, env } from 'cloudflare:workers';
 import { afterEach, describe, expect, it } from 'vitest';
+import { BASE, authHeaders, installFetchMock, signupAccount } from './helpers';
 
-const BASE = 'https://example.com';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
-
-// このvitest-pool-workersのバージョン(0.20.3)には`cloudflare:test`の
-// `fetchMock`(undici MockAgent)が存在しない(型定義・ランタイムいずれにも無し。
-// 依存追加/更新は禁止のため、globalThis.fetchを直接差し替える方式で代替する)。
-type FetchCall = { url: string; init: RequestInit };
-
-function installFetchMock(handler: (url: string, init: RequestInit) => Response) {
-  const original = globalThis.fetch;
-  const calls: FetchCall[] = [];
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input.toString();
-    const resolvedInit = init ?? {};
-    calls.push({ url, init: resolvedInit });
-    return handler(url, resolvedInit);
-  }) as typeof fetch;
-  return { calls, restore: () => { globalThis.fetch = original; } };
-}
 
 function anthropicSuccessResponse(payload: unknown): Response {
   return new Response(JSON.stringify(payload), {
@@ -48,19 +31,12 @@ function mockAnthropicOnce(handler: (url: string, init: RequestInit) => Response
   return activeMock;
 }
 
+// 運営者キー経路のチャットは公式ホストでは要ライセンス(src/license.ts)。ここでは
+// プロキシそのものの振る舞いを見たいので、アカウントには既定でライセンスを付与する。
+// 未ライセンス時の403・カウント不消費、BYOKと接続テストがライセンス不要であることは
+// license.test.tsで検証する。
 async function signupAndGetToken(): Promise<string> {
-  const email = `ai-${crypto.randomUUID()}@example.com`;
-  const res = await exports.default.fetch(`${BASE}/api/auth/signup`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password: 'password123' }),
-  });
-  const body = await res.json<{ token: string }>();
-  return body.token;
-}
-
-function authHeaders(token: string) {
-  return { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+  return (await signupAccount('ai')).token;
 }
 
 async function chat(token: string, requestBody: unknown) {

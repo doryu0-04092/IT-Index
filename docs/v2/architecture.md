@@ -81,7 +81,7 @@ flowchart LR
 | `accounts` | id・email・パスワードハッシュ・作成日時 |
 | `sync_blobs` | account_id・device_id・seq(単調増加)・payload(端末が出した差分。**サーバーは中身を解釈しない**)・created_at |
 | `usage`(Phase 2) | account_id・期間・AI呼び出し回数(上限判定用) |
-| `licenses`(次PRで実装予定) | code(UNIQUE)・account_id・source(`'purchase'`\|`'operator'`)・issued_at・activated_at |
+| `licenses` | code(UNIQUE)・account_id・source(`'purchase'`\|`'operator'`)・issued_at・activated_at |
 
 `licenses`は**発行(issue)と有効化(activate)を分離する**設計にする。コード発行時点では`account_id`と
 `activated_at`は空で、決済モック([requirements.md §4.2](./requirements.md))の「発行」を表現する。利用者がコードを入力した時点で
@@ -89,7 +89,7 @@ flowchart LR
 検証・優待用)を区別する。**`accounts`テーブルの列(例: `has_license` bool)ではなく別テーブルにする**のは、
 発行済みだが未使用のコード(在庫)を表現する必要があり、かつ1コード=1回の有効化に限定する検証(`code`のUNIQUE制約
 +`activated_at`の有無チェック)をシンプルにするため。**このテーブルは公式ホスト運用時のみ意味を持つ**
-(セルフホストでは`LICENSE_ENABLED='0'`でライセンス確認自体を無効化する想定。[deploy.md「運用ノート」](./deploy.md))。
+(セルフホストでは`LICENSE_ENABLED='0'`でライセンス確認自体を無効化できる。[deploy.md「運用ノート」](./deploy.md))。
 
 ## 4. 同期プロトコル
 
@@ -112,7 +112,7 @@ sequenceDiagram
 - **原子性**: pull結果の反映は関係テーブルを1トランザクションで書く。途中失敗はロールバックし、カーソルを進めない
 - **壊れたデータ**: 検証に通らない差分は取り込みを中止して既存データを保持(v1のシード取り込みと同じ原則)
 - **ライセンス(2026-08-12追加)**: `POST /api/sync/push`・`GET /api/sync/pull`は、**公式ホストでは有効なライセンスを
-  持つアカウントに限り**実行できる(次PRで実装予定。ゲートの置き所は§5の不変条件と同じ方針)。セルフホストでは
+  持つアカウントに限り**実行できる(実装済み。ゲートの置き所は§5の不変条件と同じ方針)。セルフホストでは
   ライセンス概念が無いため、同期は無条件で動く([requirements.md §4](./requirements.md))
 
 ## 5. AIプロキシ(3つの経路)
@@ -142,7 +142,7 @@ sequenceDiagram
   運営者キーが使われる経路では必ず上限が効く(上限だけ回避することはできない)。この不変条件は変更しない
 - **不変条件(2026-08-12追加): 運営者キーが使われるのは、(b)公式ホストでは有効なライセンスを持つアカウントに限る。**
   (c)セルフホストにはこの制約が無い(運営者=利用者自身のため)。**ゲートの置き場所は`ai.ts`の`resolveCallProvider`ではなく
-  `index.ts`のルートハンドラ側にする方針**(次PRで実装予定)。`resolveCallProvider`は「利用者キーが有るか無いか」だけを
+  `index.ts`のルートハンドラ側にする**(実装済み)。`resolveCallProvider`は「利用者キーが有るか無いか」だけを
   判定する関数であり、そこにライセンス確認(公式ホスト限定の追加条件)を混ぜると、上記の既存不変条件(利用者キーの有無=
   上限スキップの唯一条件)が読みにくくなり崩れやすくなるため分離する。同じ方針で`/api/sync/push`・`/api/sync/pull`の
   ライセンスゲートも`index.ts`側に置く(§4)
