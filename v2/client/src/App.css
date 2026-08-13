@@ -13,6 +13,15 @@
   --accent: #2b6cb0;
   --accent-fg: #ffffff;
   --danger: #c0392b;
+  /*
+   * .app-headerの実測高さ(h1+gap+.app-nav+上下padding、狭幅で.app-navが折り返す場合を含む)
+   * に余裕を足した値(依頼者報告: フォーカス時のブラウザ自動スクロールがstickyの高さを
+   * 考慮せず、画面上部の要素がヘッダーの下に隠れる)。以前.term-index-sectionだけに
+   * ハードコードされていた96pxをここに一本化し、他のscroll-margin-top指定にも使い回す。
+   * 実測(chrome-devtoolsでの検証。幅360〜500px、.app-nav折り返し無し): .app-headerの
+   * 高さ94px。それに10pxの余裕を足して104pxとする。
+   */
+  --header-offset: 104px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -109,6 +118,43 @@ body {
 
 .app-main {
   min-height: 60vh;
+}
+
+/*
+ * フォーカス・スクロール対象への補正(依頼者報告: 検索欄やチャット欄にカーソルを合わせると
+ * ブラウザの自動スクロールがsticky .app-headerの高さを考慮せず、画面上部の要素がタブの下に
+ * 隠れる)。個別クラスを列挙する代わりに、フォーカス対象・見出しになりうる要素へ包括的に
+ * scroll-margin-topを効かせる。見た目(余白)には影響せず、scrollIntoView/フォーカス時の
+ * 自動スクロールの着地位置だけを補正するプロパティのため、対象を広めに取っても副作用が無い。
+ */
+.app-main input,
+.app-main textarea,
+.app-main select,
+.app-main h2,
+.app-main h3 {
+  scroll-margin-top: var(--header-offset);
+}
+
+/*
+ * 各画面の先頭がヘッダー直下に密着しないための余白(依頼者指定「他の部分でも必ず隙間を
+ * 取って、重なって消えることが起きないように配置して」)。チャット画面は「チャットから下は
+ * 少し下げて」との指定により他画面より広めにする。margin-topではなくpadding-topを使う
+ * ——これらの画面の先頭要素(h2/h3等)がブラウザ既定の上マージンを持つため、marginだと
+ * マージン相殺(collapsing)で親のmargin-topが子の既定マージンに食われてしまい、
+ * 意図した余白より広くなる(実測で確認)。paddingなら相殺されず確実に効く。
+ */
+.search-screen,
+.history-screen,
+.term-index,
+.term-detail,
+.settings-screen,
+.sync-screen,
+.sync-auth {
+  padding-top: 12px;
+}
+
+.chat-screen {
+  padding-top: 20px;
 }
 
 .status-text {
@@ -345,9 +391,9 @@ body {
 
 .term-index-section {
   margin: 16px 0;
-  /* stickyヘッダー(.app-header)にジャンプ先見出しが隠れない補正。
-     .app-headerの高さを変えたらここも見直す。 */
-  scroll-margin-top: 96px;
+  /* stickyヘッダー(.app-header)にジャンプ先見出しが隠れない補正(:root --header-offset参照)。
+     .app-headerの高さを変えたらそちらを見直す。 */
+  scroll-margin-top: var(--header-offset);
 }
 
 .term-index-heading {
