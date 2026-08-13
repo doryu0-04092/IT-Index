@@ -174,7 +174,7 @@ export default function ApiKeySection({ token }: { token: string }) {
         >
           {testing ? '接続を確認しています…' : '接続テスト'}
         </button>
-        <button type="button" className="btn-secondary" onClick={handleClear} disabled={saved === null}>
+        <button type="button" className="btn-danger" onClick={handleClear} disabled={saved === null}>
           削除する
         </button>
       </div>
