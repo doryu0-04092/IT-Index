@@ -277,7 +277,7 @@ function ServerSection() {
         >
           {testing ? 'サーバー接続を確認しています…' : 'サーバー接続テスト'}
         </button>
-        <button type="button" className="btn-secondary" onClick={handleResetDefault} disabled={testing || savedBase === null}>
+        <button type="button" className="btn-danger" onClick={handleResetDefault} disabled={testing || savedBase === null}>
           既定に戻す
         </button>
       </div>
@@ -327,7 +327,7 @@ function DataSection({ db }: { db: ItIndexDB }) {
         初回起動時と同じ状態に戻します。<strong>この操作は取り消せません。</strong>
       </p>
       {!expanded ? (
-        <button type="button" className="btn-secondary" onClick={() => setExpanded(true)}>
+        <button type="button" className="btn-danger" onClick={() => setExpanded(true)}>
           オールクリアする
         </button>
       ) : (

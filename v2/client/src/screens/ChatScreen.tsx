@@ -249,13 +249,6 @@ export default function ChatScreen({
             )}
           </ul>
 
-          {/* 質問を重ねて会話が伸びると、画面上部の戻るリンクまでスクロールしないと前の
-              画面に戻れない不便があった(v1で実際に利用者から指摘された不具合。
-              ../../../src/ui/pc/ChatScreen.tsx:217-226を移植)。同じリンクをここにも複製する。 */}
-          <button type="button" className="back-link chat-back-bottom" onClick={onBack}>
-            ← 戻る
-          </button>
-
           {sendError && sendErrorCode !== 'license_required' && <p className="error-text">{sendError}</p>}
           {sendErrorCode === 'user_api_key_invalid' && (
             <button type="button" className="btn-secondary" onClick={onGoToSync}>
@@ -347,7 +340,7 @@ export default function ChatScreen({
                 </button>
                 <button
                   type="button"
-                  className="btn-secondary"
+                  className="btn-danger"
                   onClick={() => void handleDecline()}
                   disabled={commitState === 'committing'}
                 >

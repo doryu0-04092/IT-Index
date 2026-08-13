@@ -132,7 +132,8 @@ body {
 }
 
 .btn-primary,
-.btn-secondary {
+.btn-secondary,
+.btn-danger {
   border-radius: 8px;
   padding: 10px 16px;
   font-size: 0.95rem;
@@ -150,7 +151,19 @@ body {
   cursor: not-allowed;
 }
 
+/*
+ * 破壊的でない操作(画面遷移・取り消せる選択・追加系の操作)向け(依頼者指定・UIレビュー反映)。
+ * 以前は.btn-secondaryがvar(--danger)=赤で定義されており、「単語の概要を聞く」「取り込む」等
+ * 破壊的でない操作まで赤く見えていた。破壊的な操作は下の.btn-dangerへ分離する。
+ */
 .btn-secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+/* 削除・オールクリア等、元に戻せない操作専用(旧.btn-secondaryの赤アウトライン定義を移設) */
+.btn-danger {
   background: transparent;
   color: var(--danger);
   border: 1px solid var(--danger);
@@ -187,6 +200,32 @@ body {
 
 .result-row {
   margin: 4px 0;
+}
+
+/*
+ * 「取り込み待ち」(SearchScreen.tsx)・「取り込み履歴」(HistoryScreen.tsxのcommitsタブ)の行。
+ * 「取り込む」ボタンが下に配置されて分かりづらいとの指摘(依頼者指定・UIレビュー反映。
+ * v1も横並びだった)。ラベル側(.result-button/.search-pending-item)を伸ばし、
+ * 操作ボタンは右端に横並びにする。他画面の.result-button(通常の検索結果一覧)には
+ * 影響させないため、このクラスの配下に限定する。
+ */
+.search-pending-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-pending-row .result-button,
+.search-pending-row .search-pending-item {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  margin-left: 0;
+}
+
+.search-pending-row .search-pending-commit,
+.search-pending-row .search-pending-decline {
+  flex: none;
 }
 
 .result-button {
@@ -687,11 +726,6 @@ body {
   white-space: nowrap;
 }
 
-.chat-back-bottom {
-  display: block;
-  margin-top: 16px;
-}
-
 /*
  * テーマ手動切替UI(移植元: ../../../src/App.tsx:636-645の.app-toolbar。
  * PR-Hで設定タブへ移設予定——今回は同期画面末尾に軽く置くだけに留める。lib/theme.ts参照)。
@@ -847,6 +881,41 @@ body {
   gap: 8px;
   margin-top: 12px;
   flex-wrap: wrap;
+}
+
+/*
+ * チャット画面のボタン列(クイック質問・取り込み系)。ボタン同士がくっついて見える不具合
+ * (依頼者指摘・UIレビュー反映)。上の.sync-api-key-actions等と同じリズム(gap:8px)に揃える。
+ */
+.chat-quick-asks,
+.chat-commit-row {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+
+/*
+ * 質問用チャット欄(依頼者指定・UIレビュー反映: 検索欄.search-inputと同等の見た目に揃える)。
+ * composerの構造(label→textarea→送信ボタン)自体は変えず、見た目だけ検索欄に合わせる。
+ */
+.chat-input-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.chat-input-row textarea {
+  width: 100%;
+  font-size: 1.1rem;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: inherit;
+  resize: vertical;
 }
 
 /* 商品カード(ライセンス購入モック)。枠線・paddingを付け、内部(見出し・注記・ボタン・

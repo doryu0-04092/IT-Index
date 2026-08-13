@@ -80,7 +80,7 @@ export default function TermDetailScreen({
         {term && confirmingDelete && (
           <span className="term-detail-delete-confirm">
             本当に削除しますか?
-            <button type="button" className="btn-secondary" onClick={() => void handleDelete()}>
+            <button type="button" className="btn-danger" onClick={() => void handleDelete()}>
               削除する
             </button>
             <button type="button" className="btn-text" onClick={() => setConfirmingDelete(false)}>

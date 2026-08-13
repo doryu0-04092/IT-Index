@@ -247,6 +247,28 @@ describe('ChatScreen', () => {
     expect(stored?.status).toBe('declined');
   });
 
+  it('戻るリンクは画面上部の1つだけで、下部に重複が無い(UIレビュー反映)', async () => {
+    setToken('tok-1');
+    const session = await chatRepo.createSession(null, 'なにか');
+
+    render(
+      <ChatScreen
+        sessionId={session.id}
+        chatRepo={chatRepo}
+        termsRepo={termsRepo}
+        notesRepo={notesRepo}
+        aiClient={{ send: vi.fn() }}
+        commitOrchestrator={fakeCommitOrchestrator()}
+        onBack={() => {}}
+        onGoToSync={() => {}}
+        onChangeSubject={() => {}}
+      />,
+    );
+
+    await screen.findByLabelText('メッセージ');
+    expect(screen.getAllByText('← 戻る')).toHaveLength(1);
+  });
+
   it('Enterで送信され、Shift+EnterもIME変換中のEnterも送信しない', async () => {
     setToken('tok-1');
     const session = await chatRepo.createSession(null, 'なにか');
