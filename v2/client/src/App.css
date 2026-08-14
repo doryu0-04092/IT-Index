@@ -99,7 +99,16 @@ a,
   padding: 0 12px 24px;
 }
 
-.app-header {
+/*
+ * ヘッダー(h1)とナビ(.app-nav)をまとめて1つのstickyブロックとして扱うラッパー
+ * (App.tsx参照。以前は.app-headerがこの役割とposition:stickyを兼ねており、.app-navが
+ * その子要素だったため、モバイル幅で.app-navをposition:fixedへ切り替えたときに
+ * sticky祖先の影響でタブバーがヘッダー位置にも二重描画される実機不具合があった)。
+ * ≥720px(デスクトップ)ではこのブロックごとstickyにして旧来の見た目を維持し、
+ * <720px(モバイル)では下のメディアクエリでposition:staticに戻し、.app-navだけを
+ * 独立してfixed bottomにする。
+ */
+.app-top {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1045,25 +1054,38 @@ a,
 
 /*
  * ============================================================
- * モバイル幅(<720px)専用: 下部固定タブバー+タッチ最適化(PR-R§2・3。
- * 依頼者選択「下部タブバー」・items/AIの設計・実装を確認する.md準拠でDOMは共通のまま
- * このメディアクエリだけで切り替える)。≥720pxは上の.app-nav基本ルール(上部ピルナビ)を
- * 一切変更しない。
+ * モバイル幅(<720px)専用: サイズ設計を1から見直す(依頼者指定・実機Android WebView検証結果を
+ * 踏まえた全面書き直し。以前は個別の場当たり調整の積み重ねだった)。
+ * 間隔は4/8/12/16pxのスケール(--space-1〜4)に揃え、見出し・本文・補足の文字サイズを
+ * PCから独立して縮める。下部固定タブバー化(PR-R#124/#125)自体は維持しつつ、DOM再構成
+ * (.app-topで.app-header/.app-navをまとめ、.app-navを.app-headerの外に出す。App.tsx・
+ * 上の.app-topコメント参照)に合わせてセレクタを更新する。
  *
- * 注記(重要): .app-nav/.app-nav-linkクラスはApp.tsxのメインナビだけでなく、
+ * 注記(重要): .app-nav/.app-nav-linkクラスはApp.tsxのメインナビ(.app-topの直接の子)だけでなく、
  * HistoryScreen.tsx(124行)の「時系列/重み付け」サブタブでも再利用されている
- * (通常フロー内の小さなタブ、固定バーにしてはならない)。そのため固定バー化・グリッド化は
- * `.app-header .app-nav`(メインナビは.app-header配下という一意な位置にある)に限定し、
- * サブタブ側は下のタップ領域拡大(min-height:44px)だけを共有させる。
+ * (通常フロー内の小さなタブ、固定バーにしてはならない。サブタブは.app-topの外にあるため
+ * 以下の`.app-top > .app-nav`セレクタには最初からマッチしない)。固定バー化・グリッド化は
+ * `.app-top > .app-nav`に限定し、サブタブ側は下のタップ領域拡大(min-height:44px)だけを
+ * 共有させる。
+ *
+ * フォントスケール対応(依頼者指定): 端末の文字サイズ設定でCSS pxの文字が拡大されるため、
+ * 固定高さ(height)には依存せず、min-heightのみを使う(既存踏襲)。flex/gridの子には
+ * min-width: 0 を付け、文字拡大時に兄弟要素を押し出して横はみ出しが起きないようにする。
  * ============================================================
  */
 @media (max-width: 719.98px) {
   :root {
-    /* .app-header .app-nav-linkのmin-height(48px)そのもの。上下paddingは持たせていない */
+    /* 間隔スケール(依頼者指定: 画面端の左右paddingは12px、セクション間は16px) */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+
+    /* .app-top > .app-nav-linkのmin-height(48px)そのもの。上下paddingは持たせていない */
     --tabbar-height: 48px;
     /*
-     * ナビが下の固定バーへ抜け、.app-headerはタイトルのみの薄い帯になる実測高さ+余裕。
-     * 実測(chrome-devtoolsでの検証。iPhone 12相当390x844): .app-headerの高さ約54px。
+     * ナビが下の固定バーへ抜け、.app-topはタイトルのみの薄い帯になる実測高さ+余裕。
+     * 実測(chrome-devtoolsでの検証。iPhone 12相当390x844): .app-topの高さ約54px。
      * 焦点移動時の自動スクロール補正(.app-main input等のscroll-margin-top)用に
      * 10pxの余裕を足す。
      */
@@ -1073,8 +1095,17 @@ a,
   .app {
     /* 下端の余白は各画面ルート(.search-screen等、下記参照)へ一本化し、二重にしない */
     padding-bottom: 0;
-    padding-left: max(12px, env(safe-area-inset-left));
-    padding-right: max(12px, env(safe-area-inset-right));
+    padding-left: max(var(--space-3), env(safe-area-inset-left));
+    padding-right: max(var(--space-3), env(safe-area-inset-right));
+  }
+
+  /* デスクトップの上部ピルナビ用stickyブロックを解いて平常フローに戻す。.app-navは
+     下で独立してfixedにするため、.app-topをstickyのままにすると中身が.app-header
+     だけの空のstickyブロックが残ってしまう。 */
+  .app-top {
+    position: static;
+    padding: 0;
+    gap: 0;
   }
 
   .app-header {
@@ -1083,11 +1114,12 @@ a,
   }
 
   /*
-   * メインナビだけを下部固定タブバーへ切り替える。position:fixedの子要素は
-   * 親(.app-header)のflexレイアウトに参加しないため、.app-headerの高さは
-   * ナビ分を差し引いた「タイトルのみ」の高さへ自動的に縮む。
+   * メインナビを下部固定タブバーにする。.app-topの外へは出さず直接の子のままだが、
+   * .app-topがposition:staticになったことで祖先にsticky/transformを持つ要素が無くなり、
+   * 旧構造(.app-navが.app-header(sticky)の子)で起きていたヘッダー位置への二重描画
+   * (実機Android WebView。DOMは1つでヒットテストにも出ない描画層の複製)が解消する。
    */
-  .app-header .app-nav {
+  .app-top > .app-nav {
     position: fixed;
     left: 0;
     right: 0;
@@ -1105,8 +1137,9 @@ a,
     padding-right: env(safe-area-inset-right);
   }
 
-  .app-header .app-nav-link {
+  .app-top > .app-nav > .app-nav-link {
     min-height: var(--tabbar-height);
+    min-width: 0;
     border: none;
     border-radius: 0;
     background: transparent;
@@ -1114,23 +1147,52 @@ a,
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 4px 2px;
-    font-size: 0.8rem;
+    padding: var(--space-1) 2px;
+    /* 5ラベル(検索/索引/履歴/設定/同期)が360px・320pxで折り返さない文字サイズ(依頼者指定) */
+    font-size: 0.75rem;
+    line-height: 1.2;
   }
 
   /* 上のピル型(background:accent・color:accent-fg)は白背景に馴染まないため、
      タブバーでは色付き文字+淡い背景の組で現在地を示す(v1 .drawer-item.activeを移植)。 */
-  .app-header .app-nav-link-active {
+  .app-top > .app-nav > .app-nav-link.app-nav-link-active {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
     color: var(--accent);
     font-weight: 600;
   }
 
   /* 履歴画面のサブタブ(時系列/重み付け)を含む、.app-nav-linkを使う全タブのタップ領域
-     (依頼者指定PR-R§3「タブ」)。.app-header .app-nav-linkは上でより高い詳細度により
+     (依頼者指定PR-R§3「タブ」)。.app-top > .app-navの直接の子は上でより高い詳細度により
      48pxへ上書き済み */
   .app-nav-link {
     min-height: 44px;
+  }
+
+  /* ============ 見出し・本文の文字サイズ(依頼者指定: モバイルでPCと同じ大きさの
+     見出しが場所を取りすぎている。h2は1.1rem程度・本文0.95rem・補足0.85rem) ============ */
+  .app-main h2 {
+    font-size: 1.1rem;
+    margin: 0 0 var(--space-2);
+    line-height: 1.3;
+  }
+
+  .app-main h3 {
+    font-size: 1rem;
+    margin: 0 0 var(--space-2);
+    line-height: 1.3;
+  }
+
+  .app-main p,
+  .app-main li,
+  .app-main label {
+    font-size: 0.95rem;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger,
+  .btn-text {
+    font-size: 0.95rem;
   }
 
   /*
@@ -1144,26 +1206,108 @@ a,
   .sync-screen,
   .sync-auth,
   .chat-screen {
-    padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 16px);
+    padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-4));
+  }
+
+  /* セクション間隔をスケールへ統一(依頼者指定「セクション間は16px」) */
+  .settings-section {
+    margin-bottom: var(--space-4);
+    padding-bottom: var(--space-3);
+  }
+
+  .term-detail-summary,
+  .term-detail-notes {
+    margin-top: var(--space-4);
   }
 
   /*
    * .term-indexは「一番上へ戻る」ボタン用の余白(基本ルールの76px固定値)と
    * タブバー退避分が二重にならないよう、ここで1つの式に一本化する
    * (依頼者指定PR-R§2「既存の.term-index{padding-bottom}等と二重にならないよう整理」)。
+   * ボタンの高さ(44px)+ボタンと最終行の間隔(16px)+安全マージン(16px)を確保し、
+   * 「一番上へ戻る」が最終行に被らないようにする(依頼者指摘バグ3の対策)。
    */
   .term-index {
-    padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 16px + 60px);
+    padding-bottom: calc(
+      var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-4) + 44px + var(--space-4) + var(--space-4)
+    );
   }
 
   /* 索引の「一番上へ戻る」ボタンをタブバーの上まで引き上げる */
   .term-index-scroll-top {
-    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 16px);
+    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-4));
   }
 
-  /* トースト通知もタブバーの上まで引き上げる */
+  /* トースト通知もタブバーの上まで引き上げる。長いエラーメッセージでも画面幅を超えないよう
+     上限を付け、pにmin-width:0を与えて折り返しを妨げないようにする(依頼者指定
+     「flex/grid子にはmin-width:0」)。 */
   .toast {
-    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 16px);
+    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-4));
+    max-width: calc(100vw - var(--space-4) * 2);
+  }
+
+  .toast p {
+    min-width: 0;
+  }
+
+  /* ============ 五十音図・A-Z行(依頼者指定: 360pxと320pxで横はみ出しゼロ) ============
+     基本ルールのminmax(28px,1fr)は10列分の最小合計(280px+gap36px=316px)が320px幅の
+     実効幅(画面端padding12px×2を引いた296px)を上回り、はみ出す実測不具合があったため、
+     モバイルでは列の最小幅とgapを縮める(220px+gap27px=247px、320pxでも十分収まる)。 */
+  .term-index-gojuon-grid {
+    grid-template-columns: repeat(10, minmax(22px, 1fr));
+    gap: 3px;
+    max-width: 100%;
+  }
+
+  .term-index-jump {
+    gap: 3px;
+  }
+
+  /* ============ 入力欄(依頼者指定: placeholderの端切れはpadding過多かfont過大が原因) ============ */
+  .search-input {
+    min-height: 48px;
+    /* placeholder(「用語を入力(かな・カタカナ・英字どれでも)」)が360px幅で右端が切れる
+       実機不具合(依頼者報告バグ2)。実測: font-size 1.1rem・左右padding 12pxのままだと
+       360px幅(画面端padding12px×2を引いた実効336px)に収まらない。文字サイズを本文の
+       スケール(0.95rem)に縮めて実効幅を広げる。 */
+    font-size: 0.95rem;
+    padding: var(--space-3);
+  }
+
+  .chat-input-row textarea {
+    font-size: 0.95rem;
+    padding: var(--space-3);
+  }
+
+  /* ============ flexの子が押し縮められてもテキストがはみ出さないための保険
+     (依頼者指定「flex/grid子にはmin-width:0」)。ボタン行は既存の
+     flex-wrap:wrap(基本ルール)と組み合わせ、長いボタンラベルでも折り返しを妨げない。 ============ */
+  .chat-quick-asks > *,
+  .chat-commit-row > *,
+  .sync-api-key-actions > *,
+  .sync-actions > *,
+  .sync-auth-tabs > * {
+    min-width: 0;
+  }
+
+  .sync-conflict-side {
+    min-width: 0;
+  }
+
+  /* ============ モーダル(オンボーディング・話題ピッカー) ============
+     依頼者指定「幅=calc(100vw - 24px)上限」。.modal-overlayのpaddingを画面端スケール(12px)に
+     揃えることで、.modal-content(width:100%)が自然にmin(既存max-width, 100vw-24px)になる
+     ——420px/380pxという既存の上限自体は維持したまま、狭い画面でだけ100vw-24pxが効く。
+     内部スクロール(既存max-height:80vh/overflow-y:auto)は変更しない。 */
+  .modal-overlay {
+    padding: var(--space-3);
+  }
+
+  /* オンボーディングの「スキップ/戻る/次へ」3ボタンが幅の狭いモーダルではみ出さないよう
+     折り返しを許可し、下部ボタンが常に見えるようにする(依頼者指定)。 */
+  .onboarding-actions {
+    flex-wrap: wrap;
   }
 
   /*
@@ -1172,10 +1316,6 @@ a,
    * .btn-primary/.btn-secondary/.btn-dangerはほぼ全画面の操作ボタンで共有されているため、
    * この3クラスを押さえるだけでボタン全般を広くカバーできる。
    */
-  .search-input {
-    min-height: 48px;
-  }
-
   .btn-primary {
     min-height: 48px;
   }

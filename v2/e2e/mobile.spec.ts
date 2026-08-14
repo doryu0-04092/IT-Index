@@ -34,11 +34,31 @@ test('モバイル幅で下部固定タブバーが表示され、5タブすべ�
     expect(navBox.y + navBox.height).toBeGreaterThan(viewportSize.height - 10);
   }
 
-  await expect(page.getByRole('button', { name: '検索', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '索引', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '履歴', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '設定', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '同期', exact: true })).toBeVisible();
+  const tabLabels = ['検索', '索引', '履歴', '設定', '同期'] as const;
+  for (const label of tabLabels) {
+    await expect(page.getByRole('button', { name: label, exact: true })).toBeVisible();
+  }
+
+  /*
+   * ゴースト描画の回帰チェック(依頼者指定バグ1)。実機Android WebViewでは、
+   * .app-navが.app-header(position:sticky)の子だった旧DOM構造で、position:fixedへ
+   * 切り替えたタブバーのラベルがヘッダー位置(画面上部)にも薄く二重描画されていた
+   * ——DOMは1つでヒットテストにも出ない描画層の複製のため、Playwrightのboundingbox()
+   * では直接検出できない。代替として、各タブラベルの実座標がビューポート上半分に
+   * 存在しない(=下部タブバー1箇所にしか存在しない)ことを位置アサーションで確認する。
+   * App.tsx/App.cssの.app-top構造(.app-navを.app-headerの外に出す)が崩れて
+   * 元の入れ子に戻った場合、この座標アサーション自体は再現できないが、少なくとも
+   * タブバーが下部以外(=ヘッダー相当の上半分)に描画されるリグレッションは拾える。
+   */
+  if (viewportSize) {
+    for (const label of tabLabels) {
+      const box = await page.getByRole('button', { name: label, exact: true }).boundingBox();
+      expect(box).not.toBeNull();
+      if (box) {
+        expect(box.y).toBeGreaterThan(viewportSize.height / 2);
+      }
+    }
+  }
 
   await page.getByRole('button', { name: '索引', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'A', exact: true })).toBeVisible();

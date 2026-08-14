@@ -295,8 +295,21 @@ export function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>IT-Index</h1>
+      {/*
+        DOM再構成(依頼者指定): .app-navを.app-headerの外に出し、両者を.app-topでまとめる。
+        以前は.app-navが position:sticky の.app-header の子だったため、モバイル幅で
+        position:fixed に切り替えたとき、タブバーのラベルがヘッダー位置にも薄く二重描画される
+        不具合があった(実機Android WebView。DOMは1つで、ヒットテストにも出ない描画層の複製)。
+        .app-header{position:static}やtransform:translateZ(0)では消えず、祖先が
+        sticky/transformを持たない状態にしないと解消しなかったため、構造自体を分離する。
+        デスクトップ(≥720px)は.app-topごとposition:stickyにして現行の見た目を維持し、
+        モバイル(<720px)は.app-topをposition:staticにした上で.app-navだけをfixed bottomにする
+        (App.css参照)。
+      */}
+      <div className="app-top">
+        <header className="app-header">
+          <h1>IT-Index</h1>
+        </header>
         <nav className="app-nav" aria-label="画面切り替え">
           {(['search', 'index', 'history', 'settings', 'sync'] as const).map((target) => (
             <button
@@ -312,7 +325,7 @@ export function App() {
             </button>
           ))}
         </nav>
-      </header>
+      </div>
 
       <main key={screenKey(screen)} className="app-main screen-fade-in">
         {!seedSettled ? (
