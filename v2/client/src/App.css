@@ -72,6 +72,27 @@ body {
   font-family: system-ui, 'Hiragino Sans', 'Yu Gothic', sans-serif;
 }
 
+/*
+ * タッチ操作の基礎(移植元: v1 src/index.css:1260-1283の.android-appスコープルール)。
+ * タップの度に出る青い矩形を消し、ダブルタップ拡大による約300msの遅延をなくし(touch-action)、
+ * ボタン・ナビ・リンクを長押ししても文字選択が始まらないようにする(user-select)。
+ * 見た目に影響しない挙動のみのため、v1のようにAndroid版スコープに閉じずPC/モバイル問わず
+ * 全幅で無条件に適用してよい(依頼者指定PR-R§3)。overscroll-behaviorは画面端まで
+ * 引っ張ったときに親(ブラウザ/WebView)側のスクロールや引っ張って更新へ連鎖しないようにする。
+ */
+html {
+  overscroll-behavior-y: contain;
+}
+
+button,
+a,
+[role='button'] {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .app {
   max-width: 720px;
   margin: 0 auto;
@@ -1020,4 +1041,189 @@ body {
 /* ログイン中の行(SyncScreen.tsx)。メールアドレス表示とインラインのログアウトボタンの間隔 */
 .sync-login-status button {
   margin-left: 8px;
+}
+
+/*
+ * ============================================================
+ * モバイル幅(<720px)専用: 下部固定タブバー+タッチ最適化(PR-R§2・3。
+ * 依頼者選択「下部タブバー」・items/AIの設計・実装を確認する.md準拠でDOMは共通のまま
+ * このメディアクエリだけで切り替える)。≥720pxは上の.app-nav基本ルール(上部ピルナビ)を
+ * 一切変更しない。
+ *
+ * 注記(重要): .app-nav/.app-nav-linkクラスはApp.tsxのメインナビだけでなく、
+ * HistoryScreen.tsx(124行)の「時系列/重み付け」サブタブでも再利用されている
+ * (通常フロー内の小さなタブ、固定バーにしてはならない)。そのため固定バー化・グリッド化は
+ * `.app-header .app-nav`(メインナビは.app-header配下という一意な位置にある)に限定し、
+ * サブタブ側は下のタップ領域拡大(min-height:44px)だけを共有させる。
+ * ============================================================
+ */
+@media (max-width: 719.98px) {
+  :root {
+    /* .app-header .app-nav-linkのmin-height(48px)そのもの。上下paddingは持たせていない */
+    --tabbar-height: 48px;
+    /*
+     * ナビが下の固定バーへ抜け、.app-headerはタイトルのみの薄い帯になる実測高さ+余裕。
+     * 実測(chrome-devtoolsでの検証。iPhone 12相当390x844): .app-headerの高さ約54px。
+     * 焦点移動時の自動スクロール補正(.app-main input等のscroll-margin-top)用に
+     * 10pxの余裕を足す。
+     */
+    --header-offset: 64px;
+  }
+
+  .app {
+    /* 下端の余白は各画面ルート(.search-screen等、下記参照)へ一本化し、二重にしない */
+    padding-bottom: 0;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  .app-header {
+    padding-top: calc(env(safe-area-inset-top) + 10px);
+    padding-bottom: 10px;
+  }
+
+  /*
+   * メインナビだけを下部固定タブバーへ切り替える。position:fixedの子要素は
+   * 親(.app-header)のflexレイアウトに参加しないため、.app-headerの高さは
+   * ナビ分を差し引いた「タイトルのみ」の高さへ自動的に縮む。
+   */
+  .app-header .app-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0;
+    margin: 0;
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    /* ジェスチャーバー(セーフエリア)の分を足して確保する */
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .app-header .app-nav-link {
+    min-height: var(--tabbar-height);
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 4px 2px;
+    font-size: 0.8rem;
+  }
+
+  /* 上のピル型(background:accent・color:accent-fg)は白背景に馴染まないため、
+     タブバーでは色付き文字+淡い背景の組で現在地を示す(v1 .drawer-item.activeを移植)。 */
+  .app-header .app-nav-link-active {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* 履歴画面のサブタブ(時系列/重み付け)を含む、.app-nav-linkを使う全タブのタップ領域
+     (依頼者指定PR-R§3「タブ」)。.app-header .app-nav-linkは上でより高い詳細度により
+     48pxへ上書き済み */
+  .app-nav-link {
+    min-height: 44px;
+  }
+
+  /*
+   * 各画面ルートのコンテンツ下端がタブバーに隠れないための退避余白
+   * (依頼者指定PR-R§2「コンテンツ下端にpadding-bottom: calc(タブバー高+safe-area+16px)」)。
+   */
+  .search-screen,
+  .history-screen,
+  .term-detail,
+  .settings-screen,
+  .sync-screen,
+  .sync-auth,
+  .chat-screen {
+    padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 16px);
+  }
+
+  /*
+   * .term-indexは「一番上へ戻る」ボタン用の余白(基本ルールの76px固定値)と
+   * タブバー退避分が二重にならないよう、ここで1つの式に一本化する
+   * (依頼者指定PR-R§2「既存の.term-index{padding-bottom}等と二重にならないよう整理」)。
+   */
+  .term-index {
+    padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 16px + 60px);
+  }
+
+  /* 索引の「一番上へ戻る」ボタンをタブバーの上まで引き上げる */
+  .term-index-scroll-top {
+    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 16px);
+  }
+
+  /* トースト通知もタブバーの上まで引き上げる */
+  .toast {
+    bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + 16px);
+  }
+
+  /*
+   * --- タップ領域(依頼者指定PR-R§3。主要操作は48px、それ以外は44px)。
+   * v1 .android-appルール(index.css:1448-1671付近)の該当部分をv2のクラス名に合わせて移植。
+   * .btn-primary/.btn-secondary/.btn-dangerはほぼ全画面の操作ボタンで共有されているため、
+   * この3クラスを押さえるだけでボタン全般を広くカバーできる。
+   */
+  .search-input {
+    min-height: 48px;
+  }
+
+  .btn-primary {
+    min-height: 48px;
+  }
+
+  .btn-secondary,
+  .btn-danger {
+    min-height: 44px;
+  }
+
+  /* 検索・履歴・単語ピッカーの結果行本体(v1 .search-result相当) */
+  .result-button {
+    min-height: 44px;
+  }
+
+  /* 「取り込み待ち」「取り込み履歴」行のラベル部分(v1 .search-pending-itemを移植) */
+  .search-pending-item {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  /* 「登録しない」(.btn-textのため上の.btn-secondary/.btn-dangerではカバーされない) */
+  .search-pending-decline {
+    min-height: 44px;
+  }
+
+  /* 単語詳細の削除ボタン・削除確認行のボタン(v1 .term-detail-delete*を移植) */
+  .term-detail-delete,
+  .term-detail-delete-confirm button {
+    min-height: 44px;
+  }
+
+  /* チャットの「話題を変える」(.btn-textのため上ではカバーされない) */
+  .chat-subject-row button {
+    min-height: 44px;
+  }
+
+  /* トーストの閉じる(✕)・オンボーディングの閉じる(✕、.dismiss-error) */
+  .toast .btn-text,
+  .dismiss-error {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* 設定・同期タブのテキスト入力欄 */
+  .settings-section input:not([type='checkbox']),
+  .settings-section select,
+  .sync-screen input:not([type='checkbox']),
+  .sync-auth input:not([type='checkbox']) {
+    min-height: 44px;
+  }
 }
