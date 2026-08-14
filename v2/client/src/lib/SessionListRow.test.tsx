@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { ChatSessionRecord } from '../types';
 import SessionListRow from './SessionListRow';
 
@@ -67,13 +67,35 @@ describe('SessionListRow', () => {
     expect(screen.getByText('登録しない')).toBeTruthy();
   });
 
-  it('search-pending-rowクラスの<li>で、検索・履歴画面と同じレイアウト(#115)を使う', () => {
+  it('時系列・重み付けタブの行と同じ.result-row/.result-buttonクラスを使う(依頼者指定: 見た目を揃える)', () => {
     render(
       <SessionListRow row={fakeRow()} onSelect={() => {}}>
         <button type="button">取り込む</button>
       </SessionListRow>,
     );
-    expect(document.querySelector('li.search-pending-row')).toBeTruthy();
+    expect(document.querySelector('li.result-row')).toBeTruthy();
+    expect(document.querySelector('div.result-button.session-list-row')).toBeTruthy();
     expect(document.querySelector('button.search-pending-item')).toBeTruthy();
+  });
+
+  it('セッションのlastActiveAtを時系列の行と同じtoLocaleString(ja-JP)書式で表示する', () => {
+    const at = new Date('2026-03-04T05:06:07').getTime();
+    render(
+      <SessionListRow row={fakeRow({ lastActiveAt: at })} onSelect={() => {}}>
+        <button type="button">取り込む</button>
+      </SessionListRow>,
+    );
+    expect(screen.getByText(new Date(at).toLocaleString('ja-JP'))).toBeTruthy();
+  });
+
+  it('操作ボタン群は行の右側(.session-list-actions)に描画される', () => {
+    render(
+      <SessionListRow row={fakeRow()} onSelect={() => {}}>
+        <button type="button">取り込む</button>
+      </SessionListRow>,
+    );
+    const actions = document.querySelector('.session-list-actions');
+    expect(actions).toBeTruthy();
+    expect(actions && within(actions as HTMLElement).getByText('取り込む')).toBeTruthy();
   });
 });

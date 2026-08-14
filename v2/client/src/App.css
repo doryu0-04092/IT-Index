@@ -250,26 +250,45 @@ body {
 
 /*
  * 「取り込み待ち」(SearchScreen.tsx)・「取り込み履歴」(HistoryScreen.tsxのcommitsタブ)の行。
- * 「取り込む」ボタンが下に配置されて分かりづらいとの指摘(依頼者指定・UIレビュー反映。
- * v1も横並びだった)。両画面ともlib/SessionListRow.tsxの共通コンポーネント経由で描画する
- * ため、ラベル側は常に.search-pending-item(.btn-text)——他画面の.result-button(通常の
- * 検索結果一覧)とは構造が分かれており影響しない。
+ * 時系列・重み付けタブの行(下の.result-row/.result-button)と枠・padding・hoverを完全に
+ * 共有する(依頼者指定「時系列の行と揃える」)。両画面ともlib/SessionListRow.tsxの
+ * 共通コンポーネント経由で描画するため、構造・クラス名は常に一致する——差分は右側の
+ * 操作ボタン群(.session-list-actions)と状態バッジ(meta)の有無だけ。
+ *
+ * .result-buttonは本来<button>だが、この行は内側にさらに操作ボタンを並べる必要があり
+ * <button>を入れ子にできないため、外枠は<div className="result-button session-list-row">
+ * にしている(SessionListRow.tsx参照)。cursor:pointerは外枠ではなくラベル部分
+ * (.search-pending-item)だけに残す。
  */
-.search-pending-row {
+.session-list-row {
+  cursor: default;
+}
+
+.session-list-row .search-pending-item {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-pending-failed {
+  flex-basis: 100%;
+}
+
+.session-list-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.search-pending-row .search-pending-item {
-  flex: 1 1 auto;
-  min-width: 0;
-  width: auto;
-  margin-left: 0;
-}
-
-.search-pending-row .search-pending-commit,
-.search-pending-row .search-pending-decline {
   flex: none;
 }
 

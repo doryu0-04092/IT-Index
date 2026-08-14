@@ -174,12 +174,7 @@ export default function HistoryScreen({
                 key={row.session.id}
                 row={row}
                 onSelect={() => onOpenChatSession(row.session.id)}
-                meta={
-                  <>
-                    <span className="result-field">{chatStatusLabel(row.session.status)}</span>
-                    <span className="result-field">{new Date(row.session.lastActiveAt).toLocaleString('ja-JP')}</span>
-                  </>
-                }
+                meta={<span className="result-field">{chatStatusLabel(row.session.status)}</span>}
               >
                 {(row.session.status === 'open' || row.session.status === 'declined') && (
                   <button
