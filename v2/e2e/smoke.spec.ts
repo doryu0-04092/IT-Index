@@ -22,7 +22,8 @@ async function dismissOnboarding(page: Page) {
 
 test('ビルドしたv2クライアントが描画され、単一UIでナビゲーションが機能する', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'IT-Index v2' })).toBeVisible();
+  await expect(page).toHaveTitle('IT-Index');
+  await expect(page.getByRole('heading', { name: 'IT-Index', exact: true })).toBeVisible();
   await dismissOnboarding(page);
   // シード取り込み(実際のpublic/seed/terms.jsonがfetchされ、登録単語数が0件から増える)
   await expect(page.getByText(/登録単語数\(\d+語\)/)).toBeVisible({ timeout: 15_000 });

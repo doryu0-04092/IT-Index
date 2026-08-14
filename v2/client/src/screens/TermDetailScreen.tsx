@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { NoteRecord, TermRecord } from '@it-index/shared';
 import MermaidDiagram from '../lib/MermaidDiagram';
 import Skeleton from '../lib/Skeleton';
@@ -39,6 +39,7 @@ export default function TermDetailScreen({
   const [draftBody, setDraftBody] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const noteEditorRef = useRef<HTMLTextAreaElement | null>(null);
 
   // termId変更時の状態リセットは呼び出し元(App.tsx)が<main key={screenKey(screen)}>で
   // termIdを含むkeyを持たせているため、この画面自体が丸ごと再マウントされて不要
@@ -50,6 +51,16 @@ export default function TermDetailScreen({
       setDraftBody(n?.body ?? '');
     });
   }, [termId, termsRepo, notesRepo]);
+
+  // ノート欄は内側スクロール(スライドバー)をやめ、本文の長さに合わせて縦に伸びる
+  // テキストボックスにする(本人指定)。rows固定のままだとブラウザ既定でtextarea内部だけが
+  // スクロールしてしまうため、本文が変わるたび高さをscrollHeightへ合わせ直す。
+  useEffect(() => {
+    const el = noteEditorRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [draftBody]);
 
   async function handleDelete() {
     await termsRepo.softDelete(termId, Date.now());
@@ -122,13 +133,14 @@ export default function TermDetailScreen({
           </div>
 
           <section className="term-detail-notes">
-            <h3>AI補足ノート</h3>
+            <h3>理解のために調べたこと</h3>
             {note && note.diagrams.length > 0 && (
               <div className="term-detail-diagrams">
                 {note.diagrams.map((d, i) => <MermaidDiagram key={i} code={d} />)}
               </div>
             )}
             <textarea
+              ref={noteEditorRef}
               className="term-detail-note-editor"
               value={draftBody}
               onChange={(e) => {
@@ -136,7 +148,6 @@ export default function TermDetailScreen({
                 setSaveState('idle');
               }}
               placeholder="この語について調べたことをMarkdownで書けます"
-              rows={10}
               aria-label="ノート本文"
             />
             <div className="term-detail-note-actions">

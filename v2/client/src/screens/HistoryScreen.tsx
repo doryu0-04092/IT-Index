@@ -6,6 +6,21 @@ import type { HistoryView } from '../navigation';
 import type { AsksRepository } from '../repositories/asks';
 import type { ChatRepository } from '../repositories/chat';
 import type { TermsRepository } from '../repositories/terms';
+import type { ChatSessionRecord } from '../types';
+
+/** 「取り込み履歴」タブの状態バッジ(v1 ../../../src/ui/pc/HistoryScreen.tsx:40-51を移植) */
+function chatStatusLabel(status: ChatSessionRecord['status']): string {
+  switch (status) {
+    case 'open':
+      return '取り込み待ち';
+    case 'declined':
+      return '登録しない';
+    case 'committed':
+      return '取り込み済み';
+    case 'committing':
+      return '取り込み中…';
+  }
+}
 
 export interface HistoryScreenProps {
   asksRepo: AsksRepository;
@@ -31,13 +46,13 @@ const TABS: readonly { view: HistoryView; label: string }[] = [
  * 時系列順が最低限の機能であるため(本人指定)、時系列を既定サブタブ・重み付けを
  * 2番目のサブタブとする。
  *
- * 「取り込み履歴」タブ(本人指定「検索機能周りに関してはV1を踏襲」)は、検索画面の
- * 「取り込み待ち」一覧から「登録しない」を選んで外れたセッション(status:'declined')の
- * 一覧。会話は削除されないため、ここから見返して再取り込みできる(v1
- * ../../../src/ui/pc/HistoryScreen.tsxのcommitsタブに相当するが、v1は取り込み待ち・
- * 登録しなかった・取り込み済みを全て混ぜて出すのに対し、ここではdeclinedのみを対象に
- * 絞る——open(取り込み待ち)はSearchScreen側に既にあり、committedは単語帳自体に反映済みの
- * ため、履歴として見返す価値があるのは選び直しがまだできるdeclinedだけという判断)。
+ * 「取り込み履歴」タブ(本人指定「検索機能周りに関してはV1を踏襲」)は、AIチャットの記録
+ * (v1 ../../../src/ui/pc/HistoryScreen.tsx:64-69・270-294のcommitsタブを移植)。
+ * 取り込み待ち(open)・登録しない(declined)・取り込み済み(committed)・取り込み中
+ * (committing)のすべてを最終やり取り日時(lastActiveAt)の降順で時系列に並べる
+ * ——v1同様、状態で絞り込まない。行にはラベルの他に状態バッジ(chatStatusLabel)と日時を
+ * 添え、タップでそのチャットを開く。「取り込む」ボタンはopen/declinedの行にだけ出す
+ * (v1:283準拠。committedは既に反映済み、committingは処理中のため出さない)。
  * 連携履歴・競合選択タブは将来ここにサブタブとして追加できるが、現時点では実装しない
  * (要件外)。
  *
@@ -65,10 +80,10 @@ export default function HistoryScreen({
       const terms = await termsRepo.getAll();
       setTermsById(new Map(terms.map((t) => [t.id, t])));
 
-      // 「取り込み履歴」タブ用。declined(登録しない選択済み)のみを対象にする(上のコメント参照)。
+      // 「取り込み履歴」タブ用。open/declined/committed/committingの全ステータスを対象にする
+      // (上のコメント参照)。getRecentSessionsが既にlastActiveAt降順で返す。
       const sessions = await chatRepo.getRecentSessions(30);
-      const declined = sessions.filter((s) => s.status === 'declined');
-      setCommitRows(await loadSessionLabelRows(chatRepo, termsRepo, declined));
+      setCommitRows(await loadSessionLabelRows(chatRepo, termsRepo, sessions));
     })();
   }, [asksRepo, termsRepo, chatRepo]);
 
@@ -159,15 +174,22 @@ export default function HistoryScreen({
                 key={row.session.id}
                 row={row}
                 onSelect={() => onOpenChatSession(row.session.id)}
-                meta={<span className="result-field">{new Date(row.session.lastActiveAt).toLocaleString('ja-JP')}</span>}
+                meta={
+                  <>
+                    <span className="result-field">{chatStatusLabel(row.session.status)}</span>
+                    <span className="result-field">{new Date(row.session.lastActiveAt).toLocaleString('ja-JP')}</span>
+                  </>
+                }
               >
-                <button
-                  type="button"
-                  className="btn-secondary search-pending-commit"
-                  onClick={() => handleCommitPending(row.session.id)}
-                >
-                  取り込む
-                </button>
+                {(row.session.status === 'open' || row.session.status === 'declined') && (
+                  <button
+                    type="button"
+                    className="btn-secondary search-pending-commit"
+                    onClick={() => handleCommitPending(row.session.id)}
+                  >
+                    取り込む
+                  </button>
+                )}
               </SessionListRow>
             ))}
           </ul>

@@ -296,7 +296,7 @@ export function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>IT-Index v2</h1>
+        <h1>IT-Index</h1>
         <nav className="app-nav" aria-label="画面切り替え">
           {(['search', 'index', 'history', 'settings', 'sync'] as const).map((target) => (
             <button

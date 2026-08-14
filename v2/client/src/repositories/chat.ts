@@ -38,7 +38,7 @@ export interface ChatRepository {
   /** 利用者が「登録しない」を選んだ('open' → 'declined')。会話は削除しない */
   declineSession(sessionId: string): Promise<void>;
   getMessages(sessionId: string): Promise<ChatMessageRecord[]>;
-  /** 取り込み待ち・登録しなかった・取り込み済みを合わせて最近やり取りした順に返す。処理中は対象外 */
+  /** 取り込み待ち・登録しなかった・取り込み済み・取り込み中を合わせて最近やり取りした順に返す */
   getRecentSessions(limit: number): Promise<ChatSessionRecord[]>;
   /**
    * アプリ起動時に一度だけ実行するクリーンアップ(本人指定)。open(取り込み待ち)かつ
@@ -158,10 +158,7 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
 
     async getRecentSessions(limit) {
       const all = await db.chatSessions.toArray();
-      return all
-        .filter((s) => s.status !== 'committing')
-        .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
-        .slice(0, limit);
+      return all.sort((a, b) => b.lastActiveAt - a.lastActiveAt).slice(0, limit);
     },
 
     async deleteEmptyOpenSessions() {
