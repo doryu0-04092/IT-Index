@@ -11,6 +11,9 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+# v2/client/.env.android: Capacitor Androidビルド専用。中身は公式ホストの公開URL(秘密情報なし)で
+# コミット対象(PR-S)。除外すると`npm run build:android`がVITE_API_BASE未設定のまま動く。
+!v2/client/.env.android
 .dev.vars
 .dev.vars.*
 !.dev.vars.example

@@ -221,3 +221,47 @@ npm run deploy
 - **運営者コードの発行(公式ホスト運用者向け)**: `wrangler secret put LICENSE_CODES` でカンマ区切りの
   コード文字列を投入すると、そのコードを `/api/license/activate` で有効化できる(1コード=1アカウント。
   検証・優待用)。コード値はシークレットとして扱い、ドキュメント・リポジトリに書かない
+
+---
+
+## 7. Androidアプリのビルド
+
+v2は[v1](../../capacitor.config.ts)と同じCapacitorでAndroidアプリ(APK)化できる
+(`v2/client/capacitor.config.ts`)。**appId は `com.itindex.v2`**(v1の`com.itindex.app`とは
+別IDのため、同じ端末に両方インストールしても共存する。同じIDにすると端末上でv1アプリが
+上書きされv1のローカルデータが消えるため、意図的に分けている)。
+
+### 前提
+
+- Android Studio(付属のAndroid SDK込み)
+- `v2` ワークスペースで `npm install` 済みであること
+
+### 手順
+
+```
+cd v2
+npm install
+cd client
+npm run build:android
+npx cap open android
+```
+
+- `npm run build:android` は内部で `vite build --mode android && npx cap sync android` を実行する。
+  `--mode android` により `.env.android` の `VITE_API_BASE`(公式ホストのURL)が埋め込まれた
+  ビルドを生成し、`cap sync` でその内容を `android/app/src/main/assets/public` へ反映する
+  (通常の `npm run build`(Webビルド)には影響しない。`.env.android`はmodeが一致する
+  ビルドでしか読み込まれない)
+- `npx cap open android` でAndroid Studioが起動する。Android StudioのBuildメニューから
+  APKを生成する(Build → Build Bundle(s) / APK(s) → Build APK(s))
+
+### 接続先
+
+Androidアプリは既定で公式ホスト(`https://it-index.doryu.workers.dev`)へ接続する。
+アプリ内の設定画面「接続先サーバー」から、セルフホストした自分のサーバーへ切り替えることもできる
+(この場合、そのサーバーの`CORS_ALLOWED_ORIGIN`設定は不要。CapacitorHttpがfetchをネイティブ側で
+実行するためブラウザのCORS制約自体を受けない)。
+
+### 既知の制約・未実施事項
+
+- CIにAndroid SDKは導入していない。APKビルドはローカル(本人の環境)でのみ行う
+- 実機/エミュレータでの動作確認(signup→検索→AI検索→購入モック→同期の一連)は本人が行う
