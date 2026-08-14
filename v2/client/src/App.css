@@ -440,6 +440,13 @@ body {
   overflow-x: auto;
 }
 
+/*
+ * ノート欄は内側スクロール(スライドバー)ではなく、本文の長さに合わせて縦に伸びる
+ * テキストボックスにする(本人指定レビュー反映)。高さはTermDetailScreen側でJS
+ * (scrollHeight)に合わせて都度セットするため、ここではoverflow:hiddenで内側の
+ * スクロールバーを出さず、resize:noneで手動リサイズ(自動調整と競合する)を封じる。
+ * min-heightだけ最低限のテキストボックスらしい高さを確保する。
+ */
 .term-detail-note-editor {
   width: 100%;
   min-height: 160px;
@@ -450,7 +457,8 @@ body {
   border-radius: 8px;
   background: var(--bg);
   color: var(--fg);
-  resize: vertical;
+  resize: none;
+  overflow: hidden;
 }
 
 .term-detail-note-actions {

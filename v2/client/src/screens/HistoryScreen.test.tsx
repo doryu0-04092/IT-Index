@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { buildTermRecord, type AskRecord, type TermRecord } from '@it-index/shared';
 import type { AsksRepository } from '../repositories/asks';
 import type { ChatRepository } from '../repositories/chat';
@@ -52,7 +52,7 @@ function fakeChatRepo(sessions: ChatSessionRecord[] = [], emptySessionIds: Set<s
       const message: ChatMessageRecord = { id: `${sessionId}-m1`, sessionId, role: 'user', content: 'hi', at: 1 };
       return Promise.resolve([message]);
     },
-    getRecentSessions: () => Promise.resolve(sessions),
+    getRecentSessions: () => Promise.resolve([...sessions].sort((a, b) => b.lastActiveAt - a.lastActiveAt)),
     deleteEmptyOpenSessions: () => Promise.resolve(),
   };
 }
@@ -180,7 +180,7 @@ describe('HistoryScreen', () => {
     expect(screen.queryByText('削除済み語')).toBeNull();
   });
 
-  describe('取り込み履歴タブ(本人指定「検索機能周りに関してはV1を踏襲」。declinedセッションのみ対象)', () => {
+  describe('取り込み履歴タブ(本人指定「検索機能周りに関してはV1を踏襲」。全ステータスを時系列表示)', () => {
     it('タブ順は時系列→重み付け→取り込み履歴', async () => {
       renderHistory(fakeAsksRepo([]), fakeTermsRepo([]));
       await waitFor(() => expect(screen.getAllByRole('button').length).toBeGreaterThan(0));
@@ -188,7 +188,7 @@ describe('HistoryScreen', () => {
       expect(tabs.map((b) => b.textContent)).toEqual(['時系列', '重み付け', '取り込み履歴']);
     });
 
-    it('declinedセッションを一覧表示し(ラベル+日時)、行タップでonOpenChatSessionが呼ばれる', async () => {
+    it('セッションを一覧表示し(ラベル+状態バッジ+日時)、行タップでonOpenChatSessionが呼ばれる', async () => {
       const at = new Date('2026-02-03T04:05:06').getTime();
       const declined: ChatSessionRecord = {
         id: 'session-declined',
@@ -201,6 +201,7 @@ describe('HistoryScreen', () => {
       const { onOpenChatSession } = renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'commits', fakeChatRepo([declined]));
 
       await waitFor(() => expect(screen.getByText('登録しなかった語')).toBeTruthy());
+      expect(screen.getByText('登録しない')).toBeTruthy();
       expect(screen.getByText(new Date(at).toLocaleString('ja-JP'))).toBeTruthy();
 
       fireEvent.click(screen.getByText('登録しなかった語'));
@@ -230,27 +231,90 @@ describe('HistoryScreen', () => {
       await waitFor(() => expect(screen.queryByText('登録しなかった語')).toBeNull());
     });
 
-    it('open(取り込み待ち)・committed(取り込み済み)のセッションは対象外(declinedのみ)', async () => {
+    it('open/declined/committed/committingの全セッションをlastActiveAt降順で表示する', async () => {
       const sessions: ChatSessionRecord[] = [
-        { id: 'session-open', termId: null, subjectLabel: '取り込み待ちの語', startedAt: 1, lastActiveAt: 1, status: 'open' },
+        { id: 'session-open', termId: null, subjectLabel: '取り込み待ちの語', startedAt: 1, lastActiveAt: 1000, status: 'open' },
         {
           id: 'session-committed',
           termId: null,
           subjectLabel: '取り込み済みの語',
           startedAt: 1,
-          lastActiveAt: 1,
+          lastActiveAt: 4000,
           status: 'committed',
         },
-        { id: 'session-declined', termId: null, subjectLabel: '登録しなかった語', startedAt: 1, lastActiveAt: 1, status: 'declined' },
+        {
+          id: 'session-declined',
+          termId: null,
+          subjectLabel: '登録しなかった語',
+          startedAt: 1,
+          lastActiveAt: 3000,
+          status: 'declined',
+        },
+        {
+          id: 'session-committing',
+          termId: null,
+          subjectLabel: '取り込み中の語',
+          startedAt: 1,
+          lastActiveAt: 2000,
+          status: 'committing',
+        },
       ];
       renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'commits', fakeChatRepo(sessions));
 
-      await waitFor(() => expect(screen.getByText('登録しなかった語')).toBeTruthy());
-      expect(screen.queryByText('取り込み待ちの語')).toBeNull();
-      expect(screen.queryByText('取り込み済みの語')).toBeNull();
+      await waitFor(() => expect(screen.getByText('取り込み済みの語')).toBeTruthy());
+      const buttons = screen.getAllByRole('button').filter((b) => b.className.includes('search-pending-item'));
+      expect(buttons.map((b) => b.textContent)).toEqual([
+        expect.stringContaining('取り込み済みの語'),
+        expect.stringContaining('登録しなかった語'),
+        expect.stringContaining('取り込み中の語'),
+        expect.stringContaining('取り込み待ちの語'),
+      ]);
+      expect(screen.getByText('取り込み待ち')).toBeTruthy();
+      expect(screen.getByText('登録しない')).toBeTruthy();
+      expect(screen.getByText('取り込み済み')).toBeTruthy();
+      expect(screen.getByText('取り込み中…')).toBeTruthy();
     });
 
-    it('messages.length===0のdeclinedセッションは一覧に出さない', async () => {
+    it('「取り込む」ボタンはopen/declinedの行にだけ出て、committed/committingには出ない', async () => {
+      const sessions: ChatSessionRecord[] = [
+        { id: 'session-open', termId: null, subjectLabel: '取り込み待ちの語', startedAt: 1, lastActiveAt: 1, status: 'open' },
+        {
+          id: 'session-declined',
+          termId: null,
+          subjectLabel: '登録しなかった語',
+          startedAt: 1,
+          lastActiveAt: 2,
+          status: 'declined',
+        },
+        {
+          id: 'session-committed',
+          termId: null,
+          subjectLabel: '取り込み済みの語',
+          startedAt: 1,
+          lastActiveAt: 3,
+          status: 'committed',
+        },
+        {
+          id: 'session-committing',
+          termId: null,
+          subjectLabel: '取り込み中の語',
+          startedAt: 1,
+          lastActiveAt: 4,
+          status: 'committing',
+        },
+      ];
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'commits', fakeChatRepo(sessions));
+
+      await waitFor(() => expect(screen.getByText('取り込み中の語')).toBeTruthy());
+      expect(screen.getAllByText('取り込む').length).toBe(2);
+
+      const committedRow = screen.getByText('取り込み済みの語').closest('li');
+      const committingRow = screen.getByText('取り込み中の語').closest('li');
+      expect(committedRow && within(committedRow).queryByText('取り込む')).toBeNull();
+      expect(committingRow && within(committingRow).queryByText('取り込む')).toBeNull();
+    });
+
+    it('messages.length===0のセッションは一覧に出さない', async () => {
       const declined: ChatSessionRecord = {
         id: 'session-declined-empty',
         termId: null,

@@ -32,7 +32,7 @@ describe('App', () => {
 
   it('見出しを表示し、シード取り込み後に登録単語数を表示する', async () => {
     render(<App />);
-    expect(screen.getByRole('heading', { name: 'IT-Index v2' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'IT-Index' })).toBeTruthy();
     await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
   });
 

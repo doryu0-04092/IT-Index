@@ -91,6 +91,27 @@ describe('TermDetailScreen', () => {
     await waitFor(() => expect(screen.getByText('この語は見つかりませんでした。')).toBeTruthy());
   });
 
+  it('ノート欄の見出しは「理解のために調べたこと」で、本文欄は固定行数(rows)を持たない(内側スクロールをやめ縦に伸びるテキストボックスにする。本人指定レビュー反映)', async () => {
+    render(
+      <TermDetailScreen
+        termId={term.id}
+        termsRepo={fakeTermsRepo()}
+        notesRepo={fakeNotesRepo()}
+        deviceId="device-1"
+        onBack={() => {}}
+        onDeleted={() => {}}
+        onOpenChat={() => {}}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /HTTP/ })).toBeTruthy());
+    expect(screen.getByRole('heading', { name: '理解のために調べたこと' })).toBeTruthy();
+    expect(screen.queryByText('AI補足ノート')).toBeNull();
+
+    const textarea = screen.getByLabelText('ノート本文');
+    expect(textarea.hasAttribute('rows')).toBe(false);
+  });
+
   it('ノート本文を編集して保存できる', async () => {
     const notesRepo = fakeNotesRepo();
     render(
