@@ -53,6 +53,7 @@ function fakeChatRepo(sessions: ChatSessionRecord[] = [], emptySessionIds: Set<s
       return Promise.resolve([message]);
     },
     getRecentSessions: () => Promise.resolve(sessions),
+    deleteEmptyOpenSessions: () => Promise.resolve(),
   };
 }
 

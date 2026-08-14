@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { score, type TermRecord } from '@it-index/shared';
 import { NO_ACTIVE_INDEX, nextActiveIndex } from '../lib/activeIndex';
 import { loadSessionLabelRows, type SessionLabelRow } from '../lib/chatSessionLabels';
+import SessionListRow from '../lib/SessionListRow';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import type { ChatRepository } from '../repositories/chat';
 import type { TermsRepository } from '../repositories/terms';
@@ -206,29 +207,28 @@ export default function SearchScreen({
             まとめて単語帳に取り込む({pending.length}件)
           </button>
           <ul>
-            {pending.map(({ session, label }) => (
-              <li key={session.id} className="search-pending-row">
-                <button type="button" className="btn-text search-pending-item" onClick={() => onResumeChat(session.id)}>
-                  {label}
-                  {failedCommitSessionIds.has(session.id) && (
-                    <span className="error-text search-pending-failed">前回の取り込みに失敗しました</span>
-                  )}
-                </button>
+            {pending.map((row) => (
+              <SessionListRow
+                key={row.session.id}
+                row={row}
+                onSelect={() => onResumeChat(row.session.id)}
+                failed={failedCommitSessionIds.has(row.session.id)}
+              >
                 <button
                   type="button"
                   className="btn-secondary search-pending-commit"
-                  onClick={() => handleCommitPending(session.id)}
+                  onClick={() => handleCommitPending(row.session.id)}
                 >
                   取り込む
                 </button>
                 <button
                   type="button"
                   className="btn-text search-pending-decline"
-                  onClick={() => handleDeclineSession(session.id)}
+                  onClick={() => handleDeclineSession(row.session.id)}
                 >
                   登録しない
                 </button>
-              </li>
+              </SessionListRow>
             ))}
           </ul>
         </section>

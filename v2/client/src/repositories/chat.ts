@@ -40,6 +40,18 @@ export interface ChatRepository {
   getMessages(sessionId: string): Promise<ChatMessageRecord[]>;
   /** 取り込み待ち・登録しなかった・取り込み済みを合わせて最近やり取りした順に返す。処理中は対象外 */
   getRecentSessions(limit: number): Promise<ChatSessionRecord[]>;
+  /**
+   * アプリ起動時に一度だけ実行するクリーンアップ(本人指定)。open(取り込み待ち)かつ
+   * メッセージ0件のセッションだけを削除する。セッション生成を最初の送信成立時まで遅らせる
+   * ようにした(App.tsx openChatForTerm/openChatForQuery)後も、それ以前のバージョンで
+   * 作られた不可視の空セッション(画面を開いただけで一度も送信せず戻った際に残っていたもの)の
+   * 残骸が既存端末には残っている可能性があるため、その一括掃除に使う。
+   * 安全性: status==='open'かつメッセージ数0件のときだけ削除する——1件でもメッセージが
+   * あれば(送信を試みた実績がある、あるいは取り込み待ちとして意味を持つため)残す。
+   * committing/committed/declinedは対象外(取り込み中・済み・登録しない選択済みのいずれも
+   * 消してはいけない)。
+   */
+  deleteEmptyOpenSessions(): Promise<void>;
 }
 
 async function pruneOldSessions(db: ItIndexDB): Promise<void> {
@@ -150,6 +162,16 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
         .filter((s) => s.status !== 'committing')
         .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
         .slice(0, limit);
+    },
+
+    async deleteEmptyOpenSessions() {
+      await db.transaction('rw', db.chatSessions, db.chatMessages, async () => {
+        const openSessions = await db.chatSessions.where('status').equals('open').toArray();
+        for (const s of openSessions) {
+          const messageCount = await db.chatMessages.where('sessionId').equals(s.id).count();
+          if (messageCount === 0) await db.chatSessions.delete(s.id);
+        }
+      });
     },
   };
 }

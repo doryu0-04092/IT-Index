@@ -181,31 +181,44 @@ export function App() {
   // 「AIに聞く」(用語詳細から)。取り込み待ち(open)の既存セッションがあれば再開する。
   // committing中のセッションはfindOpenSessionByTermId('open'限定)にマッチしないため、
   // 自然に新規セッションが立つ(要件定義書§5.3「取り込み中に同じ語を開いた場合は別の新しい
-  // セッションが立つ」)。
+  // セッションが立つ」)。既存openセッションが無い場合はここではまだcreateSessionしない
+  // ——「下書き」としてチャット画面を開き、最初の送信が実際に成立する時点(ChatScreen.tsx
+  // handleSend)で初めてセッションを作る(本人決定。未ログイン等で送信できないまま戻った
+  // 場合に不可視の空セッションが残る問題への対応)。「話題を変える」(onChangeSubject)も
+  // この関数を経由するため同じ遅延規則に自然に乗る。
   const openChatForTerm = useCallback(
     async (termId: string, returnTo: Screen) => {
       const existing = await chatRepo.findOpenSessionByTermId(termId);
-      const session = existing ?? (await chatRepo.createSession(termId));
-      setScreen({ name: 'chat', sessionId: session.id, returnTo });
+      if (existing) {
+        setScreen({ name: 'chat', sessionId: existing.id, returnTo });
+      } else {
+        setScreen({ name: 'chat', sessionId: null, termId, subjectLabel: '', returnTo });
+      }
     },
     [chatRepo],
   );
 
   // 「AIで検索」(検索欄の入力文字列をそのまま主題にする。要件定義書§5.3「検索モード」)。
-  // 新規セッションを立てたときだけ、打った文字列をそのまま最初の質問として自動送信する
-  // (v1のinitialQuestion方式。../../src/ui/pc/ChatScreen.tsx:23-24,106-113・
+  // 新規(下書きから作られた)セッションのときだけ、打った文字列をそのまま最初の質問として
+  // 自動送信する(v1のinitialQuestion方式。../../src/ui/pc/ChatScreen.tsx:23-24,106-113・
   // ../../src/App.tsx startQueryChatを移植)。既存セッションを再開した場合は同じ質問の
-  // 二重送信になるため送らない。
+  // 二重送信になるため送らない。openChatForTermと同じ理由でcreateSessionはここでは呼ばない
+  // ——ChatScreen側が最初の送信成立時に作る。
   const openChatForQuery = useCallback(
     async (query: string) => {
       const existing = await chatRepo.findOpenSessionBySubjectLabel(query);
-      const session = existing ?? (await chatRepo.createSession(null, query));
-      setScreen({
-        name: 'chat',
-        sessionId: session.id,
-        returnTo: { name: 'search' },
-        initialQuestion: existing ? undefined : query,
-      });
+      if (existing) {
+        setScreen({ name: 'chat', sessionId: existing.id, returnTo: { name: 'search' } });
+      } else {
+        setScreen({
+          name: 'chat',
+          sessionId: null,
+          termId: null,
+          subjectLabel: query,
+          returnTo: { name: 'search' },
+          initialQuestion: query,
+        });
+      }
     },
     [chatRepo],
   );
@@ -358,6 +371,8 @@ export function App() {
         ) : screen.name === 'chat' ? (
           <ChatScreen
             sessionId={screen.sessionId}
+            termId={screen.sessionId === null ? screen.termId : undefined}
+            subjectLabel={screen.sessionId === null ? screen.subjectLabel : undefined}
             chatRepo={chatRepo}
             termsRepo={termsRepo}
             notesRepo={notesRepo}
