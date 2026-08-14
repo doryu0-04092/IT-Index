@@ -79,4 +79,32 @@ describe('createChatRepository', () => {
     const found = await chatRepo.findOpenSessionBySubjectLabel('ゼロトラスト');
     expect(found?.id).toBe(session.id);
   });
+
+  describe('deleteEmptyOpenSessions(起動時クリーンアップ。本人指定)', () => {
+    it('open×メッセージ0件のセッションだけを削除し、メッセージがあるopenセッションは残す', async () => {
+      const chatRepo = repo();
+      const empty = await chatRepo.createSession(null, '開いてすぐ戻った語');
+      const touched = await chatRepo.createSession(null, 'ゼロトラスト');
+      await chatRepo.appendMessage(touched.id, 'user', 'ゼロトラストとは？');
+
+      await chatRepo.deleteEmptyOpenSessions();
+
+      expect(await chatRepo.getSession(empty.id)).toBeUndefined();
+      expect(await chatRepo.getSession(touched.id)).toBeDefined();
+    });
+
+    it('committing/committed/declinedのセッションは(メッセージ0件でも)削除しない', async () => {
+      const chatRepo = repo();
+      const committing = await chatRepo.createSession(null, '取り込み中');
+      await chatRepo.beginCommit(committing.id);
+
+      const declined = await chatRepo.createSession(null, '登録しない選択済み');
+      await chatRepo.declineSession(declined.id);
+
+      await chatRepo.deleteEmptyOpenSessions();
+
+      expect(await chatRepo.getSession(committing.id)).toBeDefined();
+      expect(await chatRepo.getSession(declined.id)).toBeDefined();
+    });
+  });
 });

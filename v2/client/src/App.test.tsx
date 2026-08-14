@@ -5,6 +5,7 @@ import { App } from './App';
 import { db } from './db';
 import { createChatRepository } from './repositories/chat';
 import { clearPersistedScreen, persistScreen } from './screenPersistence';
+import { setToken } from './sync/tokenStore';
 
 const seed = {
   schemaVersion: 1,
@@ -176,5 +177,161 @@ describe('App', () => {
 
     // 後始末: このセッションが他テストの「取り込み待ち」一覧に混入しないようにする
     await chatRepo.declineSession(session.id);
+  });
+
+  describe('遅延生成(本人指定): セッションは最初の送信が成立するまで作られない', () => {
+    it('未ログインで「AIで検索」→戻ると、セッションが作られない', async () => {
+      render(<App />);
+      await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
+
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遅延生成テストA' } });
+      fireEvent.click(screen.getByText('「遅延生成テストA」をAIで検索'));
+
+      await waitFor(() => expect(screen.getByText('AIチャットにはログインが必要です。')).toBeTruthy());
+      fireEvent.click(screen.getByText('← 戻る'));
+      await waitFor(() => expect(screen.getByRole('combobox')).toBeTruthy());
+
+      const chatRepo = createChatRepository(db);
+      const open = await chatRepo.getOpenSessions();
+      expect(open.find((s) => s.subjectLabel === '遅延生成テストA')).toBeUndefined();
+    });
+
+    it('ログイン済みで送信が成立するとセッションが作成される', async () => {
+      setToken('tok-delay-1');
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string) => {
+          const u = String(url);
+          if (u.includes('/ai/chat')) {
+            return Promise.resolve({
+              ok: true,
+              json: () =>
+                Promise.resolve({ text: '応答テストA', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } }),
+            });
+          }
+          if (u.includes('/ai/quota')) {
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ used: 0, limit: 50 }) });
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(seed) });
+        }),
+      );
+
+      render(<App />);
+      await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
+
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遅延生成テストB' } });
+      fireEvent.click(screen.getByText('「遅延生成テストB」をAIで検索'));
+
+      await waitFor(() => expect(screen.getByText('応答テストA')).toBeTruthy());
+
+      const chatRepo = createChatRepository(db);
+      const open = await chatRepo.getOpenSessions();
+      const created = open.find((s) => s.subjectLabel === '遅延生成テストB');
+      expect(created).toBeTruthy();
+      expect(await chatRepo.getMessages(created!.id)).toHaveLength(2);
+
+      fireEvent.click(screen.getByText('← 戻る'));
+      await waitFor(() => expect(screen.getByText(/単語帳への取り込み待ち/)).toBeTruthy());
+      expect(screen.getByText('遅延生成テストB')).toBeTruthy();
+
+      await chatRepo.declineSession(created!.id);
+    });
+
+    it('送信に失敗しても作成済みセッションにユーザー発言1件が残り、取り込み待ちに出る', async () => {
+      setToken('tok-delay-2');
+      vi.stubGlobal(
+        'fetch',
+        vi.fn((url: string) => {
+          const u = String(url);
+          if (u.includes('/ai/chat')) {
+            return Promise.resolve({
+              ok: false,
+              status: 500,
+              json: () => Promise.resolve({ error: { code: 'unknown_error', message: 'サーバーエラー' } }),
+            });
+          }
+          if (u.includes('/ai/quota')) {
+            return Promise.resolve({ ok: true, json: () => Promise.resolve({ used: 0, limit: 50 }) });
+          }
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(seed) });
+        }),
+      );
+
+      render(<App />);
+      await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
+
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遅延生成テストC' } });
+      fireEvent.click(screen.getByText('「遅延生成テストC」をAIで検索'));
+
+      await waitFor(() => expect(screen.getByText('サーバーエラー')).toBeTruthy());
+
+      const chatRepo = createChatRepository(db);
+      const open = await chatRepo.getOpenSessions();
+      const created = open.find((s) => s.subjectLabel === '遅延生成テストC');
+      expect(created).toBeTruthy();
+      expect(await chatRepo.getMessages(created!.id)).toHaveLength(1);
+
+      fireEvent.click(screen.getByText('← 戻る'));
+      await waitFor(() => expect(screen.getByText('遅延生成テストC')).toBeTruthy());
+
+      await chatRepo.declineSession(created!.id);
+    });
+
+    it('既存openセッションがあれば再利用し、新規セッションは作られない(従来どおり)', async () => {
+      const chatRepo = createChatRepository(db);
+      const existing = await chatRepo.createSession(null, '遅延生成テストD');
+      await chatRepo.appendMessage(existing.id, 'user', '既存の質問');
+
+      setToken('tok-delay-3');
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(seed) }));
+
+      render(<App />);
+      await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
+
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: '遅延生成テストD' } });
+      fireEvent.click(screen.getByText('「遅延生成テストD」をAIで検索'));
+
+      await waitFor(() => expect(screen.getByText('既存の質問')).toBeTruthy());
+      // 再開(既存セッション)なので初期質問の自動送信はしない=AIプロキシは呼ばれない
+      expect(globalThis.fetch).not.toHaveBeenCalledWith(expect.stringContaining('/ai/chat'), expect.anything());
+
+      const open = await chatRepo.getOpenSessions();
+      expect(open.filter((s) => s.subjectLabel === '遅延生成テストD')).toHaveLength(1);
+
+      fireEvent.click(screen.getByText('← 戻る'));
+      await chatRepo.declineSession(existing.id);
+    });
+
+    it('起動時クリーンアップはopen×メッセージ0件のセッションだけを削除する(メッセージありは残す)', async () => {
+      const chatRepo = createChatRepository(db);
+      const empty = await chatRepo.createSession(null, '遅延生成テストE-空');
+      const touched = await chatRepo.createSession(null, '遅延生成テストE-有');
+      await chatRepo.appendMessage(touched.id, 'user', 'なにか');
+
+      render(<App />);
+      await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
+
+      await waitFor(async () => {
+        expect(await chatRepo.getSession(empty.id)).toBeUndefined();
+      });
+      expect(await chatRepo.getSession(touched.id)).toBeDefined();
+
+      await chatRepo.declineSession(touched.id);
+    });
+
+    it('下書き(sessionId:null)チャットはリロードしても復元されず検索画面に落ちる', async () => {
+      persistScreen({
+        name: 'chat',
+        sessionId: null,
+        termId: null,
+        subjectLabel: '遅延生成テストF',
+        returnTo: { name: 'search' },
+      });
+
+      render(<App />);
+
+      await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
+      expect(screen.getByRole('combobox')).toBeTruthy();
+    });
   });
 });

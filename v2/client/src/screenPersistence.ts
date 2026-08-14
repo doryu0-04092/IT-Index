@@ -36,6 +36,9 @@ function isValidScreen(value: unknown, depth: number): value is Screen {
     case 'detail':
       return typeof v.termId === 'string' && isValidScreen(v.returnTo, depth + 1);
     case 'chat':
+      // 下書き(sessionId:null)は復元対象にしない(検索画面へ落とす。本人指定)。
+      // まだAPIも呼ばれておらず「送信を試みた」実績が無いため、リロードのたびに空の下書きを
+      // 律儀に復元する意味が無い——素直に検索画面へ戻す方が一貫している。
       return typeof v.sessionId === 'string' && isValidScreen(v.returnTo, depth + 1);
     default:
       return false;
@@ -53,7 +56,16 @@ function stripVolatile(screen: Screen): Screen {
     case 'detail':
       return { name: 'detail', termId: screen.termId, returnTo: stripVolatile(screen.returnTo) };
     case 'chat':
-      return { name: 'chat', sessionId: screen.sessionId, returnTo: stripVolatile(screen.returnTo) };
+      // 下書き(sessionId:null)もそのまま書き出す(isPersistedScreen側で復元時に弾かれる)。
+      return screen.sessionId !== null
+        ? { name: 'chat', sessionId: screen.sessionId, returnTo: stripVolatile(screen.returnTo) }
+        : {
+            name: 'chat',
+            sessionId: null,
+            termId: screen.termId,
+            subjectLabel: screen.subjectLabel,
+            returnTo: stripVolatile(screen.returnTo),
+          };
     default:
       return screen;
   }

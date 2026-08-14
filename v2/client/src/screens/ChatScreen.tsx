@@ -15,7 +15,17 @@ import { getVerifiedCredential, providerLabel } from '../sync/apiKeyStore';
 import TermPicker from './TermPicker';
 
 export interface ChatScreenProps {
-  sessionId: string;
+  /**
+   * null=「下書き」。まだchatRepo.createSessionしていない(本人指定の遅延生成。
+   * App.tsx openChatForTerm/openChatForQuery参照)。最初の送信が成立する時点
+   * (handleSend冒頭)でここで初めてセッションを作る——未ログイン等で一度も送信せずに
+   * 戻った場合、セッション自体が生まれないため不可視の空セッションが残らない。
+   */
+  sessionId: string | null;
+  /** sessionId:nullのときだけ使う下書きの主題(termId有り=登録済みの語、無し=検索語) */
+  termId?: string | null;
+  /** sessionId:nullかつtermId:nullのときだけ使う、利用者が入力した文字列そのもの */
+  subjectLabel?: string;
   chatRepo: ChatRepository;
   termsRepo: TermsRepository;
   notesRepo: NotesRepository;
@@ -60,6 +70,8 @@ const DETAIL_QUESTION = 'ここまでの会話と「理解のために調べた�
  */
 export default function ChatScreen({
   sessionId,
+  termId: draftTermId,
+  subjectLabel: draftSubjectLabel,
   chatRepo,
   termsRepo,
   notesRepo,
@@ -94,15 +106,56 @@ export default function ChatScreen({
   // 二重effect実行・再レンダリング両方に効かせるため、stateではなくrefで持つ。
   const initialQuestionSent = useRef(false);
 
-  const reloadMessages = useCallback(async () => {
-    setMessages(await chatRepo.getMessages(sessionId));
-  }, [chatRepo, sessionId]);
+  // 実際に使うセッションID。下書き(sessionIdプロップ:null)の間はまだDBにセッションが無く、
+  // handleSend内で最初の送信が成立した瞬間にchatRepo.createSessionした結果をここへ格納する
+  // (本人指定の遅延生成)。あえてApp.tsx側のScreen.sessionIdは更新しない設計にしてある
+  // ——更新するとnavigation.tsのscreenKeyが変わり<main>ごと再マウントされて、送信中の
+  // 表示や直後の応答反映が失われてしまうため(詳細はnavigation.ts screenKeyのコメント参照)。
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(sessionId);
+
+  const reloadMessagesFor = useCallback(
+    async (id: string) => {
+      setMessages(await chatRepo.getMessages(id));
+    },
+    [chatRepo],
+  );
 
   useEffect(() => {
-    if (!token) return; // 未ログイン時はAPIもDBの主題解決も不要(ガード表示のみ)
+    if (!token) return; // 未ログイン時はAPIもDBの主題解決も不要(ガード表示のみ)。セッションも作らない
     // アンマウント後(画面遷移・テスト終了によるDBクローズ)に読み込みが解決・失敗しても
     // 反映しない。catchが無いとDexieのDatabaseClosedErrorが未処理例外になる。
     let cancelled = false;
+
+    if (sessionId === null) {
+      // 下書き。DBにはまだ何も無いため取得せず、propsから直接組み立てる。
+      // messages/commitState等は初期値のまま(空の会話として表示する)。
+      // awaitを最初に置き、setSession呼び出しをeffectの同期実行から切り離す
+      // (react-hooks/set-state-in-effectが「effect内での同期的なsetState呼び出し」を検出するため。
+      // useAppInit.ts runSeedImportと同じ対処。1マイクロタスク分の遅延は表示タイミングに影響しない)。
+      void Promise.resolve().then(() => {
+        if (cancelled) return;
+        const draftSession: ChatSessionRecord = {
+          id: '',
+          termId: draftTermId ?? null,
+          ...(draftTermId ? {} : { subjectLabel: draftSubjectLabel ?? '' }),
+          startedAt: Date.now(),
+          lastActiveAt: Date.now(),
+          status: 'open',
+        };
+        setSession(draftSession);
+        if (draftTermId) {
+          void buildSubjectContext(draftTermId, { termsRepo, notesRepo }).then((subjectContext) => {
+            if (!cancelled) setSubject(subjectContext ?? undefined);
+          });
+        } else if (draftSubjectLabel) {
+          setSubject(buildQuerySubject(draftSubjectLabel));
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     void chatRepo
       .getSession(sessionId)
       .then(async (s) => {
@@ -116,7 +169,7 @@ export default function ChatScreen({
         } else if (s.subjectLabel) {
           setSubject(buildQuerySubject(s.subjectLabel));
         }
-        await reloadMessages();
+        await reloadMessagesFor(sessionId);
       })
       .catch(() => {
         if (!cancelled) setSession(null);
@@ -124,7 +177,7 @@ export default function ChatScreen({
     return () => {
       cancelled = true;
     };
-  }, [token, chatRepo, sessionId, termsRepo, notesRepo, reloadMessages]);
+  }, [token, chatRepo, sessionId, draftTermId, draftSubjectLabel, termsRepo, notesRepo, reloadMessagesFor]);
 
   useEffect(() => {
     if (!token || usingOwnApiKey) return;
@@ -170,8 +223,18 @@ export default function ChatScreen({
     setSendErrorCode(null);
     if (overrideText === undefined) setDraft('');
     try {
-      await sendChatTurn(sessionId, text, { chatRepo, aiClient, subject }, hideQuestion);
-      await reloadMessages();
+      // 最初の送信が成立する時点でセッションを作る(本人指定の遅延生成)。sendChatTurnは
+      // AI呼び出しの前にuserメッセージを保存するため、この後AI呼び出しが失敗しても
+      // 作成済みセッションには1件残り、「取り込み待ち」一覧に出る(正しい挙動として維持)。
+      let sid = activeSessionId;
+      if (sid === null) {
+        const created = await chatRepo.createSession(draftTermId ?? null, draftTermId ? undefined : draftSubjectLabel);
+        sid = created.id;
+        setActiveSessionId(sid);
+        setSession(created);
+      }
+      await sendChatTurn(sid, text, { chatRepo, aiClient, subject }, hideQuestion);
+      await reloadMessagesFor(sid);
     } catch (err) {
       setSendError(err instanceof ApiRequestError ? err.message : 'AIとの通信に失敗しました');
       setSendErrorCode(err instanceof ApiRequestError ? err.code : null);
@@ -182,10 +245,11 @@ export default function ChatScreen({
   }
 
   async function handleCommit() {
+    if (!activeSessionId) return; // 下書き(一度も送信していない)は取り込む対象が無い
     setCommitState('committing');
     setCommitErrorMessage(null);
-    await commitOrchestrator.triggerCommit(sessionId);
-    const updated = await chatRepo.getSession(sessionId);
+    await commitOrchestrator.triggerCommit(activeSessionId);
+    const updated = await chatRepo.getSession(activeSessionId);
     if (updated?.status === 'committed') {
       setCommitState('committed');
     } else {
@@ -195,7 +259,11 @@ export default function ChatScreen({
   }
 
   async function handleDecline() {
-    await chatRepo.declineSession(sessionId);
+    if (!activeSessionId) {
+      onBack(); // 下書きのまま「登録しない」相当の操作をしても、DBには何も無いのでそのまま戻るだけ
+      return;
+    }
+    await chatRepo.declineSession(activeSessionId);
     onBack();
   }
 
@@ -327,30 +395,33 @@ export default function ChatScreen({
             </button>
           </form>
 
-          <div className="chat-commit-row">
-            {commitState !== 'committed' && (
-              <>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  onClick={() => void handleCommit()}
-                  disabled={commitState === 'committing'}
-                >
-                  {commitState === 'committing' ? '取り込んでいます…' : 'この会話を取り込む'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-danger"
-                  onClick={() => void handleDecline()}
-                  disabled={commitState === 'committing'}
-                >
-                  登録しない
-                </button>
-              </>
-            )}
-            {commitState === 'committed' && <p className="status-text">取り込みました。</p>}
-            {commitState === 'error' && commitErrorMessage && <p className="error-text">{commitErrorMessage}</p>}
-          </div>
+          {/* 下書き(一度も送信していない)は取り込む対象が無いため、コミット行自体を出さない */}
+          {activeSessionId !== null && (
+            <div className="chat-commit-row">
+              {commitState !== 'committed' && (
+                <>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => void handleCommit()}
+                    disabled={commitState === 'committing'}
+                  >
+                    {commitState === 'committing' ? '取り込んでいます…' : 'この会話を取り込む'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-danger"
+                    onClick={() => void handleDecline()}
+                    disabled={commitState === 'committing'}
+                  >
+                    登録しない
+                  </button>
+                </>
+              )}
+              {commitState === 'committed' && <p className="status-text">取り込みました。</p>}
+              {commitState === 'error' && commitErrorMessage && <p className="error-text">{commitErrorMessage}</p>}
+            </div>
+          )}
         </>
       )}
 

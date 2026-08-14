@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { computeWeights, type AskRecord, type TermRecord } from '@it-index/shared';
 import { loadSessionLabelRows, type SessionLabelRow } from '../lib/chatSessionLabels';
+import SessionListRow from '../lib/SessionListRow';
 import type { HistoryView } from '../navigation';
 import type { AsksRepository } from '../repositories/asks';
 import type { ChatRepository } from '../repositories/chat';
@@ -153,20 +154,21 @@ export default function HistoryScreen({
         <>
           {commitRows !== null && commitRows.length === 0 && <p className="status-text">まだ記録がありません。</p>}
           <ul className="result-list">
-            {commitRows?.map(({ session, label }) => (
-              <li key={session.id} className="result-row search-pending-row">
-                <button type="button" className="result-button" onClick={() => onOpenChatSession(session.id)}>
-                  <span className="result-term">{label}</span>
-                  <span className="result-field">{new Date(session.lastActiveAt).toLocaleString('ja-JP')}</span>
-                </button>
+            {commitRows?.map((row) => (
+              <SessionListRow
+                key={row.session.id}
+                row={row}
+                onSelect={() => onOpenChatSession(row.session.id)}
+                meta={<span className="result-field">{new Date(row.session.lastActiveAt).toLocaleString('ja-JP')}</span>}
+              >
                 <button
                   type="button"
                   className="btn-secondary search-pending-commit"
-                  onClick={() => handleCommitPending(session.id)}
+                  onClick={() => handleCommitPending(row.session.id)}
                 >
                   取り込む
                 </button>
-              </li>
+              </SessionListRow>
             ))}
           </ul>
         </>

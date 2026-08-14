@@ -251,9 +251,9 @@ body {
 /*
  * 「取り込み待ち」(SearchScreen.tsx)・「取り込み履歴」(HistoryScreen.tsxのcommitsタブ)の行。
  * 「取り込む」ボタンが下に配置されて分かりづらいとの指摘(依頼者指定・UIレビュー反映。
- * v1も横並びだった)。ラベル側(.result-button/.search-pending-item)を伸ばし、
- * 操作ボタンは右端に横並びにする。他画面の.result-button(通常の検索結果一覧)には
- * 影響させないため、このクラスの配下に限定する。
+ * v1も横並びだった)。両画面ともlib/SessionListRow.tsxの共通コンポーネント経由で描画する
+ * ため、ラベル側は常に.search-pending-item(.btn-text)——他画面の.result-button(通常の
+ * 検索結果一覧)とは構造が分かれており影響しない。
  */
 .search-pending-row {
   display: flex;
@@ -261,7 +261,6 @@ body {
   gap: 8px;
 }
 
-.search-pending-row .result-button,
 .search-pending-row .search-pending-item {
   flex: 1 1 auto;
   min-width: 0;

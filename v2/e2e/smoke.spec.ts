@@ -68,6 +68,25 @@ test('チャットを開いてすぐ戻ると、検索画面の「取り込み�
   await expect(page.getByText(/単語帳への取り込み待ち/)).toHaveCount(0);
 });
 
+test('未ログインで「AIで検索」→戻ると、セッションが作られず「取り込み待ち」に出ない(遅延生成。本人指定)', async ({ page }) => {
+  await page.goto('/');
+  await dismissOnboarding(page);
+  await expect(page.getByText(/登録単語数\(\d+語\)/)).toBeVisible({ timeout: 15_000 });
+
+  // 辞書に無い語で「AIで検索」を押す。未ログインのためチャット画面はログイン案内のみを表示し、
+  // 送信そのものが起きない=chatRepo.createSessionが一度も呼ばれない(v1以前は画面を開いた
+  // 時点でセッションが作られていたため、送信せずに戻ると不可視の空セッションが残っていた)。
+  await page.getByRole('combobox', { name: '用語を検索' }).fill('未ログイン下書きテスト');
+  await page.getByRole('button', { name: '「未ログイン下書きテスト」をAIで検索' }).click();
+
+  await expect(page.getByText('AIチャットにはログインが必要です。')).toBeVisible();
+  await page.getByText('← 戻る').click();
+  await expect(page.getByRole('combobox', { name: '用語を検索' })).toBeVisible();
+
+  // 「取り込み待ち」自体が出ない(=セッションが1件も作られていない)
+  await expect(page.getByText(/単語帳への取り込み待ち/)).toHaveCount(0);
+});
+
 test('索引タブと履歴タブに切り替えられる', async ({ page }) => {
   await page.goto('/');
   await dismissOnboarding(page);

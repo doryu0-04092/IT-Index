@@ -396,6 +396,145 @@ describe('ChatScreen', () => {
     expect(onGoToSettings).toHaveBeenCalled();
   });
 
+  describe('下書き(セッション遅延生成。本人指定)', () => {
+    it('sessionId:nullで開くと、DBへ問い合わせずに履歴なしで表示され、最初の送信でcreateSessionされてから送信される', async () => {
+      setToken('tok-1');
+      const createSpy = vi.spyOn(chatRepo, 'createSession');
+      const getSessionSpy = vi.spyOn(chatRepo, 'getSession');
+      const aiClient: AiClient = {
+        send: vi.fn().mockResolvedValue({ text: '応答です。', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } }),
+      };
+
+      render(
+        <ChatScreen
+          sessionId={null}
+          termId={null}
+          subjectLabel="ゼロトラスト"
+          chatRepo={chatRepo}
+          termsRepo={termsRepo}
+          notesRepo={notesRepo}
+          aiClient={aiClient}
+          commitOrchestrator={fakeCommitOrchestrator()}
+          onBack={() => {}}
+          onGoToSync={() => {}}
+          onChangeSubject={() => {}}
+        />,
+      );
+
+      // 開いた直後はDBに問い合わせない(下書きなのでgetSessionを呼ばない)
+      const textarea = await screen.findByLabelText('メッセージ');
+      expect(getSessionSpy).not.toHaveBeenCalled();
+      expect(createSpy).not.toHaveBeenCalled();
+      // 送信するものが無い状態では「取り込む」等のコミット行も出さない
+      expect(screen.queryByText('この会話を取り込む')).toBeNull();
+
+      fireEvent.change(textarea, { target: { value: 'ゼロトラストって何？' } });
+      fireEvent.click(screen.getByText('送信'));
+
+      await waitFor(() => expect(createSpy).toHaveBeenCalledWith(null, 'ゼロトラスト'));
+      await waitFor(() => expect(screen.getByText('応答です。')).toBeTruthy());
+      // 作成されたセッションが1件だけ存在し、ユーザー発言・AI応答の2件が入っている
+      const sessions = await chatRepo.getOpenSessions();
+      expect(sessions).toHaveLength(1);
+      expect(await chatRepo.getMessages(sessions[0].id)).toHaveLength(2);
+      // 送信成立後はコミット行が現れる
+      await waitFor(() => expect(screen.getByText('この会話を取り込む')).toBeTruthy());
+    });
+
+    it('送信に失敗しても作成済みセッションにはユーザー発言1件が残る(v1準拠の挙動を維持)', async () => {
+      setToken('tok-1');
+      const aiClient: AiClient = { send: vi.fn().mockRejectedValue(new Error('network error')) };
+
+      render(
+        <ChatScreen
+          sessionId={null}
+          termId={null}
+          subjectLabel="ゼロトラスト"
+          chatRepo={chatRepo}
+          termsRepo={termsRepo}
+          notesRepo={notesRepo}
+          aiClient={aiClient}
+          commitOrchestrator={fakeCommitOrchestrator()}
+          onBack={() => {}}
+          onGoToSync={() => {}}
+          onChangeSubject={() => {}}
+        />,
+      );
+
+      const textarea = await screen.findByLabelText('メッセージ');
+      fireEvent.change(textarea, { target: { value: 'ゼロトラストって何？' } });
+      fireEvent.click(screen.getByText('送信'));
+
+      await waitFor(() => expect(screen.getByText('AIとの通信に失敗しました')).toBeTruthy());
+      const sessions = await chatRepo.getOpenSessions();
+      expect(sessions).toHaveLength(1);
+      expect(await chatRepo.getMessages(sessions[0].id)).toHaveLength(1);
+    });
+
+    it('用語モードの下書きでは辞書側の語名を見出しに表示し、送信時にそのtermIdでcreateSessionする', async () => {
+      const term = buildTermRecord({ term: 'TCP/IP', readings: ['ティーシーピーアイピー'], summary: '通信規約', field: 'ネットワーク', origin: 'seed', now: 1 });
+      await termsRepo.bulkPutFromSeed([term]);
+      setToken('tok-1');
+      const createSpy = vi.spyOn(chatRepo, 'createSession');
+      const aiClient: AiClient = {
+        send: vi.fn().mockResolvedValue({ text: '説明です。', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } }),
+      };
+
+      render(
+        <ChatScreen
+          sessionId={null}
+          termId={term.id}
+          subjectLabel=""
+          chatRepo={chatRepo}
+          termsRepo={termsRepo}
+          notesRepo={notesRepo}
+          aiClient={aiClient}
+          commitOrchestrator={fakeCommitOrchestrator()}
+          onBack={() => {}}
+          onGoToSync={() => {}}
+          onChangeSubject={() => {}}
+        />,
+      );
+
+      expect(await screen.findByText('TCP/IPについて')).toBeTruthy();
+      const textarea = screen.getByLabelText('メッセージ');
+      fireEvent.change(textarea, { target: { value: '教えて' } });
+      fireEvent.click(screen.getByText('送信'));
+
+      await waitFor(() => expect(createSpy).toHaveBeenCalledWith(term.id, undefined));
+      await waitFor(() => expect(screen.getByText('説明です。')).toBeTruthy());
+    });
+
+    it('initialQuestion付きの下書きは、セッション作成を経て自動送信される', async () => {
+      setToken('tok-1');
+      const createSpy = vi.spyOn(chatRepo, 'createSession');
+      const aiClient: AiClient = {
+        send: vi.fn().mockResolvedValue({ text: '境界を信用しない考え方です。', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } }),
+      };
+
+      render(
+        <ChatScreen
+          sessionId={null}
+          termId={null}
+          subjectLabel="ゼロトラスト"
+          chatRepo={chatRepo}
+          termsRepo={termsRepo}
+          notesRepo={notesRepo}
+          aiClient={aiClient}
+          commitOrchestrator={fakeCommitOrchestrator()}
+          onBack={() => {}}
+          onGoToSync={() => {}}
+          onChangeSubject={() => {}}
+          initialQuestion="ゼロトラストって何？"
+        />,
+      );
+
+      await waitFor(() => expect(screen.getByText('境界を信用しない考え方です。')).toBeTruthy());
+      expect(createSpy).toHaveBeenCalledTimes(1);
+      expect(aiClient.send).toHaveBeenCalledTimes(1);
+    });
+  });
+
   // 利用者持ち込みキー(BYOK)。docs/v2/architecture.md §5。
   describe('自分のAPIキー使用時', () => {
     function renderChat(overrides: { aiClient?: AiClient; onGoToSync?: () => void } = {}, sessionId?: string) {
