@@ -81,7 +81,8 @@ flowchart LR
 | `accounts` | id・email・パスワードハッシュ・作成日時 |
 | `sync_blobs` | account_id・device_id・seq(単調増加)・payload(端末が出した差分。**サーバーは中身を解釈しない**)・created_at |
 | `usage`(Phase 2) | account_id・期間・AI呼び出し回数(上限判定用) |
-| `licenses` | code(UNIQUE)・account_id・source(`'purchase'`\|`'operator'`)・issued_at・activated_at |
+| `licenses` | code(UNIQUE)・account_id・source(`'purchase'`\|`'operator'`)・issued_at・activated_at・canceled_at |
+| `payment_methods` | account_id(PK)・brand・last4・expiry・holder_name・updated_at。**表示用のみ。カード番号とCVCの列は無い** |
 
 `licenses`は**発行(issue)と有効化(activate)を分離する**設計にする。コード発行時点では`account_id`と
 `activated_at`は空で、決済モック([requirements.md §4.2](./requirements.md))の「発行」を表現する。利用者がコードを入力した時点で
@@ -90,6 +91,16 @@ flowchart LR
 発行済みだが未使用のコード(在庫)を表現する必要があり、かつ1コード=1回の有効化に限定する検証(`code`のUNIQUE制約
 +`activated_at`の有無チェック)をシンプルにするため。**このテーブルは公式ホスト運用時のみ意味を持つ**
 (セルフホストでは`LICENSE_ENABLED='0'`でライセンス確認自体を無効化できる。[deploy.md「運用ノート」](./deploy.md))。
+
+解約([requirements.md §4.3](./requirements.md))は行を削除せず`canceled_at`を立てる。`code`のPRIMARY KEYを
+保ったまま「解約済み」を記録に残すことで、解約したコードでの再有効化を弾ける(再開は新規購入)。
+ゲートの判定は`hasActiveLicense`(`activated_at IS NOT NULL AND canceled_at IS NULL`)の1箇所に集約し、
+表示だけ解約済みで実権限が残る状態を作らない。
+
+`payment_methods`は設定タブに「どのカードから引き落とされているか」を表示するためだけのテーブル。
+当初は端末のlocalStorageに置いていたが、ライセンスがアカウント単位である以上、購入した端末以外で
+矛盾表示になるため、アカウントに属するデータとしてここへ移した(1アカウント1枚。カード変更はUPSERT)。
+**完全なカード番号とCVCは列として存在せず**、受け取る経路も無い。解約時は行ごと削除する。
 
 ## 4. 同期プロトコル
 

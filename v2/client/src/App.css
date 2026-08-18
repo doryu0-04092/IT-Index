@@ -1247,6 +1247,38 @@ a,
   margin: 8px 0;
 }
 
+/* 課金開始日・次回請求日(SettingsScreen.tsxのBillingSchedule)。ラベルと値を1行ずつ並べる */
+.license-billing {
+  margin: 12px 0;
+  display: grid;
+  gap: 4px;
+}
+
+.license-billing > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.license-billing dt {
+  color: var(--muted);
+  font-size: 0.9rem;
+  min-width: 6.5em;
+}
+
+.license-billing dd {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+/* 解約の確認パネル内の「何が起きるか」一覧(SettingsScreen.tsxのCancelLicenseSection) */
+.cancel-effects {
+  margin: 4px 0 12px;
+  padding-left: 1.4em;
+  display: grid;
+  gap: 4px;
+}
+
 /*
  * ============================================================
  * モバイル幅(<720px)専用: サイズ設計を1から見直す(依頼者指定・実機Android WebView検証結果を

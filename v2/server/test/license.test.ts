@@ -124,6 +124,13 @@ async function activate(token: string, body: unknown) {
   });
 }
 
+async function cancel(token: string) {
+  return exports.default.fetch(`${BASE}/api/license/cancel`, {
+    method: 'POST',
+    headers: authHeaders(token),
+  });
+}
+
 describe('ライセンスゲート(未ライセンス)', () => {
   it('sync/pushは403 license_required。blobもai_usageも増えない', async () => {
     const account = await signupAccount('gate', { license: false });
@@ -386,6 +393,108 @@ describe('POST /api/license/activate', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ code: 'OP-ANY' }),
     });
+    expect(res.status).toBe(401);
+  });
+});
+
+// 解約(POST /api/license/cancel)。即時無効で、ライセンスと登録カードが同時に無くなる。
+// 表示だけ解約済みになって実権限が残る事故を防ぐため、**ゲートが実際に閉じること**を
+// 見るのがここでの主眼。
+describe('解約', () => {
+  async function putCard(token: string) {
+    return exports.default.fetch(`${BASE}/api/payment-method`, {
+      method: 'PUT',
+      headers: authHeaders(token),
+      body: JSON.stringify({ brand: 'visa', last4: '4242', expiry: '12/29', holderName: 'TARO' }),
+    });
+  }
+
+  it('解約するとsync/pushが403になる(ゲートが実際に閉じる)', async () => {
+    const account = await signupAccount('cancel-gate');
+    expect((await push(account.token)).status).toBe(201);
+
+    expect((await cancel(account.token)).status).toBe(200);
+
+    const denied = await push(account.token);
+    expect(denied.status).toBe(403);
+    expect((await denied.json<{ error: { code: string } }>()).error.code).toBe('license_required');
+    expect((await pull(account.token)).status).toBe(403);
+  });
+
+  it('解約すると/api/auth/meが未ライセンスを返し、登録カードも消える', async () => {
+    const account = await signupAccount('cancel-me');
+    await putCard(account.token);
+
+    await cancel(account.token);
+
+    const body = await (await me(account.token)).json<{
+      licensed: boolean;
+      licenseCode: null;
+      paymentMethod: null;
+    }>();
+    expect(body.licensed).toBe(false);
+    expect(body.licenseCode).toBeNull();
+    expect(body.paymentMethod).toBeNull();
+
+    const row = await env.DB.prepare('SELECT COUNT(*) AS n FROM payment_methods WHERE account_id = ?1')
+      .bind(account.accountId)
+      .first<{ n: number }>();
+    expect(row?.n).toBe(0);
+  });
+
+  it('二重解約は409(解約できる有効なライセンスが無い)', async () => {
+    const account = await signupAccount('cancel-twice');
+    expect((await cancel(account.token)).status).toBe(200);
+
+    const second = await cancel(account.token);
+    expect(second.status).toBe(409);
+    expect((await second.json<{ error: { code: string } }>()).error.code).toBe('license_not_active');
+  });
+
+  it('ライセンスを持たないアカウントの解約は409', async () => {
+    const account = await signupAccount('cancel-none', { license: false });
+    expect((await cancel(account.token)).status).toBe(409);
+  });
+
+  it('解約したコードは再有効化できない(1コード=1回。再開は新規購入)', async () => {
+    const account = await signupAccount('cancel-reuse', { license: false });
+    await issueUnactivatedLicense('CANCEL-REUSE-0001');
+    expect((await activate(account.token, { code: 'CANCEL-REUSE-0001' })).status).toBe(200);
+
+    await cancel(account.token);
+
+    const retry = await activate(account.token, { code: 'CANCEL-REUSE-0001' });
+    expect(retry.status).toBe(403);
+    // 表示上403でも実際にライセンスが戻っていないことまで見る
+    expect((await me(account.token)).status).toBe(200);
+    expect((await (await me(account.token)).json<{ licensed: boolean }>()).licensed).toBe(false);
+  });
+
+  it('解約後に再購入すると別のコードが発行される', async () => {
+    const account = await signupAccount('cancel-repurchase', { license: false });
+    const first = await purchase(account.token);
+    const firstCode = (await first.json<{ code: string }>()).code;
+
+    await cancel(account.token);
+
+    const second = await purchase(account.token);
+    expect(second.status).toBe(201);
+    const secondCode = (await second.json<{ code: string }>()).code;
+    expect(secondCode).not.toBe(firstCode);
+    expect((await (await me(account.token)).json<{ licenseCode: string }>()).licenseCode).toBe(secondCode);
+  });
+
+  it('解約は日次の試行上限を消費しない(解約を回数制限で妨げない)', async () => {
+    const account = await signupAccount('cancel-nolimit');
+    const before = await usageCount(`license:${account.accountId}`);
+
+    await cancel(account.token);
+
+    expect(await usageCount(`license:${account.accountId}`)).toBe(before);
+  });
+
+  it('認証なしは401', async () => {
+    const res = await exports.default.fetch(`${BASE}/api/license/cancel`, { method: 'POST' });
     expect(res.status).toBe(401);
   });
 });

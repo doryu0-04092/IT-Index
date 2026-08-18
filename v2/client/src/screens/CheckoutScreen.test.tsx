@@ -3,15 +3,25 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { ApiRequestError } from '../sync/apiClient';
 import CheckoutScreen, { type CheckoutScreenProps } from './CheckoutScreen';
 
+/**
+ * savePaymentMethodは常にspyで包んで返す(overridesは中身の実装だけを差し替える)。
+ * お支払い方法がサーバーへ渡ったか・渡らなかったかの検証に使う。
+ */
 function renderCheckout(overrides: Partial<CheckoutScreenProps> = {}) {
+  const { savePaymentMethod: saveImpl, ...rest } = overrides;
+  const savePaymentMethod = vi.fn<CheckoutScreenProps['savePaymentMethod']>(
+    saveImpl ?? (() => Promise.resolve()),
+  );
   const props: CheckoutScreenProps = {
     intent: 'purchase',
     onBack: () => {},
     processPayment: () => Promise.resolve({ code: 'ABCD-1234', activatedAt: 1000 }),
+    savePaymentMethod,
     processingMinDelayMs: 0,
-    ...overrides,
+    ...rest,
   };
   render(<CheckoutScreen {...props} />);
+  return { savePaymentMethod };
 }
 
 /** 全欄に正しい値を入れる(4242…はVisaとしてブランド判定される16桁) */
@@ -76,8 +86,8 @@ describe('CheckoutScreen', () => {
     expect(screen.getByText('実際のクレジットカード番号は登録しないでください')).toBeTruthy();
   });
 
-  it('購入成功: 完了画面にコードを表示し、コードとお支払い方法(下4桁のみ)を端末内保存する', async () => {
-    renderCheckout();
+  it('購入成功: 完了画面にコードを表示し、お支払い方法(下4桁のみ)をサーバーへ保存する', async () => {
+    const { savePaymentMethod } = renderCheckout();
     fillValidCard();
 
     fireEvent.click(payButton());
@@ -85,16 +95,29 @@ describe('CheckoutScreen', () => {
     await waitFor(() => expect(screen.getByTestId('license-code').textContent).toBe('ABCD-1234'));
     expect(screen.getByText('お支払いが完了しました')).toBeTruthy();
 
-    expect(localStorage.getItem('it-index-v2:license-code')).toBe('ABCD-1234');
-    const stored = JSON.parse(localStorage.getItem('it-index-v2:mock-payment-method') ?? 'null') as {
-      brand: string;
-      last4: string;
-      expiry: string;
-      holderName: string;
-    };
-    expect(stored).toEqual({ brand: 'visa', last4: '4242', expiry: '12/99', holderName: 'TARO YAMADA' });
-    // 完全なカード番号・CVCはどのキーにも保存しない
+    expect(savePaymentMethod).toHaveBeenCalledWith({
+      brand: 'visa',
+      last4: '4242',
+      expiry: '12/99',
+      holderName: 'TARO YAMADA',
+    });
+    // 完全なカード番号・CVCは送らないし、端末にも残さない
+    expect(JSON.stringify(savePaymentMethod.mock.calls)).not.toContain('4242424242424242');
     expect(JSON.stringify(localStorage)).not.toContain('4242424242424242');
+  });
+
+  it('購入は成功したがカード保存に失敗した場合、購入自体は完了として扱う', async () => {
+    // ライセンスは発行済みなのでコードを見せないと利用者が損をする。カードは設定タブから入れ直せる
+    const { savePaymentMethod } = renderCheckout({
+      savePaymentMethod: () =>
+        Promise.reject(new ApiRequestError({ code: 'network_error', message: '保存できません' }, 0)),
+    });
+    fillValidCard();
+
+    fireEvent.click(payButton());
+
+    await waitFor(() => expect(screen.getByTestId('license-code').textContent).toBe('ABCD-1234'));
+    expect(savePaymentMethod).toHaveBeenCalled();
   });
 
   it('既にライセンスがある場合(409)は専用の文言に切り替える', async () => {
@@ -111,8 +134,8 @@ describe('CheckoutScreen', () => {
     await waitFor(() => expect(screen.getByText('既にライセンスがあります')).toBeTruthy());
   });
 
-  it('決済失敗時はフォームに戻ってエラーを表示し、端末内保存は書かない', async () => {
-    renderCheckout({
+  it('決済失敗時はフォームに戻ってエラーを表示し、カードも保存しない', async () => {
+    const { savePaymentMethod } = renderCheckout({
       processPayment: () =>
         Promise.reject(new ApiRequestError({ code: 'network_error', message: 'サーバーに接続できませんでした' }, 0)),
     });
@@ -122,13 +145,12 @@ describe('CheckoutScreen', () => {
 
     await waitFor(() => expect(screen.getByText('サーバーに接続できませんでした')).toBeTruthy());
     expect(payButton()).toBeTruthy(); // フォームへ戻っている
-    expect(localStorage.getItem('it-index-v2:license-code')).toBeNull();
-    expect(localStorage.getItem('it-index-v2:mock-payment-method')).toBeNull();
+    expect(savePaymentMethod).not.toHaveBeenCalled();
   });
 
-  it('カード変更モード: 課金処理を呼ばず、お支払い方法だけを上書き保存する', async () => {
+  it('カード変更モード: 課金処理を呼ばず、お支払い方法だけをサーバーへ保存する', async () => {
     const processPayment = vi.fn();
-    renderCheckout({ intent: 'change-card', processPayment });
+    const { savePaymentMethod } = renderCheckout({ intent: 'change-card', processPayment });
 
     expect(screen.getByText('お支払い方法の変更')).toBeTruthy();
     fillValidCard();
@@ -137,11 +159,24 @@ describe('CheckoutScreen', () => {
 
     await waitFor(() => expect(screen.getByText('お支払い方法を変更しました')).toBeTruthy());
     expect(processPayment).not.toHaveBeenCalled();
-    expect(localStorage.getItem('it-index-v2:license-code')).toBeNull();
-    const stored = JSON.parse(localStorage.getItem('it-index-v2:mock-payment-method') ?? 'null') as {
-      last4: string;
-    };
-    expect(stored.last4).toBe('4242');
+    expect(savePaymentMethod).toHaveBeenCalledWith(
+      expect.objectContaining({ last4: '4242', brand: 'visa' }),
+    );
+  });
+
+  it('カード変更の保存に失敗したら成功表示にせず、フォームへ戻してエラーを出す', async () => {
+    renderCheckout({
+      intent: 'change-card',
+      savePaymentMethod: () =>
+        Promise.reject(new ApiRequestError({ code: 'license_required', message: 'ライセンスが必要です' }, 403)),
+    });
+    fillValidCard();
+
+    fireEvent.click(screen.getByRole('button', { name: 'このカードに変更する' }));
+
+    await waitFor(() => expect(screen.getByText('ライセンスが必要です')).toBeTruthy());
+    expect(screen.queryByText('お支払い方法を変更しました')).toBeNull();
+    expect(screen.getByRole('button', { name: 'このカードに変更する' })).toBeTruthy();
   });
 
   it('戻るでonBackを呼ぶ', () => {

@@ -4,8 +4,8 @@ import { resetAllData } from '../lib/factoryReset';
 import ThemeSwitcher from '../lib/ThemeSwitcher';
 import type { ThemeChoice } from '../lib/theme';
 import { brandLabel } from '../lib/cardValidation';
-import { getStoredLicenseCode, getStoredPaymentMethod } from '../lib/paymentStore';
-import { activateLicense, ApiRequestError } from '../sync/apiClient';
+import { formatBillingDate, nextBillingDate } from '../lib/billingCycle';
+import { activateLicense, ApiRequestError, cancelLicense } from '../sync/apiClient';
 import {
   clearServerBaseUrl,
   getServerBaseUrl,
@@ -42,7 +42,7 @@ export default function SettingsScreen({
   onGoToSync,
   onGoToCheckout,
 }: SettingsScreenProps) {
-  const { auth, setLicensed } = useAuthState();
+  const { auth, setLicensed, clearLicense } = useAuthState();
 
   return (
     <section className="settings-screen">
@@ -75,6 +75,11 @@ export default function SettingsScreen({
       </section>
 
       <DataSection db={db} />
+
+      {/* 解約は取り消せない操作のため最下部に置く(本人指定)。課金がある購入経路にだけ出す */}
+      {auth.status === 'authed' && auth.licensed && auth.licenseSource === 'purchase' && (
+        <CancelLicenseSection token={auth.token} onCanceled={clearLicense} />
+      )}
     </section>
   );
 }
@@ -83,10 +88,14 @@ export default function SettingsScreen({
  * ライセンス(主導線)。要件定義書§4.2「決済はモック」。未ライセンス時は商品カード+
  * 「コードをお持ちの方」の2つの入口を並べる。決済(カード入力→処理→完了)は
  * チェックアウト画面(CheckoutScreen.tsx)が担い、ここは「購入手続きへ」の遷移だけを持つ。
- * 購入後は、チェックアウトが端末内に保存したライセンスコードとお支払い方法
- * (lib/paymentStore.ts)をこの欄に表示し、「カードを変更する」導線も置く(本人指定
- * 「ライセンスコードとカード変更は設定画面に出す」)。ライセンス有効の判定自体は
- * サーバー(/api/auth/me)が正で、チェックアウトから戻った際の再マウントで再取得される。
+ * 購入後はライセンスコード・お支払い方法・課金開始日/次回請求日をこの欄に表示し、
+ * 「カードを変更する」導線も置く(本人指定「ライセンスコードとカード変更は設定画面に出す」)。
+ *
+ * **表示に使う値はすべて/api/auth/me由来**(auth経由)。以前はコードとカードを端末の
+ * localStorageに持っていたが、ライセンスの有効/無効はアカウント単位のためズレが生じ、
+ * 購入した端末以外で「ライセンス有効なのにカード未登録」という矛盾表示になっていた。
+ * 保存先をサーバー1箇所に寄せたので、この欄はauthをそのまま映すだけでよい。
+ * チェックアウトから戻った際は<main>のkey切替で再マウントされ、最新が再取得される。
  */
 function LicenseSection({
   auth,
@@ -140,10 +149,10 @@ function LicenseSection({
     );
   }
 
-  // 端末内保存の表示情報(lib/paymentStore.ts)。チェックアウトから戻ると<main>のkey切替で
-  // この画面ごと再マウントされるため、レンダー時の同期読みで最新が反映される
-  const storedCode = getStoredLicenseCode();
-  const paymentMethod = getStoredPaymentMethod();
+  const { licenseCode, licenseSource, activatedAt, paymentMethod } = auth;
+  // 運営者コードでの有効化には課金が無い。カード欄・請求日を出すと「登録されていない=不具合」と
+  // 誤解されるため、この経路では課金まわりを一切表示しない
+  const isPurchased = licenseSource === 'purchase';
 
   return (
     <section className="settings-section">
@@ -151,29 +160,48 @@ function LicenseSection({
       {auth.licensed ? (
         <>
           <p className="status-text">ライセンス有効</p>
-          {storedCode !== null && (
+          {licenseCode !== null && (
             <p className="status-text">
               ライセンスコード:{' '}
               <code className="license-code" data-testid="license-code">
-                {storedCode}
+                {licenseCode}
               </code>
             </p>
           )}
-          <h3>お支払い方法</h3>
-          {paymentMethod !== null ? (
-            <p className="license-payment-method">
-              {brandLabel(paymentMethod.brand) !== null && (
-                <span className="payment-brand-pill">{brandLabel(paymentMethod.brand)}</span>
-              )}
-              <span>•••• {paymentMethod.last4}</span>
-              <span className="status-text-small">有効期限 {paymentMethod.expiry}</span>
-            </p>
+
+          {!isPurchased ? (
+            <p className="status-text-small">コードで有効化済み(カード登録なし)</p>
           ) : (
-            <p className="status-text-small">登録されているカードはありません(モック決済)</p>
+            <>
+              <h3>お支払い方法</h3>
+              {paymentMethod !== null ? (
+                <>
+                  <p className="license-payment-method">
+                    {brandLabel(paymentMethod.brand) !== null && (
+                      <span className="payment-brand-pill">{brandLabel(paymentMethod.brand)}</span>
+                    )}
+                    <span>•••• {paymentMethod.last4}</span>
+                    <span className="status-text-small">有効期限 {paymentMethod.expiry}</span>
+                  </p>
+                  <p className="status-text-small">
+                    このカードから毎月引き落とされます(モック決済のため実際の課金はありません)
+                  </p>
+                </>
+              ) : (
+                <p className="status-text-small">
+                  お支払い方法を確認できませんでした。カードを登録してください。
+                </p>
+              )}
+              {activatedAt !== null && <BillingSchedule activatedAt={activatedAt} />}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => onGoToCheckout('change-card')}
+              >
+                {paymentMethod !== null ? 'カードを変更する' : 'カードを登録する'}
+              </button>
+            </>
           )}
-          <button type="button" className="btn-secondary" onClick={() => onGoToCheckout('change-card')}>
-            {paymentMethod !== null ? 'カードを変更する' : 'カードを登録する'}
-          </button>
         </>
       ) : (
         <>
@@ -206,6 +234,118 @@ function LicenseSection({
             {activateError && <p className="sync-error">{activateError}</p>}
           </div>
         </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * 課金開始日と次回請求日(lib/billingCycle.tsの純関数で算出)。
+ * 「今」はマウント時に一度だけ確定させる——レンダーのたびにDate.now()を読むと
+ * 再レンダーで結果が変わりうる(react-hooks/purity)。日単位の表示なので初回の値で足りる。
+ */
+function BillingSchedule({ activatedAt }: { activatedAt: number }) {
+  const [now] = useState(() => Date.now());
+  const startedOn = formatBillingDate(new Date(activatedAt));
+  const nextOn = formatBillingDate(nextBillingDate(activatedAt, now));
+  return (
+    <dl className="license-billing" data-testid="billing-schedule">
+      <div>
+        <dt>課金開始日</dt>
+        <dd>{startedOn}</dd>
+      </div>
+      <div>
+        <dt>次回請求日</dt>
+        <dd>{nextOn}(¥300)</dd>
+      </div>
+    </dl>
+  );
+}
+
+const CANCEL_CONFIRM_TEXT = '解約する';
+
+/**
+ * 解約(設定画面の最下部。本人指定)。取り消せない操作のため、DataSection(オールクリア)と
+ * 同じ「確認パネルを開く→確認文字列の完全一致」の二段構えにする——同じ画面で確認の作法を
+ * 揃えるため、ここだけ別の流儀(confirm()等)を持ち込まない。
+ *
+ * 解約は即時反映で、サーバー側ではライセンス無効化と登録カード削除が同時に行われる
+ * (POST /api/license/cancel)。ライセンスコードは再利用できず、再開は新規購入になる。
+ */
+function CancelLicenseSection({ token, onCanceled }: { token: string; onCanceled: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [confirmText, setConfirmText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function handleCancel() {
+    setExpanded(false);
+    setConfirmText('');
+    setError(null);
+  }
+
+  async function handleExecute() {
+    if (confirmText !== CANCEL_CONFIRM_TEXT || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await cancelLicense(token);
+      onCanceled();
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : 'サーバーに接続できませんでした');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="settings-section settings-section-danger">
+      <h2>解約</h2>
+      <p className="status-text">
+        IT-Index プレミアム(月額¥300)を解約します。<strong>この操作は取り消せません。</strong>
+      </p>
+      {!expanded ? (
+        <button type="button" className="btn-danger" onClick={() => setExpanded(true)}>
+          解約する
+        </button>
+      ) : (
+        <div className="factory-reset-confirm">
+          <p className="status-text">解約すると、次のようになります。</p>
+          <ul className="status-text cancel-effects">
+            <li>端末間同期と、共有キーでのAIチャットが<strong>すぐに使えなくなります</strong></li>
+            <li>登録中のカード情報が削除されます</li>
+            <li>
+              このライセンスコードは<strong>再利用できません</strong>
+              (再開するには新しく購入し直す必要があります)
+            </li>
+            <li>この端末の用語・ノート・履歴は消えません</li>
+          </ul>
+          <p className="status-text">
+            実行するには下の欄に「{CANCEL_CONFIRM_TEXT}」と入力してください。
+          </p>
+          <label htmlFor="settings-cancel-license-confirm">確認文字列</label>
+          <input
+            id="settings-cancel-license-confirm"
+            type="text"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={CANCEL_CONFIRM_TEXT}
+            disabled={busy}
+          />
+          <div className="sync-api-key-actions">
+            <button
+              type="button"
+              className="btn-danger"
+              onClick={() => void handleExecute()}
+              disabled={confirmText !== CANCEL_CONFIRM_TEXT || busy}
+            >
+              {busy ? '解約しています…' : '解約を実行する'}
+            </button>
+            <button type="button" className="btn-text" onClick={handleCancel} disabled={busy}>
+              やめる
+            </button>
+          </div>
+          {error && <p className="sync-error">解約に失敗しました: {error}</p>}
+        </div>
       )}
     </section>
   );
@@ -332,6 +472,9 @@ function DataSection({ db }: { db: ItIndexDB }) {
       <p className="status-text">
         用語・ノート・検索履歴・APIキー・テーマ設定など、このアプリが保存している全てのデータを削除し、
         初回起動時と同じ状態に戻します。<strong>この操作は取り消せません。</strong>
+      </p>
+      <p className="status-text-small">
+        ライセンスとお支払い方法はアカウントに紐づいているため消えません(ログインし直すと戻ります)。
       </p>
       {!expanded ? (
         <button type="button" className="btn-danger" onClick={() => setExpanded(true)}>

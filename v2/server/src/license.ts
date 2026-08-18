@@ -26,6 +26,8 @@ export type LicenseRow = {
   source: string;
   issued_at: number;
   activated_at: number | null;
+  /** 解約済みの時刻。NULLなら解約されていない(0004で追加) */
+  canceled_at: number | null;
 };
 
 // コード形式 ITX-XXXX-XXXX-XXXX。英数大文字から紛らわしい文字(I/O/0/1)を除いた32文字を使う。
@@ -115,20 +117,73 @@ export function generateLicenseCode(): string {
   return `ITX-${groups.join('-')}`;
 }
 
-/** 有効化済みの行が1件でもあればライセンス保有。索引はidx_licenses_account_id(0003) */
+/**
+ * 有効化済みで未解約の行が1件でもあればライセンス保有。索引はidx_licenses_account_id(0003)。
+ *
+ * **この関数がライセンスゲートの唯一の判定点**(index.tsのlicenseDenialが呼ぶ)。解約の判定を
+ * ここに入れてあるので、解約すると同期・共有AIが同時に閉じる。表示側だけ解約済みにして
+ * 実権限が残る事故を防ぐため、条件はこの1箇所から分岐させない。
+ */
 export async function hasActiveLicense(db: D1Database, accountId: string): Promise<boolean> {
   const row = await db
-    .prepare('SELECT 1 AS ok FROM licenses WHERE account_id = ?1 AND activated_at IS NOT NULL LIMIT 1')
+    .prepare(
+      `SELECT 1 AS ok FROM licenses
+       WHERE account_id = ?1 AND activated_at IS NOT NULL AND canceled_at IS NULL LIMIT 1`
+    )
     .bind(accountId)
     .first<{ ok: number }>();
   return row !== null;
 }
 
+/**
+ * 設定画面の表示に使う、本人の有効なライセンス1件(コード・取得経路・課金開始日)。
+ * コード値を応答に載せるのは本人の自分のコードに限る(冒頭コメントの例外に当たる)。
+ */
+export async function findActiveLicenseForAccount(
+  db: D1Database,
+  accountId: string
+): Promise<LicenseRow | null> {
+  return db
+    .prepare(
+      `SELECT code, account_id, source, issued_at, activated_at, canceled_at FROM licenses
+       WHERE account_id = ?1 AND activated_at IS NOT NULL AND canceled_at IS NULL
+       ORDER BY activated_at DESC LIMIT 1`
+    )
+    .bind(accountId)
+    .first<LicenseRow>();
+}
+
 export async function findLicenseByCode(db: D1Database, code: string): Promise<LicenseRow | null> {
   return db
-    .prepare('SELECT code, account_id, source, issued_at, activated_at FROM licenses WHERE code = ?1')
+    .prepare(
+      `SELECT code, account_id, source, issued_at, activated_at, canceled_at FROM licenses
+       WHERE code = ?1`
+    )
     .bind(code)
     .first<LicenseRow>();
+}
+
+/**
+ * 解約(即時無効)。行は消さずcanceled_atを立てる——codeのPRIMARY KEYと合わせて
+ * 「1コード=1回の有効化」を保ち、解約したコードで再有効化できないようにするため
+ * (再開は新規購入=新しいコードの発行になる)。
+ *
+ * WHERE に canceled_at IS NULL を含めることで、同時に2回送られても後発は0行更新(=false)になる。
+ */
+export async function cancelActiveLicense(
+  db: D1Database,
+  accountId: string,
+  now: number
+): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `UPDATE licenses SET canceled_at = ?2
+       WHERE account_id = ?1 AND activated_at IS NOT NULL AND canceled_at IS NULL
+       RETURNING code`
+    )
+    .bind(accountId, now)
+    .first<{ code: string }>();
+  return row !== null;
 }
 
 /**
