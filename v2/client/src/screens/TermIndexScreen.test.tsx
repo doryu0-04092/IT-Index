@@ -64,8 +64,8 @@ describe('TermIndexScreen', () => {
   it('「その他」に該当する語があればリンク・見出しの両方が出る', async () => {
     render(<TermIndexScreen termsRepo={fakeTermsRepo([...BASE_TERMS, OTHER_TERM])} onSelectTerm={() => {}} />);
 
-    await waitFor(() => expect(screen.getAllByText('その他').length).toBeGreaterThan(0));
-    expect(screen.getAllByText('その他').length).toBe(2); // リンク＋見出し
+    // 「その他」セクションは並び順の最後のため、段階描画(#135)が末尾まで到達するのを待つ
+    await waitFor(() => expect(screen.getAllByText('その他').length).toBe(2)); // リンク＋見出し
     expect(screen.getByText('★特殊記号')).toBeTruthy();
   });
 
@@ -100,9 +100,36 @@ describe('TermIndexScreen', () => {
     Element.prototype.scrollIntoView = scrollIntoViewSpy;
     render(<TermIndexScreen termsRepo={fakeTermsRepo(BASE_TERMS)} onSelectTerm={() => {}} />);
 
-    await waitFor(() => expect(screen.getByRole('navigation', { name: '頭文字へジャンプ' })).toBeTruthy());
+    // 段階描画(#135)のため、先頭セクションが描画されてからジャンプする
+    await waitFor(() => expect(document.getElementById('term-index-section-A')).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: 'A' }));
 
-    expect(scrollIntoViewSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto', block: 'start' }));
+    await waitFor(() =>
+      expect(scrollIntoViewSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'auto', block: 'start' })),
+    );
+  });
+
+  it('段階描画(#135): セクションはチャンクで追加され、最終的に全バケット分そろう', async () => {
+    const { container } = render(<TermIndexScreen termsRepo={fakeTermsRepo(BASE_TERMS)} onSelectTerm={() => {}} />);
+
+    // 「その他」該当なしのため全72バケット(英字26+五十音45+数字)のセクションが出そろう
+    await waitFor(() => expect(container.querySelectorAll('.term-index-section').length).toBe(72));
+    expect(screen.getByText('TCP/IP')).toBeTruthy();
+    // 「アルゴリズム」は語名と読みの両方に現れるためgetAllByTextで確認する
+    expect(screen.getAllByText('アルゴリズム').length).toBeGreaterThan(0);
+  });
+
+  it('段階描画(#135): 未描画のセクションへのジャンプは、描画されてからscrollIntoViewされる', async () => {
+    const scrollIntoViewSpy = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoViewSpy;
+    render(<TermIndexScreen termsRepo={fakeTermsRepo(BASE_TERMS)} onSelectTerm={() => {}} />);
+
+    await waitFor(() => expect(screen.getByRole('navigation', { name: '数字・その他へジャンプ' })).toBeTruthy());
+    // 「数字」は並び順の最後(index 71)で、読み込み直後はまず未描画のままジャンプされる
+    fireEvent.click(screen.getByRole('button', { name: '数字' }));
+
+    await waitFor(() => expect(scrollIntoViewSpy).toHaveBeenCalled());
+    // スクロールが実行された時点で対象セクション自体もDOMに存在している
+    expect(document.getElementById(`term-index-section-${encodeURIComponent('数字')}`)).toBeTruthy();
   });
 });
