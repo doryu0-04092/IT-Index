@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IT-Index — 引くたびに育つ、自分だけのIT用語辞書</title>
+<meta name="description" content="IT用語3,510語をかな・カタカナ・英字のどれでも一発検索。AIに聞いた補足が蓄積して自分だけの辞書に育つ、ローカルファーストのIT用語辞書アプリ。PCはブラウザで今すぐ、AndroidはAPKで。">
+<meta property="og:type" content="website">
+<meta property="og:title" content="IT-Index — 引くたびに育つ、自分だけのIT用語辞書">
+<meta property="og:description" content="IT用語3,510語(IPAシラバス24分類)を収録。かな・カタカナ・英字どれでも検索でき、AIに聞くほど辞書が育つ。無料・インストール不要でブラウザから使えます。">
+<meta property="og:site_name" content="IT-Index">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b6cb0'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-size='14' font-weight='bold' fill='%23fff' text-anchor='middle'%3EIT%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --fg: #1a1a1a;
+    --bg: #ffffff;
+    --bg-soft: #f4f7fa;
+    --muted: #666666;
+    --border: #d0d0d0;
+    --accent: #2b6cb0;
+    --accent-strong: #235a94;
+    --accent-fg: #ffffff;
+    --card: #ffffff;
+    --shadow: 0 10px 30px rgba(23, 52, 82, 0.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e8e8e8;
+      --bg: #1a1a1a;
+      --bg-soft: #202730;
+      --muted: #a0a0a0;
+      --border: #3a3a3a;
+      --accent: #5b9bd5;
+      --accent-strong: #7fb2e0;
+      --accent-fg: #111111;
+      --card: #232323;
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: system-ui, 'Hiragino Sans', 'Yu Gothic', sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  img { max-width: 100%; height: auto; display: block; }
+  a { color: var(--accent); }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+  section { padding: 72px 0; }
+  .section-soft { background: var(--bg-soft); }
+
+  h2 {
+    font-size: clamp(1.5rem, 3.5vw, 2rem);
+    text-align: center;
+    margin-bottom: 12px;
+    letter-spacing: 0.02em;
+  }
+  .section-lead {
+    text-align: center;
+    color: var(--muted);
+    max-width: 620px;
+    margin: 0 auto 44px;
+  }
+
+  /* ===== header ===== */
+  .site-header {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  .site-header .wrap {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-top: 12px; padding-bottom: 12px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.1rem; }
+  .brand-mark {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: var(--accent); color: var(--accent-fg);
+    display: grid; place-items: center;
+    font-size: 0.8rem; font-weight: 800; letter-spacing: 0.02em;
+  }
+  .header-cta {
+    font-size: 0.9rem; font-weight: 600; text-decoration: none;
+    background: var(--accent); color: var(--accent-fg);
+    padding: 8px 18px; border-radius: 999px;
+    transition: background 0.15s;
+  }
+  .header-cta:hover { background: var(--accent-strong); }
+
+  /* ===== hero ===== */
+  .hero { padding: 72px 0 84px; overflow: hidden; }
+  .hero .wrap {
+    display: grid; grid-template-columns: 1.15fr 0.85fr;
+    gap: 48px; align-items: center;
+  }
+  .eyebrow {
+    display: inline-block;
+    font-size: 0.85rem; font-weight: 700; letter-spacing: 0.06em;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 3px 14px;
+    margin-bottom: 20px;
+  }
+  .hero h1 {
+    font-size: clamp(1.9rem, 4.6vw, 2.9rem);
+    line-height: 1.35;
+    letter-spacing: 0.02em;
+    margin-bottom: 20px;
+  }
+  .hero h1 .accent { color: var(--accent); }
+  .hero-lead { color: var(--muted); margin-bottom: 32px; max-width: 32em; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .btn {
+    display: inline-block; text-decoration: none; text-align: center;
+    font-weight: 700; font-size: 1rem;
+    padding: 14px 28px; border-radius: 12px;
+    transition: transform 0.12s, background 0.15s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary { background: var(--accent); color: var(--accent-fg); box-shadow: var(--shadow); }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary {
+    background: transparent; color: var(--accent);
+    border: 2px solid var(--accent);
+  }
+  .cta-note { width: 100%; font-size: 0.8rem; color: var(--muted); }
+
+  /* ===== phone frame ===== */
+  .phone {
+    width: min(290px, 72vw);
+    margin: 0 auto;
+    border: 10px solid #222a33;
+    border-radius: 36px;
+    background: #222a33;
+    box-shadow: var(--shadow);
+  }
+  .phone img { border-radius: 26px; }
+  .phone-caption {
+    text-align: center; font-size: 0.85rem; color: var(--muted); margin-top: 14px;
+  }
+
+  /* ===== stats ===== */
+  .stats { padding: 40px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .stats .wrap {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; text-align: center;
+  }
+  .stat-num { font-size: clamp(1.5rem, 3.4vw, 2.1rem); font-weight: 800; color: var(--accent); }
+  .stat-label { font-size: 0.85rem; color: var(--muted); }
+
+  /* ===== features ===== */
+  .feature-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px;
+  }
+  .feature-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+  }
+  .feature-icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    display: grid; place-items: center;
+    font-size: 1.4rem;
+    margin-bottom: 16px;
+  }
+  .feature-card h3 { font-size: 1.15rem; margin-bottom: 10px; }
+  .feature-card p { color: var(--muted); font-size: 0.95rem; }
+
+  /* ===== audience ===== */
+  .audience-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .audience-card {
+    background: var(--card);
+    border-top: 4px solid var(--accent);
+    border-radius: 12px;
+    padding: 26px;
+    box-shadow: var(--shadow);
+  }
+  .audience-card h3 { font-size: 1.05rem; margin-bottom: 10px; }
+  .audience-card p { color: var(--muted); font-size: 0.92rem; }
+
+  /* ===== steps ===== */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; counter-reset: step; }
+  .step {
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 30px 26px 26px;
+  }
+  .step::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute; top: -18px; left: 22px;
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--accent); color: var(--accent-fg);
+    font-weight: 800; font-size: 1rem;
+    display: grid; place-items: center;
+  }
+  .step h3 { font-size: 1.05rem; margin-bottom: 8px; }
+  .step p { color: var(--muted); font-size: 0.92rem; }
+
+  /* ===== gallery ===== */
+  .gallery {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 28px;
+  }
+
+  /* ===== install ===== */
+  .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .install-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 30px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .install-card h3 { font-size: 1.2rem; }
+  .install-card ol { padding-left: 1.3em; color: var(--muted); font-size: 0.93rem; display: grid; gap: 6px; }
+  .install-card .btn { margin-top: auto; }
+  .badge {
+    display: inline-block; font-size: 0.75rem; font-weight: 700;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border-radius: 999px; padding: 2px 12px;
+    width: fit-content;
+  }
+  .install-note {
+    font-size: 0.8rem; color: var(--muted);
+    background: var(--bg-soft);
+    border-left: 3px solid var(--border);
+    padding: 10px 14px; border-radius: 0 8px 8px 0;
+  }
+  .section-soft .install-note { background: var(--bg); }
+
+  /* ===== FAQ ===== */
+  .faq { max-width: 760px; margin: 0 auto; display: grid; gap: 12px; }
+  .faq details {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+  }
+  .faq summary {
+    font-weight: 700; cursor: pointer; list-style: none;
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; color: var(--accent); font-size: 1.3rem; font-weight: 400; flex-shrink: 0; }
+  .faq details[open] summary::after { content: "−"; }
+  .faq details p { color: var(--muted); font-size: 0.93rem; padding-top: 10px; }
+
+  /* ===== final CTA ===== */
+  .final-cta { text-align: center; }
+  .final-cta .cta-row { justify-content: center; }
+
+  /* ===== footer ===== */
+  .site-footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 0;
+    font-size: 0.85rem; color: var(--muted);
+  }
+  .site-footer .wrap { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; }
+  .footer-links { display: flex; gap: 20px; }
+
+  /* ===== responsive ===== */
+  @media (max-width: 860px) {
+    section { padding: 56px 0; }
+    .hero { padding: 48px 0 64px; }
+    .hero .wrap { grid-template-columns: 1fr; gap: 40px; }
+    .feature-grid { grid-template-columns: 1fr; }
+    .audience-grid { grid-template-columns: 1fr; }
+    .steps { grid-template-columns: 1fr; gap: 34px; }
+    .gallery { grid-template-columns: repeat(2, 1fr); }
+    .install-grid { grid-template-columns: 1fr; }
+    .stats .wrap { grid-template-columns: repeat(2, 1fr); }
+    .btn { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <div class="brand"><span class="brand-mark">IT</span>IT-Index</div>
+    <a class="header-cta" href="#install">無料で使う</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow">IT用語辞書アプリ</span>
+      <h1>引くたびに、<span class="accent">育つ</span>。<br>自分だけのIT用語辞書。</h1>
+      <p class="hero-lead">
+        「DNS」でも「でぃーえぬえす」でも、思いついた読みでそのまま検索。
+        わからなければその場でAIに質問して、得られた補足はあなたの辞書に蓄積。
+        IT用語 3,510語(IPAシラバス24分類)を収録した、個人用のIT用語辞書アプリです。
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://it-index.doryu.workers.dev" target="_blank" rel="noopener">ブラウザで今すぐ使う</a>
+        <a class="btn btn-secondary" href="#install">Android版を入れる</a>
+        <span class="cta-note">無料・アカウント登録不要。PCはインストール不要でそのまま使えます。</span>
+      </div>
+    </div>
+    <figure class="phone">
+      <img src="assets/search.png" alt="IT-Indexの検索画面。「DNS」の入力に対して読み仮名と分類つきの候補が一覧表示されている" width="500" height="844">
+    </figure>
+  </div>
+</section>
+
+<div class="stats">
+  <div class="wrap">
+    <div><div class="stat-num">3,510語</div><div class="stat-label">収録IT用語</div></div>
+    <div><div class="stat-num">24分類</div><div class="stat-label">IPAシラバス準拠</div></div>
+    <div><div class="stat-num">¥0</div><div class="stat-label">登録不要ですぐ使える</div></div>
+    <div><div class="stat-num">端末内</div><div class="stat-label">データはローカル保存</div></div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>ただの用語集で、終わらない。</h2>
+    <p class="section-lead">検索して終わりの辞書ではなく、使うほど自分に合っていく辞書を目指しました。</p>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">🔍</div>
+        <h3>思いついた読みで、そのまま引ける</h3>
+        <p>かな・カタカナ・英字のどれで入力しても、その場で候補が絞り込まれます。「はっしゅ」と打てばハッシュ関数もハッシュ値も一覧に。読みがうろ覚えでも目的の用語にたどり着けます。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <h3>AIに聞くほど、辞書が育つ</h3>
+        <p>各用語の要点説明はそのままに、AIチャットで得た補足や自分で調べたことが別枠に積み上がります。引いて、聞いて、書き足して——使い込むほど自分専用の辞書になります。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <h3>弱点が、数字で見える</h3>
+        <p>履歴の「重み付け」ビューは、最近も繰り返し引いている語=まだ定着していない語を上位に表示。次に復習すべき用語がひと目でわかります。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>データは、自分の端末に</h3>
+        <p>用語・ノート・履歴はすべて端末内に保存されるローカルファースト設計。アカウント登録なしで全機能を使い始められます。AIは自分のAPIキーを設定して利用します。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section-soft" id="audience">
+  <div class="wrap">
+    <h2>こんな人のためのアプリです</h2>
+    <p class="section-lead">「IT用語を調べる回数が多い人」ほど、蓄積の効果が大きくなります。</p>
+    <div class="audience-grid">
+      <div class="audience-card">
+        <h3>🎯 IPA試験の受験者</h3>
+        <p>基本情報・応用情報などの学習に。シラバスの24分類に沿った3,510語を収録しているので、過去問で出会った用語をその場で引き、重み付けで苦手分野を重点復習できます。</p>
+      </div>
+      <div class="audience-card">
+        <h3>🌱 新人ITエンジニア</h3>
+        <p>会議やドキュメントで飛び交う略語を、読み方があいまいなままでも即検索。わからなければAIに聞いて補足を残し、「次は同じ用語で困らない」自分の辞書を作れます。</p>
+      </div>
+      <div class="audience-card">
+        <h3>📚 コツコツ型の学習者</h3>
+        <p>検索した履歴と書き残したノートが、そのまま学習記録になります。単語帳を別に作る手間はいりません。ライト/ダークテーマ対応で、通勤中のスマホでも夜の学習でも。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <h2>使い方は、3ステップ</h2>
+    <p class="section-lead">辞書を引く延長の操作だけで、復習のサイクルまで回ります。</p>
+    <div class="steps">
+      <div class="step">
+        <h3>検索して引く</h3>
+        <p>思いついた読みで入力すると候補が即座に並びます。五十音・A〜Zの索引からたどることもできます。</p>
+      </div>
+      <div class="step">
+        <h3>わからなければAIに聞く</h3>
+        <p>用語の画面から「AIに聞く」でそのまま質問。納得できた説明は補足としてあなたの辞書に取り込めます。</p>
+      </div>
+      <div class="step">
+        <h3>重み付けで復習する</h3>
+        <p>繰り返し引いている語は履歴の上位に浮かび上がります。定着していない用語から順に見直せます。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section-soft" id="screens">
+  <div class="wrap">
+    <h2>画面を見てみる</h2>
+    <p class="section-lead">実際のアプリ画面です。スマホは下部タブで片手操作、PCでも同じデータをそのまま使えます。</p>
+    <div class="gallery">
+      <figure>
+        <div class="phone"><img src="assets/search.png" alt="検索画面。読み仮名と分類つきの候補一覧" width="500" height="844" loading="lazy"></div>
+        <figcaption class="phone-caption">かな・英字対応の検索</figcaption>
+      </figure>
+      <figure>
+        <div class="phone"><img src="assets/detail.png" alt="用語詳細画面。初期説明とAIに聞くボタン、自分のノート欄" width="500" height="844" loading="lazy"></div>
+        <figcaption class="phone-caption">要点+自分の補足の2枠</figcaption>
+      </figure>
+      <figure>
+        <div class="phone"><img src="assets/weighted.png" alt="履歴の重み付け画面。繰り返し引いた用語が上位に表示されている" width="500" height="844" loading="lazy"></div>
+        <figcaption class="phone-caption">弱点が浮かぶ重み付け履歴</figcaption>
+      </figure>
+      <figure>
+        <div class="phone"><img src="assets/index.png" alt="索引画面。A〜Zと五十音のジャンプボタンと用語一覧" width="500" height="844" loading="lazy"></div>
+        <figcaption class="phone-caption">五十音・A〜Zの索引</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <h2>はじめかた</h2>
+    <p class="section-lead">PCはインストール不要。Androidはアプリとして持ち歩けます。</p>
+    <div class="install-grid">
+      <div class="install-card">
+        <span class="badge">PC / ブラウザ</span>
+        <h3>URLを開くだけ</h3>
+        <ol>
+          <li>下のボタンからWeb版を開く(Chrome / Edge推奨)</li>
+          <li>初回に収録用語が自動で読み込まれます</li>
+          <li>そのまま検索開始。ブックマークしておくと便利です</li>
+        </ol>
+        <a class="btn btn-primary" href="https://it-index.doryu.workers.dev" target="_blank" rel="noopener">Web版を開く(無料)</a>
+      </div>
+      <div class="install-card">
+        <span class="badge">Android</span>
+        <h3>APKをインストール</h3>
+        <ol>
+          <li>下のボタンからAPKをダウンロード</li>
+          <li>ダウンロードしたファイルを開き、画面の案内に従って「提供元不明のアプリ」のインストールを許可</li>
+          <li>インストール完了。ホーム画面から起動できます</li>
+        </ol>
+        <p class="install-note">現在は開発版(デバッグ署名)のため、インストール時に警告が表示されることがあります。自動更新には対応していないので、新しい版は<a href="https://github.com/doryu0-04092/IT-Index/releases" target="_blank" rel="noopener">リリースページ</a>から入手してください。</p>
+        <a class="btn btn-primary" href="https://github.com/doryu0-04092/IT-Index/releases/download/v2-android-0.1.0/it-index-android-0.1.0.apk">APKをダウンロード</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section-soft" id="faq">
+  <div class="wrap">
+    <h2>よくある質問</h2>
+    <p class="section-lead">はじめる前に気になりそうなことをまとめました。</p>
+    <div class="faq">
+      <details>
+        <summary>料金はかかりますか?</summary>
+        <p>無料で始められます。検索・索引・履歴・ノートなどのローカル機能はすべて無料です。AI機能は自分のAPIキー(BYOK)を設定して利用するため、AIの利用料は各AI事業者への従量課金になります。端末間同期などのサーバー機能は、今後の有償ライセンス向けに準備中です。</p>
+      </details>
+      <details>
+        <summary>データはどこに保存されますか?</summary>
+        <p>用語・ノート・履歴はすべてお使いの端末内(ブラウザのIndexedDB)に保存されます。同期機能を自分で有効にしない限り、学習データが外部サーバーに送られることはありません。</p>
+      </details>
+      <details>
+        <summary>AI機能を使うには何が必要ですか?</summary>
+        <p>設定画面でAI事業者のAPIキーを登録すると使えるようになります。プロバイダとモデルを選択でき、登録時に接続テストで動作を確認できます。APIキーなしでも、検索・索引・ノートなど辞書としての機能はすべて使えます。</p>
+      </details>
+      <details>
+        <summary>iPhoneでは使えますか?</summary>
+        <p>専用アプリは現在Android版のみです。動作確認はPCのChrome / EdgeとAndroidアプリを中心に行っています。</p>
+      </details>
+      <details>
+        <summary>Androidのインストール時に警告が出ました</summary>
+        <p>アプリストアを経由しない直接配布(APK)のため、Androidが標準で表示する警告です。インストールには「提供元不明のアプリ」の許可が必要になります。配布元はこのページ下部のGitHubリポジトリで公開しています。</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="final-cta">
+  <div class="wrap">
+    <h2>今日引いた用語が、明日の辞書になる。</h2>
+    <p class="section-lead">まずはブラウザでひとこと検索してみてください。登録は不要です。</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://it-index.doryu.workers.dev" target="_blank" rel="noopener">ブラウザで今すぐ使う</a>
+      <a class="btn btn-secondary" href="https://github.com/doryu0-04092/IT-Index/releases/download/v2-android-0.1.0/it-index-android-0.1.0.apk">Android版APKをダウンロード</a>
+    </div>
+  </div>
+</section>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div>IT-Index — 個人用IT用語辞書アプリ</div>
+    <div class="footer-links">
+      <a href="https://github.com/doryu0-04092/IT-Index" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/doryu0-04092/IT-Index/issues" target="_blank" rel="noopener">不具合報告・要望</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
