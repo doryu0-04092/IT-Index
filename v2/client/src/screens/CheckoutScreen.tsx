@@ -2,19 +2,22 @@
  * チェックアウト画面(要件定義書§4.2「決済はモック」)。設定タブから遷移する全画面の
  * クレジットカード入力フォーム(本人指定: Stripe Checkout風・全画面形式)。用途は2つ:
  * - intent='purchase': ライセンス購入。成功時はprocessPaymentが返したライセンスコードを表示し、
- *   コードとお支払い方法(ブランド・下4桁のみ)を端末内に保存する(lib/paymentStore.ts。
- *   設定タブの「ライセンス」欄が購入後の表示に使う——本人指定「購入後は設定画面に表示」)。
+ *   お支払い方法(ブランド・下4桁など表示用の4項目)をsavePaymentMethodでサーバーへ保存する。
  * - intent='change-card': お支払い方法の変更。課金処理(processPayment)は呼ばず、
- *   入力されたカードを端末内保存に上書きするだけ(モックのため)。
+ *   savePaymentMethodだけを呼ぶ(モックのため実際の請求先変更は発生しない)。
  *
- * カード情報(番号・有効期限・CVC・名義)の検証はlib/cardValidation.tsの純関数で
- * フロント側で完結し、**サーバーへは一切送らない**(本人指定)。「支払い」の実体は
- * processPayment propに委譲する——本番はApp.tsxが既存のpurchaseLicense(token)を渡し、
- * devプレビュー(dev/CheckoutPreview.tsx)とテストはモックを渡す。この分離により、
- * 画面側は決済APIの契約(コード発行・409 license_already_active)だけを知っていればよい。
+ * **完全なカード番号とCVCはどこにも送らないし保存もしない**。番号はブランド判定と下4桁の
+ * 取得にだけ使い、検証はlib/cardValidation.tsの純関数でフロント側で完結する。
+ * 一方、表示用の4項目はアカウントに属するデータとしてサーバーが持つ(migrations/0004)——
+ * 端末内保存だけだと、購入した端末以外で「ライセンス有効なのにカード未登録」という
+ * 矛盾表示になっていたため。
+ *
+ * 「支払い」と「カード保存」の実体はpropに委譲する——本番はApp.tsxがpurchaseLicense(token)と
+ * savePaymentMethod(token, …)を渡し、devプレビュー(dev/CheckoutPreview.tsx)とテストは
+ * モックを渡す。この分離により、画面側はAPIの契約だけを知っていればよい。
  */
 import { useState } from 'react';
-import { ApiRequestError } from '../sync/apiClient';
+import { ApiRequestError, type PaymentMethod } from '../sync/apiClient';
 import {
   brandLabel,
   detectBrand,
@@ -25,15 +28,16 @@ import {
   validateCvc,
   validateExpiry,
 } from '../lib/cardValidation';
-import { setStoredLicenseCode, setStoredPaymentMethod } from '../lib/paymentStore';
 
 export interface CheckoutScreenProps {
-  /** 'purchase'=ライセンス購入(課金モックあり)、'change-card'=お支払い方法の変更(端末内保存のみ) */
+  /** 'purchase'=ライセンス購入(課金モックあり)、'change-card'=お支払い方法の変更のみ */
   intent: 'purchase' | 'change-card';
   /** 「戻る」「設定へ戻る」で呼ぶ。戻り先は常に設定タブ(入口が設定タブのみのためreturnToは持たない) */
   onBack: () => void;
   /** 決済処理の実体(intent='purchase'でのみ呼ばれる)。本番はApp.tsxがpurchaseLicense(token)を渡す */
   processPayment: () => Promise<{ code: string; activatedAt: number }>;
+  /** お支払い方法(表示用4項目)のサーバー保存。両intentで呼ばれる */
+  savePaymentMethod: (method: PaymentMethod) => Promise<void>;
   /**
    * 処理中演出の最低表示時間(ms)。既定1500。APIが速く返っても「処理しています」を
    * 一瞬で消さないための演出用で、テストは0を渡してタイマー依存を消す。
@@ -56,6 +60,7 @@ export default function CheckoutScreen({
   intent,
   onBack,
   processPayment,
+  savePaymentMethod,
   processingMinDelayMs = 1500,
 }: CheckoutScreenProps) {
   const [step, setStep] = useState<Step>({ kind: 'form' });
@@ -75,9 +80,15 @@ export default function CheckoutScreen({
   const nameValid = holderName.trim() !== '';
   const allValid = cardValid && expiryValid && cvcValid && nameValid;
 
-  /** 検証済みの入力を端末内保存の形にする(完全な番号・CVCは保存しない) */
-  function enteredPaymentMethod() {
+  /** 検証済みの入力を保存の形にする(完全な番号・CVCは含めない) */
+  function enteredPaymentMethod(): PaymentMethod {
     return { brand, last4: cardDigits.slice(-4), expiry, holderName: holderName.trim() };
+  }
+
+  /** 保存に失敗したらフォームへ戻してエラーを出す(成功したことにしない) */
+  function failToForm(err: unknown) {
+    setStep({ kind: 'form' });
+    setSubmitError(err instanceof ApiRequestError ? err.message : 'サーバーに接続できませんでした');
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -87,25 +98,29 @@ export default function CheckoutScreen({
     setStep({ kind: 'processing' });
 
     if (intent === 'change-card') {
-      // モックのため課金処理は無し。演出の待ちだけ入れて端末内保存を上書きする
-      await delay(processingMinDelayMs);
-      setStoredPaymentMethod(enteredPaymentMethod());
-      setStep({ kind: 'card-changed' });
+      // モックのため課金処理は無し。カードの保存だけを行う
+      try {
+        await Promise.all([savePaymentMethod(enteredPaymentMethod()), delay(processingMinDelayMs)]);
+        setStep({ kind: 'card-changed' });
+      } catch (err) {
+        failToForm(err);
+      }
       return;
     }
 
     try {
       const [result] = await Promise.all([processPayment(), delay(processingMinDelayMs)]);
-      setStoredPaymentMethod(enteredPaymentMethod());
-      setStoredLicenseCode(result.code);
+      // 決済成功後のカード保存。ここで失敗してもライセンスは発行済みなので、購入自体は
+      // 完了として扱い(コードを見せないと利用者が損をする)、カード欄は設定タブの
+      // 「カードを登録する」から入れ直せる。
+      await savePaymentMethod(enteredPaymentMethod()).catch(() => undefined);
       setStep({ kind: 'complete', code: result.code });
     } catch (err) {
       if (err instanceof ApiRequestError && err.code === 'license_already_active') {
         setStep({ kind: 'already-active' });
         return;
       }
-      setStep({ kind: 'form' });
-      setSubmitError(err instanceof ApiRequestError ? err.message : 'サーバーに接続できませんでした');
+      failToForm(err);
     }
   }
 
@@ -270,8 +285,11 @@ export default function CheckoutScreen({
         <button type="submit" className="btn-primary checkout-pay-btn" disabled={!allValid}>
           {intent === 'change-card' ? 'このカードに変更する' : '¥300 を支払う'}
         </button>
+        {/* 送信するものを正確に書く。カード番号とCVCは本当に送らないが、表示用の下4桁などは
+            アカウントに紐づけて保存する(端末を変えても請求先が分かるようにするため) */}
         <p className="status-text-small checkout-secure-note">
-          🔒 カード情報は端末内でのみ検証され、送信されません
+          🔒 カード番号とセキュリティコードは送信されません。ブランド・下4桁・有効期限・名義のみ、
+          お支払い方法の表示用にアカウントへ保存します
         </p>
       </form>
     </section>

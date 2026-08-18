@@ -32,6 +32,13 @@ export default function CheckoutPreview() {
     return { code: 'ITX-DEMO-1234-5678', activatedAt: Date.now() };
   }
 
+  async function savePaymentMethod(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    if (result === 'fail') {
+      throw new ApiRequestError({ code: 'network_error', message: 'サーバーに接続できませんでした' }, 0);
+    }
+  }
+
   return (
     <div className="app app-checkout-mode">
       <main className="app-main">
@@ -39,6 +46,7 @@ export default function CheckoutPreview() {
           intent={intent}
           onBack={() => window.alert('戻る(プレビュー): 実装後は設定タブへ戻ります')}
           processPayment={processPayment}
+          savePaymentMethod={savePaymentMethod}
         />
       </main>
     </div>

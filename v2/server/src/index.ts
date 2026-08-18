@@ -19,6 +19,8 @@ import { listOpenAiModels } from './providers/openai';
 import {
   LICENSE_DAILY_ATTEMPT_LIMIT,
   activateExistingLicense,
+  cancelActiveLicense,
+  findActiveLicenseForAccount,
   findLicenseByCode,
   hasActiveLicense,
   insertOperatorLicense,
@@ -28,6 +30,12 @@ import {
   matchesOperatorCode,
   validateCodeInput,
 } from './license';
+import {
+  deletePaymentMethod,
+  getPaymentMethod,
+  upsertPaymentMethod,
+  validatePaymentMethodInput,
+} from './paymentMethod';
 
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
@@ -217,8 +225,79 @@ app.get('/api/auth/me', requireAuth, async (c) => {
   // LICENSE_ENABLED='0'(セルフホスト)ではライセンス概念が無いため常にtrueになり、
   // クライアントはこの1つの値だけで購入導線の出し分けを決められる
   // (=ゲートの判定条件とクライアントの表示条件が食い違わない)。
-  const licensed = !isLicenseEnabled(c.env) || (await hasActiveLicense(c.env.DB, accountId));
-  return c.json({ accountId: account.id, email: account.email, licensed });
+  const license = await findActiveLicenseForAccount(c.env.DB, accountId);
+  const licensed = !isLicenseEnabled(c.env) || license !== null;
+
+  // 設定画面の「ライセンス」欄が表示に使う。元は端末のlocalStorageに持っていたが、
+  // 購入した端末以外で「ライセンス有効なのにカード未登録」という矛盾表示になっていたため、
+  // ライセンスと同じくアカウント単位のデータとしてサーバーから返す(migrations/0004)。
+  // codeを載せるのは認証済み本人の自分のコードだけ(license.ts冒頭コメントの例外に当たる)。
+  const paymentMethod = await getPaymentMethod(c.env.DB, accountId);
+  return c.json({
+    accountId: account.id,
+    email: account.email,
+    licensed,
+    licenseCode: license?.code ?? null,
+    licenseSource: license?.source ?? null,
+    activatedAt: license?.activated_at ?? null,
+    paymentMethod,
+  });
+});
+
+/**
+ * お支払い方法(表示情報)の登録・変更。**有効なライセンスを持つアカウントだけ**が呼べる——
+ * ライセンスと無関係なカードを登録できると、設定画面が「引き落とされているカード」として
+ * 実態のないカードを表示してしまうため(この不整合が元の不具合の一部)。
+ *
+ * 受け取るのは表示用の4項目のみ。完全なカード番号・CVCは送られてこないし、保存もしない。
+ */
+app.put('/api/payment-method', requireAuth, async (c) => {
+  const accountId = c.get('accountId');
+  const body = await c.req.json<unknown>().catch(() => null);
+  const validation = validatePaymentMethodInput(body);
+  if (!validation.ok) {
+    return c.json({ error: { code: 'invalid_request', message: validation.error } }, 400);
+  }
+
+  if (isLicenseEnabled(c.env) && !(await hasActiveLicense(c.env.DB, accountId))) {
+    return c.json(
+      {
+        error: {
+          code: 'license_required',
+          message: 'お支払い方法の登録にはライセンスが必要です',
+        },
+      },
+      403
+    );
+  }
+
+  await upsertPaymentMethod(c.env.DB, accountId, validation.method, Date.now());
+  return c.json({ paymentMethod: validation.method });
+});
+
+/**
+ * 解約(即時無効)。ライセンスにcanceled_atを立て、同時に登録カードも削除する——
+ * 解約後は「引き落とされるカード」が存在しないため、残すと表示が実態とずれる。
+ *
+ * **日次試行上限(licenseAttemptDenial)はかけない**: 解約を回数制限で妨げる作りは
+ * 製品として不適切なため。購入・有効化の総当たり対策とは目的が違う。
+ */
+app.post('/api/license/cancel', requireAuth, async (c) => {
+  const accountId = c.get('accountId');
+  const canceled = await cancelActiveLicense(c.env.DB, accountId, Date.now());
+  if (!canceled) {
+    return c.json(
+      {
+        error: {
+          code: 'license_not_active',
+          message: '解約できる有効なライセンスがありません',
+        },
+      },
+      409
+    );
+  }
+  await deletePaymentMethod(c.env.DB, accountId);
+  return c.json({ canceled: true });
 });
 
 /**
@@ -300,6 +379,9 @@ app.post('/api/license/activate', requireAuth, async (c) => {
   }
 
   if (existing.activated_at !== null) {
+    // 解約済みのコードは本人が送っても復活しない(1コード=1回。再開は新規購入)。
+    // ここを冪等の200に含めると、ライセンスは無効なのに成功表示になる。
+    if (existing.canceled_at !== null) return invalidCode();
     if (existing.account_id === accountId) {
       // 本人による再送。リトライ安全のため冪等に200(activated_atは最初の値のまま)。
       return c.json({ activatedAt: existing.activated_at });

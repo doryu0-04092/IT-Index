@@ -8,6 +8,7 @@
  * それを最優先で使う(sync/serverConfig.ts参照)。認証・同期・AIの全リクエストはこのファイルの
  * apiFetch()を経由するため、apiUrl()の1箇所を読み替えるだけで基底URLが一元的に切り替わる。
  */
+import type { CardBrand } from '../lib/cardValidation';
 import { getServerBaseUrl } from './serverConfig';
 
 export interface ApiErrorBody {
@@ -66,10 +67,51 @@ export async function login(email: string, password: string): Promise<{ token: s
   return apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
 }
 
-export async function fetchMe(
-  token: string,
-): Promise<{ accountId: string; email: string; licensed: boolean }> {
+/** サーバーが持つお支払い方法の表示情報(完全なカード番号・CVCは含まない) */
+export interface PaymentMethod {
+  brand: CardBrand;
+  /** カード番号の下4桁のみ */
+  last4: string;
+  /** "MM/YY" */
+  expiry: string;
+  holderName: string;
+}
+
+export interface MeResponse {
+  accountId: string;
+  email: string;
+  licensed: boolean;
+  /** 本人の有効なライセンスコード。未ライセンスならnull */
+  licenseCode: string | null;
+  /** 'purchase'=決済モック経由 / 'operator'=運営者コード。課金の有無の判別に使う */
+  licenseSource: 'purchase' | 'operator' | null;
+  /** 課金開始日(epoch ms)。次回請求日の算出に使う */
+  activatedAt: number | null;
+  paymentMethod: PaymentMethod | null;
+}
+
+export async function fetchMe(token: string): Promise<MeResponse> {
   return apiFetch('/auth/me', { method: 'GET', headers: authHeader(token) });
+}
+
+/**
+ * お支払い方法(表示情報)の登録・変更。ライセンスが無いアカウントは403
+ * (code: 'license_required')。カード番号・CVCは送らない。
+ */
+export async function savePaymentMethod(
+  token: string,
+  method: PaymentMethod,
+): Promise<{ paymentMethod: PaymentMethod }> {
+  return apiFetch('/payment-method', {
+    method: 'PUT',
+    headers: authHeader(token),
+    body: JSON.stringify(method),
+  });
+}
+
+/** 解約(即時無効)。登録カードも同時に削除される。有効なライセンスが無ければ409 */
+export async function cancelLicense(token: string): Promise<{ canceled: true }> {
+  return apiFetch('/license/cancel', { method: 'POST', headers: authHeader(token) });
 }
 
 /**

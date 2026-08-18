@@ -35,15 +35,20 @@ export function authHeaders(token: string) {
 /**
  * 有効化済みライセンスを直接1件入れる(APIを介さないため、購入・有効化エンドポイントの
  * 試行上限を消費しない)。codeは他テストと衝突しないUUID由来にする。
+ * sourceは既定で'operator'(ゲートの検証にはどちらでもよいため)。課金まわりの表示を
+ * 検証するテストだけ'purchase'を渡す。
  */
-export async function grantLicense(accountId: string): Promise<string> {
+export async function grantLicense(
+  accountId: string,
+  source: 'purchase' | 'operator' = 'operator'
+): Promise<string> {
   const code = `TEST-${crypto.randomUUID()}`;
   const now = Date.now();
   await env.DB.prepare(
     `INSERT INTO licenses (code, account_id, source, issued_at, activated_at)
-     VALUES (?1, ?2, 'operator', ?3, ?3)`
+     VALUES (?1, ?2, ?4, ?3, ?3)`
   )
-    .bind(code, accountId, now)
+    .bind(code, accountId, now, source)
     .run();
   return code;
 }

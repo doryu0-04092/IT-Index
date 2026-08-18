@@ -18,7 +18,7 @@ import SettingsScreen from './screens/SettingsScreen';
 import SyncScreen from './screens/SyncScreen';
 import TermDetailScreen from './screens/TermDetailScreen';
 import TermIndexScreen from './screens/TermIndexScreen';
-import { purchaseLicense } from './sync/apiClient';
+import { purchaseLicense, savePaymentMethod } from './sync/apiClient';
 import { getToken } from './sync/tokenStore';
 import { useAppInit } from './useAppInit';
 
@@ -383,6 +383,11 @@ export function App() {
               const token = getToken();
               if (token === null) return Promise.reject(new Error('ログインが必要です'));
               return purchaseLicense(token);
+            }}
+            savePaymentMethod={async (method) => {
+              const token = getToken();
+              if (token === null) throw new Error('ログインが必要です');
+              await savePaymentMethod(token, method);
             }}
           />
         ) : screen.name === 'sync' ? (

@@ -46,15 +46,32 @@ describe('SettingsScreen', () => {
   });
 
   describe('ライセンス購入モック', () => {
-    function stubAuthAndLicenseFetch(overrides: {
-      licensed?: boolean;
-      purchase?: { status: number; body: unknown };
-      activate?: { status: number; body: unknown };
-    } = {}) {
+    /** ライセンス・カード・課金日はすべて/api/auth/me由来(端末内保存は持たない) */
+    function stubAuthAndLicenseFetch(
+      overrides: {
+        licensed?: boolean;
+        licenseCode?: string | null;
+        licenseSource?: 'purchase' | 'operator' | null;
+        activatedAt?: number | null;
+        paymentMethod?: unknown;
+        purchase?: { status: number; body: unknown };
+        activate?: { status: number; body: unknown };
+        cancel?: { status: number; body: unknown };
+      } = {},
+    ) {
+      const licensed = overrides.licensed ?? false;
       const fetchMock = vi.fn().mockImplementation((url: string) => {
         if (url === '/api/auth/me') {
           return Promise.resolve(
-            jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com', licensed: overrides.licensed ?? false }),
+            jsonResponse(200, {
+              accountId: 'acc-1',
+              email: 'a@example.com',
+              licensed,
+              licenseCode: overrides.licenseCode ?? null,
+              licenseSource: overrides.licenseSource ?? (licensed ? 'purchase' : null),
+              activatedAt: overrides.activatedAt ?? null,
+              paymentMethod: overrides.paymentMethod ?? null,
+            }),
           );
         }
         if (url === '/api/license/purchase') {
@@ -65,11 +82,17 @@ describe('SettingsScreen', () => {
           const r = overrides.activate ?? { status: 200, body: { activatedAt: 2000 } };
           return Promise.resolve(jsonResponse(r.status, r.body));
         }
+        if (url === '/api/license/cancel') {
+          const r = overrides.cancel ?? { status: 200, body: { canceled: true } };
+          return Promise.resolve(jsonResponse(r.status, r.body));
+        }
         throw new Error(`unexpected url: ${url}`);
       });
       vi.stubGlobal('fetch', fetchMock);
       return fetchMock;
     }
+
+    const VISA_CARD = { brand: 'visa', last4: '4242', expiry: '12/29', holderName: 'TARO YAMADA' };
 
     it('未ライセンス時は商品カードを表示し、購入手続きへでチェックアウトに遷移する', async () => {
       localStorage.setItem('it-index-v2:token', 'tok-1');
@@ -85,14 +108,15 @@ describe('SettingsScreen', () => {
       expect(onGoToCheckout).toHaveBeenCalledWith('purchase');
     });
 
-    it('ライセンス有効時は端末内保存のライセンスコードとお支払い方法を表示し、カード変更に遷移できる', async () => {
+    it('別端末でもサーバー由来のライセンスコードとお支払い方法を表示する(端末内保存に依存しない)', async () => {
+      // この不具合の再現条件そのもの: localStorageにカード情報が一切無い端末
       localStorage.setItem('it-index-v2:token', 'tok-1');
-      localStorage.setItem('it-index-v2:license-code', 'ABCD-1234');
-      localStorage.setItem(
-        'it-index-v2:mock-payment-method',
-        JSON.stringify({ brand: 'visa', last4: '4242', expiry: '12/29', holderName: 'TARO YAMADA' }),
-      );
-      stubAuthAndLicenseFetch({ licensed: true });
+      stubAuthAndLicenseFetch({
+        licensed: true,
+        licenseCode: 'ABCD-1234',
+        licenseSource: 'purchase',
+        paymentMethod: VISA_CARD,
+      });
       const onGoToCheckout = vi.fn();
 
       renderSettingsScreen(undefined, onGoToCheckout);
@@ -102,24 +126,65 @@ describe('SettingsScreen', () => {
       expect(screen.getByText('VISA')).toBeTruthy();
       expect(screen.getByText('•••• 4242')).toBeTruthy();
       expect(screen.getByText('有効期限 12/29')).toBeTruthy();
+      // どのカードから引き落とされているかを言い切る(本人要望)
+      expect(
+        screen.getByText('このカードから毎月引き落とされます(モック決済のため実際の課金はありません)'),
+      ).toBeTruthy();
 
       fireEvent.click(screen.getByRole('button', { name: 'カードを変更する' }));
       expect(onGoToCheckout).toHaveBeenCalledWith('change-card');
     });
 
-    it('ライセンス有効だが端末内にカードが無い場合はカードを登録するを出す(コード有効化した端末等)', async () => {
+    it('購入経路なのにカードが無い場合は異常として案内し、登録導線を出す', async () => {
       localStorage.setItem('it-index-v2:token', 'tok-1');
-      stubAuthAndLicenseFetch({ licensed: true });
+      stubAuthAndLicenseFetch({ licensed: true, licenseSource: 'purchase', paymentMethod: null });
       const onGoToCheckout = vi.fn();
 
       renderSettingsScreen(undefined, onGoToCheckout);
 
       expect(await screen.findByText('ライセンス有効')).toBeTruthy();
-      expect(screen.getByText('登録されているカードはありません(モック決済)')).toBeTruthy();
-      expect(screen.queryByTestId('license-code')).toBeNull();
+      expect(screen.getByText('お支払い方法を確認できませんでした。カードを登録してください。')).toBeTruthy();
 
       fireEvent.click(screen.getByRole('button', { name: 'カードを登録する' }));
       expect(onGoToCheckout).toHaveBeenCalledWith('change-card');
+    });
+
+    it('運営者コードで有効化した場合はカード欄・請求日・解約を出さない(不具合と誤解させない)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubAuthAndLicenseFetch({
+        licensed: true,
+        licenseCode: 'ITX-FREE-0001',
+        licenseSource: 'operator',
+        activatedAt: Date.UTC(2026, 7, 18),
+      });
+
+      renderSettingsScreen();
+
+      expect(await screen.findByText('ライセンス有効')).toBeTruthy();
+      expect(screen.getByText('コードで有効化済み(カード登録なし)')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'カードを登録する' })).toBeNull();
+      expect(screen.queryByTestId('billing-schedule')).toBeNull();
+      expect(screen.queryByRole('button', { name: '解約する' })).toBeNull();
+    });
+
+    it('購入経路では課金開始日と次回請求日を表示する', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      // ローカル時刻で2026-08-18に固定(表示は年月日のみ)
+      const activatedAt = new Date(2026, 7, 18, 12, 0, 0).getTime();
+      vi.setSystemTime(new Date(2026, 7, 20));
+      stubAuthAndLicenseFetch({
+        licensed: true,
+        licenseSource: 'purchase',
+        activatedAt,
+        paymentMethod: VISA_CARD,
+      });
+
+      renderSettingsScreen();
+
+      const schedule = await screen.findByTestId('billing-schedule');
+      expect(schedule.textContent).toContain('2026年8月18日');
+      expect(schedule.textContent).toContain('2026年9月18日');
+      vi.useRealTimers();
     });
 
     it('コード有効化: 成功するとライセンス有効表示になる', async () => {
@@ -167,6 +232,105 @@ describe('SettingsScreen', () => {
 
       expect(await screen.findByText('ライセンス有効')).toBeTruthy();
       expect(screen.queryByText('IT-Index プレミアム 月額¥300')).toBeNull();
+    });
+  });
+
+  describe('解約', () => {
+    /** 上のstubAuthAndLicenseFetchと同じ形。解約は購入経路でのみ表示される */
+    function stubLicensedAccount(cancel?: { status: number; body: unknown }) {
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if (url === '/api/auth/me') {
+          return Promise.resolve(
+            jsonResponse(200, {
+              accountId: 'acc-1',
+              email: 'a@example.com',
+              licensed: true,
+              licenseCode: 'ABCD-1234',
+              licenseSource: 'purchase',
+              activatedAt: Date.now(),
+              paymentMethod: { brand: 'visa', last4: '4242', expiry: '12/29', holderName: 'TARO YAMADA' },
+            }),
+          );
+        }
+        if (url === '/api/license/cancel') {
+          const r = cancel ?? { status: 200, body: { canceled: true } };
+          return Promise.resolve(jsonResponse(r.status, r.body));
+        }
+        throw new Error(`unexpected url: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      return fetchMock;
+    }
+
+    it('確認文字列が一致するまで実行できない(二重確認)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubLicensedAccount();
+
+      renderSettingsScreen();
+
+      // 1段目: 押すまで確認欄は現れない
+      const openButton = await screen.findByRole('button', { name: '解約する' });
+      expect(screen.queryByLabelText('確認文字列')).toBeNull();
+      fireEvent.click(openButton);
+
+      // 2段目: 何が起きるかを明示した上で、確認文字列の完全一致を求める
+      expect(screen.getByText(/すぐに使えなくなります/)).toBeTruthy();
+      expect(screen.getByText(/再利用できません/)).toBeTruthy();
+      const executeButton = screen.getByRole('button', { name: '解約を実行する' }) as HTMLButtonElement;
+      expect(executeButton.disabled).toBe(true);
+
+      fireEvent.change(screen.getByLabelText('確認文字列'), { target: { value: '解約' } });
+      expect(executeButton.disabled).toBe(true);
+
+      fireEvent.change(screen.getByLabelText('確認文字列'), { target: { value: '解約する' } });
+      expect(executeButton.disabled).toBe(false);
+    });
+
+    it('解約に成功すると未ライセンス表示(購入導線)へ戻る', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      const fetchMock = stubLicensedAccount();
+
+      renderSettingsScreen();
+
+      fireEvent.click(await screen.findByRole('button', { name: '解約する' }));
+      fireEvent.change(screen.getByLabelText('確認文字列'), { target: { value: '解約する' } });
+      fireEvent.click(screen.getByRole('button', { name: '解約を実行する' }));
+
+      await waitFor(() => expect(screen.getByText('IT-Index プレミアム 月額¥300')).toBeTruthy());
+      expect(fetchMock.mock.calls.some((c) => c[0] === '/api/license/cancel')).toBe(true);
+      // 解約セクション自体も消える(未ライセンスには解約する対象が無い)
+      expect(screen.queryByRole('button', { name: '解約する' })).toBeNull();
+    });
+
+    it('解約に失敗した場合はライセンス有効のままエラーを表示する', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubLicensedAccount({
+        status: 409,
+        body: { error: { code: 'license_not_active', message: '解約できる有効なライセンスがありません' } },
+      });
+
+      renderSettingsScreen();
+
+      fireEvent.click(await screen.findByRole('button', { name: '解約する' }));
+      fireEvent.change(screen.getByLabelText('確認文字列'), { target: { value: '解約する' } });
+      fireEvent.click(screen.getByRole('button', { name: '解約を実行する' }));
+
+      await waitFor(() => expect(screen.getByText(/解約できる有効なライセンスがありません/)).toBeTruthy());
+      expect(screen.getByText('ライセンス有効')).toBeTruthy();
+    });
+
+    it('やめるで確認欄が閉じ、入力内容が消える', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubLicensedAccount();
+
+      renderSettingsScreen();
+
+      fireEvent.click(await screen.findByRole('button', { name: '解約する' }));
+      fireEvent.change(screen.getByLabelText('確認文字列'), { target: { value: '解約する' } });
+      fireEvent.click(screen.getByRole('button', { name: 'やめる' }));
+
+      expect(screen.queryByLabelText('確認文字列')).toBeNull();
+      expect(screen.getByRole('button', { name: '解約する' })).toBeTruthy();
     });
   });
 
