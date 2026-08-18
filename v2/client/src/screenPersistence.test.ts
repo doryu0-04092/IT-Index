@@ -43,6 +43,15 @@ describe('screenPersistence', () => {
     expect(readPersistedScreen()).toEqual({ name: 'settings' });
   });
 
+  it('checkoutは保存時に設定タブへ落とす(カード入力途中の復元は意味がないため)', () => {
+    persistScreen({ name: 'checkout', intent: 'purchase' });
+    expect(readPersistedScreen()).toEqual({ name: 'settings' });
+
+    // 直接checkoutが書かれていた場合(旧バージョンの保存等)も復元対象にしない
+    sessionStorage.setItem('it-index-v2:last-screen', JSON.stringify({ name: 'checkout', intent: 'purchase' }));
+    expect(readPersistedScreen()).toBeNull();
+  });
+
   it('historyはviewが妥当な値の場合のみ復元する', () => {
     persistScreen({ name: 'history', view: 'weighted' });
     expect(readPersistedScreen()).toEqual({ name: 'history', view: 'weighted' });

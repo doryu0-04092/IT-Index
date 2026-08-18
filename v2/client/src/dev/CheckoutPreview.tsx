@@ -6,17 +6,20 @@
  * main.tsxの分岐はimport.meta.env.DEVガード+動的importのため、本番ビルドでは
  * このファイルごとバンドルから消える。
  *
- * 追加クエリで決済結果を切り替えられる:
+ * 追加クエリで決済結果・モードを切り替えられる:
  * - (なし)               … 1.2秒後に成功し、ダミーのライセンスコードを表示
  * - &result=already      … 409相当(license_already_active)
  * - &result=fail         … ネットワークエラー相当
+ * - &intent=change       … お支払い方法の変更モード(課金なし)
  */
 import '../App.css';
 import CheckoutScreen from '../screens/CheckoutScreen';
 import { ApiRequestError } from '../sync/apiClient';
 
 export default function CheckoutPreview() {
-  const result = new URLSearchParams(window.location.search).get('result');
+  const params = new URLSearchParams(window.location.search);
+  const result = params.get('result');
+  const intent = params.get('intent') === 'change' ? 'change-card' : 'purchase';
 
   async function processPayment(): Promise<{ code: string; activatedAt: number }> {
     await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -33,6 +36,7 @@ export default function CheckoutPreview() {
     <div className="app app-checkout-mode">
       <main className="app-main">
         <CheckoutScreen
+          intent={intent}
           onBack={() => window.alert('戻る(プレビュー): 実装後は設定タブへ戻ります')}
           processPayment={processPayment}
         />

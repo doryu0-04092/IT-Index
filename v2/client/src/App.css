@@ -1113,7 +1113,26 @@ a,
   font-size: 1rem;
 }
 
-/* カード番号入力の右端に重ねるブランドバッジ(VISA等のテキストピル)。relativeの範囲を
+/* 「実際のクレジットカード番号は登録しないでください」の注意書き(本人指定)。
+   モック注記(status-text-small)より一段強く、危険色で示す */
+.checkout-warning-note {
+  color: var(--danger);
+  font-size: 0.8rem;
+  margin: 4px 0 0;
+}
+
+/* ブランドのテキストピル(VISA等)。チェックアウトのカード欄と設定タブの「お支払い方法」で共用 */
+.payment-brand-pill {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* カード番号入力の右端に重ねる配置(ピルの見た目は.payment-brand-pill)。relativeの範囲を
    input単体に限定し、下にエラー文が出てもバッジ位置がずれないようにする */
 .checkout-card-field {
   position: relative;
@@ -1128,12 +1147,6 @@ a,
   right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 6px;
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--muted);
 }
 
 /* 有効期限/セキュリティコードの2カラム。min-width:0はflex子のはみ出し防止(既存方針) */
@@ -1202,9 +1215,22 @@ a,
 }
 
 /* 決済中は画面下部/上部の5タブナビを隠す(誤タップでの離脱防止+全画面感。App.tsxが
-   checkout表示中だけルートdivにこのクラスを付ける。Phase Bで使用) */
-.app-checkout-mode .app-nav {
+   checkout表示中だけルートdivにこのクラスを付ける)。セレクタを.app-top > .app-navに
+   しているのは、後続のモバイルブロックの`.app-top > .app-nav { display: grid }`(詳細度0,2,0・
+   後勝ち)に負けないよう詳細度を0,3,0へ上げるため——`.app-checkout-mode .app-nav`では
+   モバイル幅でタブバーが残る(実機確認済みの不具合) */
+.app-checkout-mode .app-top > .app-nav {
   display: none;
+}
+
+/* 設定タブ「ライセンス」内のお支払い方法表示(SettingsScreen.tsx)。ブランドピル+下4桁+
+   有効期限を1行に並べ、「カードを変更する」は次行に置く */
+.license-payment-method {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
 }
 
 /*

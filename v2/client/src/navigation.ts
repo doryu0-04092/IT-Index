@@ -29,6 +29,12 @@ export type Screen =
    * 同期タブから移設したAI設定・表示(テーマ)をここに集約し、同期タブは同期機能に純化する。
    */
   | { name: 'settings' }
+  /**
+   * チェックアウト画面(要件定義書§4.2「決済はモック」)。入口は設定タブのライセンス欄のみで
+   * 戻り先も常に設定タブのため、detail/chatのようなreturnToは持たない。
+   * intent='purchase'はライセンス購入、'change-card'はお支払い方法の変更(課金なし)。
+   */
+  | { name: 'checkout'; intent: 'purchase' | 'change-card' }
   | { name: 'sync' }
   /**
    * AIチャット画面。要件定義書§5.3。戻り先(returnTo)は開いた場所を丸ごと保持する

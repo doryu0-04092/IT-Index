@@ -8,6 +8,25 @@
 
 export type CardBrand = 'visa' | 'mastercard' | 'amex' | 'jcb' | 'unknown';
 
+/**
+ * ブランドの表示名(チェックアウトのバッジ・設定タブの「お支払い方法」で共用)。
+ * unknownはバッジを出さない判断を呼び出し側でできるようnullを返す。
+ */
+export function brandLabel(brand: CardBrand): string | null {
+  switch (brand) {
+    case 'visa':
+      return 'VISA';
+    case 'mastercard':
+      return 'Mastercard';
+    case 'amex':
+      return 'AMEX';
+    case 'jcb':
+      return 'JCB';
+    case 'unknown':
+      return null;
+  }
+}
+
 /** ブランド別のカード番号桁数(amexのみ15桁、他は16桁で扱う) */
 function maxDigitsFor(brand: CardBrand): number {
   return brand === 'amex' ? 15 : 16;
