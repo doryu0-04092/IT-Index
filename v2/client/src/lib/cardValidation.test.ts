@@ -3,7 +3,6 @@ import {
   detectBrand,
   formatCardNumber,
   formatExpiry,
-  luhnCheck,
   normalizeCardNumber,
   validateCardNumber,
   validateCvc,
@@ -47,17 +46,12 @@ describe('normalizeCardNumber / formatCardNumber', () => {
   });
 });
 
-describe('luhnCheck / validateCardNumber', () => {
-  it('正しいチェックディジットを受理し、1桁違いを弾く', () => {
-    expect(luhnCheck('4242424242424242')).toBe(true);
-    expect(luhnCheck('4242424242424243')).toBe(false);
-  });
-
-  it('桁数が揃いLuhnが通るときだけカード番号を有効とする', () => {
+describe('validateCardNumber', () => {
+  it('桁数(amex:15/他:16)ぶん数字が入っていれば有効(デモ用にLuhnはしない。#139)', () => {
     expect(validateCardNumber('4242424242424242')).toBe(true);
-    expect(validateCardNumber('378282246310005')).toBe(true);
+    expect(validateCardNumber('1111111111111111')).toBe(true); // 適当な16桁もOK
+    expect(validateCardNumber('378282246310005')).toBe(true); // amexは15桁
     expect(validateCardNumber('424242424242424')).toBe(false); // 15桁のVisaは桁不足
-    expect(validateCardNumber('4242424242424241')).toBe(false); // Luhn不成立
     expect(validateCardNumber('')).toBe(false);
   });
 });
@@ -72,14 +66,13 @@ describe('formatExpiry / validateExpiry', () => {
     expect(formatExpiry('122534')).toBe('12/25');
   });
 
-  it('月の範囲と当月以降(記載月の末日まで有効)を判定する', () => {
-    const now = new Date(2026, 7, 18); // 2026-08-18
-    expect(validateExpiry('08/26', now)).toBe(true); // 当月はまだ有効
-    expect(validateExpiry('07/26', now)).toBe(false); // 先月は失効
-    expect(validateExpiry('12/99', now)).toBe(true);
-    expect(validateExpiry('13/27', now)).toBe(false);
-    expect(validateExpiry('00/27', now)).toBe(false);
-    expect(validateExpiry('1225', now)).toBe(false); // 形式不一致
+  it('MM/YY形式で月01-12なら有効(デモ用に過去の年月も弾かない。#139)', () => {
+    expect(validateExpiry('08/26')).toBe(true);
+    expect(validateExpiry('01/00')).toBe(true); // 過去でもOK
+    expect(validateExpiry('12/99')).toBe(true);
+    expect(validateExpiry('13/27')).toBe(false);
+    expect(validateExpiry('00/27')).toBe(false);
+    expect(validateExpiry('1225')).toBe(false); // 形式不一致
   });
 });
 

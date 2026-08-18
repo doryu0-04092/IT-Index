@@ -4,6 +4,11 @@
  * カード情報はサーバーへ一切送らないため、検証はここで完結する(本人指定:
  * 「サーバーチェックは行わず、必要な購入情報がすべて正しく入力されているかだけ確認する」)。
  * DOM・React非依存で、単体テスト(cardValidation.test.ts)から直接呼べる。
+ *
+ * 検証の厳しさはデモ用に意図的に緩めてある(本人指定 #139「数字さえ入力されていればよい。
+ * 月だけ01〜12」)。当初あったLuhnチェック・有効期限の未来日チェックは、適当な数字での
+ * デモ操作を弾いてしまうため廃止した。残しているのは「必要な情報が形として揃っているか」
+ * (桁数・月の範囲・CVC桁数・名義非空)だけ。
  */
 
 export type CardBrand = 'visa' | 'mastercard' | 'amex' | 'jcb' | 'unknown';
@@ -66,24 +71,12 @@ export function formatCardNumber(digits: string): string {
   return groups.filter((g) => g !== '').join(' ');
 }
 
-/** Luhnアルゴリズムによるチェックディジット検証。桁数の妥当性はここでは見ない */
-export function luhnCheck(digits: string): boolean {
-  if (!/^\d+$/.test(digits)) return false;
-  let sum = 0;
-  for (let i = 0; i < digits.length; i++) {
-    let n = Number(digits[digits.length - 1 - i]);
-    if (i % 2 === 1) {
-      n *= 2;
-      if (n > 9) n -= 9;
-    }
-    sum += n;
-  }
-  return sum % 10 === 0;
-}
-
-/** カード番号の総合判定(ブランド別の桁数が揃っている+Luhnが通る) */
+/**
+ * カード番号の判定。ブランド別の桁数(amex:15/他:16)ぶん数字が入っていればよい
+ * (デモ用のためLuhnチェックはしない。本人指定 #139)。
+ */
 export function validateCardNumber(digits: string): boolean {
-  return digits.length === maxDigitsFor(detectBrand(digits)) && luhnCheck(digits);
+  return /^\d+$/.test(digits) && digits.length === maxDigitsFor(detectBrand(digits));
 }
 
 /**
@@ -98,18 +91,14 @@ export function formatExpiry(input: string): string {
 }
 
 /**
- * 有効期限の判定。"MM/YY"形式・月01-12・当月以降(カードは記載月の末日まで有効)のとき真。
- * nowはテストから固定日時を注入するための引数で、通常は現在時刻。
+ * 有効期限の判定。"MM/YY"形式で月が01-12であればよい(デモ用のため過去の年月でも
+ * 弾かない。本人指定 #139「月のところだけ01〜12になっていればいい」)。
  */
-export function validateExpiry(value: string, now: Date = new Date()): boolean {
+export function validateExpiry(value: string): boolean {
   const match = /^(\d{2})\/(\d{2})$/.exec(value);
   if (!match) return false;
   const month = Number(match[1]);
-  if (month < 1 || month > 12) return false;
-  const year = 2000 + Number(match[2]);
-  const nowYear = now.getFullYear();
-  const nowMonth = now.getMonth() + 1;
-  return year > nowYear || (year === nowYear && month >= nowMonth);
+  return month >= 1 && month <= 12;
 }
 
 /** セキュリティコードの判定(Amex: 4桁、他ブランド: 3桁の数字) */

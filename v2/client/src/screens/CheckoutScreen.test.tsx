@@ -14,7 +14,7 @@ function renderCheckout(overrides: Partial<CheckoutScreenProps> = {}) {
   render(<CheckoutScreen {...props} />);
 }
 
-/** 全欄に正しい値を入れる(4242…はLuhnが通るVisaのテスト番号) */
+/** 全欄に正しい値を入れる(4242…はVisaとしてブランド判定される16桁) */
 function fillValidCard() {
   fireEvent.change(screen.getByLabelText('カード番号'), { target: { value: '4242424242424242' } });
   fireEvent.change(screen.getByLabelText('有効期限(月/年)'), { target: { value: '1299' } });
@@ -62,7 +62,8 @@ describe('CheckoutScreen', () => {
     renderCheckout();
 
     const cardInput = screen.getByLabelText('カード番号');
-    fireEvent.change(cardInput, { target: { value: '4242424242424241' } });
+    // 桁不足はエラー(Luhn廃止(#139)後も桁数チェックは残る)
+    fireEvent.change(cardInput, { target: { value: '42424242' } });
     // blur前はエラーを出さない(入力途中に騒がない)
     expect(screen.queryByText('カード番号が正しくありません')).toBeNull();
 
