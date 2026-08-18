@@ -88,11 +88,11 @@ export function useAppInit(): AppInit {
       setDeviceId(s.deviceId);
       setAutoUpdateExistingTerms(s.autoUpdateExistingTerms);
     });
-    // 起動時クリーンアップ(本人指定)。セッション生成を最初の送信成立時まで遅らせるように
-    // なった後も、それ以前に作られた不可視の空セッション(open×メッセージ0件)の残骸が
-    // 残っている可能性があるため一度だけ削除する。setStateを呼ばないためeffect内から
-    // 直接fire-and-forgetしてよい(結果を画面表示に反映する必要が無い)。
-    void chatRepo.deleteEmptyOpenSessions();
+    // 起動時クリーンアップ(本人指定)。旧バージョンの残骸——不可視の空セッションと、
+    // AI呼び出し失敗で質問だけが残ったセッション(#132以前の保存順によるもの)——を
+    // 一度だけ削除する。setStateを呼ばないためeffect内から直接fire-and-forgetしてよい
+    // (結果を画面表示に反映する必要が無い)。
+    void chatRepo.deleteUnansweredOpenSessions();
   }, [runSeedImport, settingsRepo, chatRepo]);
 
   return {

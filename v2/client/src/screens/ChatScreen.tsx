@@ -17,9 +17,10 @@ import TermPicker from './TermPicker';
 export interface ChatScreenProps {
   /**
    * null=「下書き」。まだchatRepo.createSessionしていない(本人指定の遅延生成。
-   * App.tsx openChatForTerm/openChatForQuery参照)。最初の送信が成立する時点
-   * (handleSend冒頭)でここで初めてセッションを作る——未ログイン等で一度も送信せずに
-   * 戻った場合、セッション自体が生まれないため不可視の空セッションが残らない。
+   * App.tsx openChatForTerm/openChatForQuery参照)。最初の送信のAI応答が受信できた時点
+   * (sendChatTurn成功時のcreateSessionコールバック)でここで初めてセッションを作る
+   * ——未ログイン等で一度も送信できないまま戻った場合や、AI呼び出しが失敗した場合、
+   * セッション自体が生まれないため返答なしのセッションが残らない(#132)。
    */
   sessionId: string | null;
   /** sessionId:nullのときだけ使う下書きの主題(termId有り=登録済みの語、無し=検索語) */
@@ -107,8 +108,8 @@ export default function ChatScreen({
   const initialQuestionSent = useRef(false);
 
   // 実際に使うセッションID。下書き(sessionIdプロップ:null)の間はまだDBにセッションが無く、
-  // handleSend内で最初の送信が成立した瞬間にchatRepo.createSessionした結果をここへ格納する
-  // (本人指定の遅延生成)。あえてApp.tsx側のScreen.sessionIdは更新しない設計にしてある
+  // handleSend内で最初のAI応答受信が成立した瞬間にchatRepo.createSessionされた結果を
+  // ここへ格納する(本人指定の遅延生成。#132でAI応答成功後まで先送り)。あえてApp.tsx側のScreen.sessionIdは更新しない設計にしてある
   // ——更新するとnavigation.tsのscreenKeyが変わり<main>ごと再マウントされて、送信中の
   // 表示や直後の応答反映が失われてしまうため(詳細はnavigation.ts screenKeyのコメント参照)。
   const [activeSessionId, setActiveSessionId] = useState<string | null>(sessionId);
@@ -223,22 +224,33 @@ export default function ChatScreen({
     setSendErrorCode(null);
     if (overrideText === undefined) setDraft('');
     try {
-      // 最初の送信が成立する時点でセッションを作る(本人指定の遅延生成)。sendChatTurnは
-      // AI呼び出しの前にuserメッセージを保存するため、この後AI呼び出しが失敗しても
-      // 作成済みセッションには1件残り、「取り込み待ち」一覧に出る(正しい挙動として維持)。
-      let sid = activeSessionId;
-      if (sid === null) {
-        const created = await chatRepo.createSession(draftTermId ?? null, draftTermId ? undefined : draftSubjectLabel);
-        sid = created.id;
-        setActiveSessionId(sid);
-        setSession(created);
+      // AI応答の受信に成功した時点で初めてセッション・質問・返答を保存する(#132本人決定)。
+      // セッション作成はsendChatTurnが成功後にcreateSessionコールバック経由で行うため、
+      // AI呼び出しが失敗した場合はDBに何も書かれず、「取り込み待ち」一覧や履歴に
+      // 返答なしの会話が残らない(失敗後の再送信による質問の二重保存もこの順序で防ぐ)。
+      const result = await sendChatTurn(
+        activeSessionId,
+        text,
+        {
+          chatRepo,
+          aiClient,
+          subject,
+          createSession: () => chatRepo.createSession(draftTermId ?? null, draftTermId ? undefined : draftSubjectLabel),
+        },
+        hideQuestion,
+      );
+      if (activeSessionId === null) {
+        setActiveSessionId(result.sessionId);
+        const created = await chatRepo.getSession(result.sessionId);
+        if (created) setSession(created);
       }
-      await sendChatTurn(sid, text, { chatRepo, aiClient, subject }, hideQuestion);
-      await reloadMessagesFor(sid);
+      await reloadMessagesFor(result.sessionId);
     } catch (err) {
       setSendError(err instanceof ApiRequestError ? err.message : 'AIとの通信に失敗しました');
       setSendErrorCode(err instanceof ApiRequestError ? err.code : null);
-      if (overrideText === undefined) setDraft(text); // 送信できなかった内容を戻す
+      // 送信できなかった内容を入力欄へ戻す(DBには何も残らないため、ここで戻さないと
+      // 質問文が完全に失われる)。クイック質問の定型文(hideQuestion)は戻さない。
+      if (!hideQuestion) setDraft(text);
     } finally {
       setSending(false);
     }
