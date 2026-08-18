@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { BUCKET_ORDER, GOJUON_GRID, groupIntoBuckets, NUMERIC_BUCKET, OTHER_BUCKET, type TermRecord } from '@it-index/shared';
+import { useEffect, useRef, useState } from 'react';
+import { BUCKET_ORDER, GOJUON_GRID, groupIntoBuckets, NUMERIC_BUCKET, OTHER_BUCKET, type Bucket, type TermRecord } from '@it-index/shared';
 import type { TermsRepository } from '../repositories/terms';
 
 export interface TermIndexScreenProps {
@@ -8,6 +8,17 @@ export interface TermIndexScreenProps {
 }
 
 const LATIN_BUCKETS = BUCKET_ORDER.filter((b) => /^[A-Z]$/.test(b));
+
+/**
+ * 段階描画のチャンク幅(#135)。索引は全語(3500語超)を並べるため、一度にDOMへ入れると
+ * 挿入直後のスタイル計算だけで実測約1秒メインスレッドが止まる(2026-08-18、本番ビルド・
+ * PC・CPU等倍。CSSのcontent-visibilityはレイアウトは省略できてもこのスタイル計算は
+ * 省略できないことを実測で確認済み)。そこで最初のコミットでは先頭セクションだけを
+ * 描画して即座に画面を出し、残りはrequestAnimationFrameで1フレーム1チャンクずつ追加して
+ * 1フレームあたりのスタイル計算を小さく保つ。6セクション≒平均300行前後で、
+ * 1チャンクの処理が数十ms程度に収まる見積もり。
+ */
+const SECTIONS_PER_CHUNK = 6;
 
 function sectionId(bucket: string): string {
   return `term-index-section-${encodeURIComponent(bucket)}`;
@@ -24,9 +35,14 @@ function sectionId(bucket: string): string {
  * 本来は空であるべき例外用のため、該当が1件も無いうちはリンク・見出しとも出さない
  * (hasOther/visibleBuckets)。
  *
+ * セクションは段階描画する(#135。SECTIONS_PER_CHUNKのコメント参照)。未描画のセクションへ
+ * ジャンプされた場合は、そのセクションまでを一度に描画してから(pendingJumpRef)スクロールする。
+ *
  * ジャンプは`scrollIntoView`(behavior:'auto'=瞬時移動)で行う。語数が多く縦に長いページのため、
  * スムーズスクロールだと遠くのバケットへの移動に時間がかかりすぎる(v1でのユーザー指摘)。
- * 「一番上へ戻る」ボタンも同様に瞬時移動にする。
+ * 「一番上へ戻る」ボタンも同様に瞬時移動にする。着地後にもう一度だけ補正スクロールを行う
+ * ——content-visibility(App.css .term-index-section)の仮高さ由来で、初回の着地位置が
+ * 実レイアウト確定後に数行ずれることがあるため。
  *
  * 各バケットの`<ul>`は検索結果の`.result-list`(max-height:70vhの個別スクロール)ではなく
  * 専用の`.term-index-list`(個別スクロールなし)を使う。索引はページ全体のスクロールに
@@ -35,17 +51,59 @@ function sectionId(bucket: string): string {
  */
 export default function TermIndexScreen({ termsRepo, onSelectTerm }: TermIndexScreenProps) {
   const [buckets, setBuckets] = useState<Map<string, TermRecord[]> | null>(null);
+  const [renderedCount, setRenderedCount] = useState(SECTIONS_PER_CHUNK);
+  // 未描画セクションへのジャンプ先を、描画が追いつくまで持ち越す(#135)。描画自体は
+  // renderedCountの更新が引き起こすため、これはstateではなく「コミット後のeffectで
+  // 1回読んで消す」だけのrefでよい(stateにするとeffect内setStateのカスケードになる)。
+  const pendingJumpRef = useRef<Bucket | null>(null);
 
   useEffect(() => {
     void termsRepo.getAll().then((terms) => setBuckets(groupIntoBuckets(terms)));
   }, [termsRepo]);
 
   const hasOther = (buckets?.get(OTHER_BUCKET)?.length ?? 0) > 0;
-  const visibleBuckets = hasOther ? BUCKET_ORDER : BUCKET_ORDER.filter((b) => b !== OTHER_BUCKET);
+  // filterの型絞り込みで「その他」抜きの型にならないよう明示する(indexOfへBucketを渡すため)
+  const visibleBuckets: readonly Bucket[] = hasOther ? BUCKET_ORDER : BUCKET_ORDER.filter((b) => b !== OTHER_BUCKET);
 
-  function jumpTo(bucket: string) {
+  // 残りのセクションをチャンクごとに追加していく(#135)。requestAnimationFrameで
+  // 「1フレームにつき1チャンク」を保証する——setTimeout(0)だと描画フレームの合間に
+  // 複数チャンクのコミットが溜まり、次のフレームでまとめてスタイル計算されて
+  // 結局長いフレームに戻ることを実測で確認したため。
+  useEffect(() => {
+    if (buckets === null || renderedCount >= visibleBuckets.length) return;
+    const id = requestAnimationFrame(() => setRenderedCount((c) => c + SECTIONS_PER_CHUNK));
+    return () => cancelAnimationFrame(id);
+  }, [buckets, renderedCount, visibleBuckets.length]);
+
+  function scrollToSection(bucket: Bucket) {
     document.getElementById(sectionId(bucket))?.scrollIntoView({ behavior: 'auto', block: 'start' });
+    // content-visibilityの仮高さで着地がずれた場合の補正(コンポーネントのコメント参照)
+    requestAnimationFrame(() => {
+      document.getElementById(sectionId(bucket))?.scrollIntoView({ behavior: 'auto', block: 'start' });
+    });
   }
+
+  function jumpTo(bucket: Bucket) {
+    const index = visibleBuckets.indexOf(bucket);
+    if (index >= renderedCount) {
+      // まだ描画していないセクションへのジャンプ。そこまで一度に描画し、コミット後の
+      // effect(pendingJumpRef)でスクロールする。
+      setRenderedCount(index + 1);
+      pendingJumpRef.current = bucket;
+      return;
+    }
+    scrollToSection(bucket);
+  }
+
+  useEffect(() => {
+    const pending = pendingJumpRef.current;
+    if (pending === null) return;
+    // buckets読み込み前はセクション自体がまだDOMに無い(読み込み完了後の再実行で拾う)
+    if (buckets === null) return;
+    if (visibleBuckets.indexOf(pending) >= renderedCount) return; // まだ描画されていない
+    pendingJumpRef.current = null;
+    scrollToSection(pending);
+  }, [buckets, renderedCount, visibleBuckets]);
 
   function scrollToTop() {
     window.scrollTo({ top: 0, behavior: 'auto' });
@@ -87,7 +145,7 @@ export default function TermIndexScreen({ termsRepo, onSelectTerm }: TermIndexSc
       {buckets === null ? (
         <p className="status-text">読み込み中です…</p>
       ) : (
-        visibleBuckets.map((b) => (
+        visibleBuckets.slice(0, renderedCount).map((b) => (
           <section key={b} id={sectionId(b)} className="term-index-section">
             <h3 className="term-index-heading">{b}</h3>
             {buckets.get(b)!.length === 0 ? (

@@ -442,6 +442,20 @@ a,
   /* stickyヘッダー(.app-header)にジャンプ先見出しが隠れない補正(:root --header-offset参照)。
      .app-headerの高さを変えたらそちらを見直す。 */
   scroll-margin-top: var(--header-offset);
+  /*
+   * 画面外セクションのレイアウト・描画をブラウザに丸ごと省略させる(#135)。
+   * 注意: これで省略できるのはレイアウト・ペイントだけで、DOM挿入直後のスタイル計算は
+   * 省略されない(実測2026-08-18: 3500語一括挿入のスタイル計算約1秒はこの指定の有無で
+   * 変わらなかった)。挿入コスト自体はTermIndexScreen.tsxの段階描画(SECTIONS_PER_CHUNK)が
+   * 受け持ち、この指定は画面外セクションのレイアウト省略とスクロール中の描画軽量化を担う。
+   * contain-intrinsic-sizeは未レイアウトのセクションの仮の高さ(スクロールバー計算用)。
+   * autoを付けているため一度表示されたセクションは実測値を記憶し、以後のスクロール
+   * バーのずれは自然に解消される。仮の高さ由来でジャンプ直後の着地位置がずれることが
+   * あるため、TermIndexScreen.tsx scrollToSection()が着地後に1回補正スクロールする。
+   * 未対応ブラウザではプロパティが無視され従来通りの全件レイアウトになる(機能は同じ)。
+   */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 500px;
 }
 
 .term-index-heading {
