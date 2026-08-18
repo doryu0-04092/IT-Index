@@ -53,6 +53,11 @@ export function isPersistedScreen(value: unknown): value is Screen {
 /** initialQuestion(chatのみ)を保存対象から取り除いた形にする */
 function stripVolatile(screen: Screen): Screen {
   switch (screen.name) {
+    case 'checkout':
+      // カード入力途中の状態は復元できず、リロード後にフォームだけ空で再表示しても
+      // 意味がないため、戻り先である設定タブへ落とす(isValidScreen側にもcheckoutは
+      // 追加しない=復元対象外を二重に保証する)。
+      return { name: 'settings' };
     case 'detail':
       return { name: 'detail', termId: screen.termId, returnTo: stripVolatile(screen.returnTo) };
     case 'chat':

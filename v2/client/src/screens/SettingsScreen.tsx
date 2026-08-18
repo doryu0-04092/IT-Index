@@ -3,7 +3,9 @@ import type { ItIndexDB } from '../db';
 import { resetAllData } from '../lib/factoryReset';
 import ThemeSwitcher from '../lib/ThemeSwitcher';
 import type { ThemeChoice } from '../lib/theme';
-import { activateLicense, ApiRequestError, purchaseLicense } from '../sync/apiClient';
+import { brandLabel } from '../lib/cardValidation';
+import { getStoredLicenseCode, getStoredPaymentMethod } from '../lib/paymentStore';
+import { activateLicense, ApiRequestError } from '../sync/apiClient';
 import {
   clearServerBaseUrl,
   getServerBaseUrl,
@@ -20,6 +22,8 @@ export interface SettingsScreenProps {
   onThemeChange: (choice: ThemeChoice) => void;
   /** 未ログイン時のライセンス誘導・AI設定の誘導から同期タブへ移動する */
   onGoToSync: () => void;
+  /** ライセンス欄からチェックアウト画面へ移動する('purchase'=購入、'change-card'=カード変更) */
+  onGoToCheckout: (intent: 'purchase' | 'change-card') => void;
 }
 
 /**
@@ -31,12 +35,23 @@ export interface SettingsScreenProps {
  * ライセンスを主導線として最上部に置く(依頼者指定)。認証状態はuseAuthStateで自前に確認する
  * (SyncScreenと同じhookを使うが、インスタンスは別——sync/useAuthState.tsのコメント参照)。
  */
-export default function SettingsScreen({ db, themeChoice, onThemeChange, onGoToSync }: SettingsScreenProps) {
+export default function SettingsScreen({
+  db,
+  themeChoice,
+  onThemeChange,
+  onGoToSync,
+  onGoToCheckout,
+}: SettingsScreenProps) {
   const { auth, setLicensed } = useAuthState();
 
   return (
     <section className="settings-screen">
-      <LicenseSection auth={auth} onGoToSync={onGoToSync} onLicensedChange={setLicensed} />
+      <LicenseSection
+        auth={auth}
+        onGoToSync={onGoToSync}
+        onGoToCheckout={onGoToCheckout}
+        onLicensedChange={setLicensed}
+      />
 
       <section className="settings-section">
         <h2>AI設定</h2>
@@ -66,46 +81,27 @@ export default function SettingsScreen({ db, themeChoice, onThemeChange, onGoToS
 
 /**
  * ライセンス(主導線)。要件定義書§4.2「決済はモック」。未ライセンス時は商品カード+
- * 「コードをお持ちの方」の2つの入口を並べる。決済確定はサーバーが即時発行・有効化するため、
- * 成功後は追加の確認操作なしで「有効」表示に切り替わる。
+ * 「コードをお持ちの方」の2つの入口を並べる。決済(カード入力→処理→完了)は
+ * チェックアウト画面(CheckoutScreen.tsx)が担い、ここは「購入手続きへ」の遷移だけを持つ。
+ * 購入後は、チェックアウトが端末内に保存したライセンスコードとお支払い方法
+ * (lib/paymentStore.ts)をこの欄に表示し、「カードを変更する」導線も置く(本人指定
+ * 「ライセンスコードとカード変更は設定画面に出す」)。ライセンス有効の判定自体は
+ * サーバー(/api/auth/me)が正で、チェックアウトから戻った際の再マウントで再取得される。
  */
 function LicenseSection({
   auth,
   onGoToSync,
+  onGoToCheckout,
   onLicensedChange,
 }: {
   auth: AuthState;
   onGoToSync: () => void;
+  onGoToCheckout: (intent: 'purchase' | 'change-card') => void;
   onLicensedChange: (licensed: boolean) => void;
 }) {
-  const [purchaseBusy, setPurchaseBusy] = useState(false);
-  const [purchaseError, setPurchaseError] = useState<string | null>(null);
-  const [purchasedCode, setPurchasedCode] = useState<string | null>(null);
-  const [alreadyActive, setAlreadyActive] = useState(false);
-
   const [codeDraft, setCodeDraft] = useState('');
   const [activateBusy, setActivateBusy] = useState(false);
   const [activateError, setActivateError] = useState<string | null>(null);
-
-  async function handlePurchase() {
-    if (auth.status !== 'authed' || purchaseBusy) return;
-    setPurchaseBusy(true);
-    setPurchaseError(null);
-    try {
-      const result = await purchaseLicense(auth.token);
-      setPurchasedCode(result.code);
-      onLicensedChange(true);
-    } catch (err) {
-      if (err instanceof ApiRequestError && err.code === 'license_already_active') {
-        setAlreadyActive(true);
-        onLicensedChange(true);
-        return;
-      }
-      setPurchaseError(err instanceof ApiRequestError ? err.message : 'サーバーに接続できませんでした');
-    } finally {
-      setPurchaseBusy(false);
-    }
-  }
 
   async function handleActivate() {
     const code = codeDraft.trim();
@@ -144,38 +140,49 @@ function LicenseSection({
     );
   }
 
-  const licensed = auth.licensed || alreadyActive || purchasedCode !== null;
+  // 端末内保存の表示情報(lib/paymentStore.ts)。チェックアウトから戻ると<main>のkey切替で
+  // この画面ごと再マウントされるため、レンダー時の同期読みで最新が反映される
+  const storedCode = getStoredLicenseCode();
+  const paymentMethod = getStoredPaymentMethod();
 
   return (
     <section className="settings-section">
       <h2>ライセンス</h2>
-      {licensed ? (
-        alreadyActive ? (
-          <p className="status-text">既にライセンスがあります</p>
-        ) : purchasedCode !== null ? (
-          <p className="status-text">
-            決済が確定されました。ライセンスコード:{' '}
-            <code className="license-code" data-testid="license-code">
-              {purchasedCode}
-            </code>
-          </p>
-        ) : (
+      {auth.licensed ? (
+        <>
           <p className="status-text">ライセンス有効</p>
-        )
+          {storedCode !== null && (
+            <p className="status-text">
+              ライセンスコード:{' '}
+              <code className="license-code" data-testid="license-code">
+                {storedCode}
+              </code>
+            </p>
+          )}
+          <h3>お支払い方法</h3>
+          {paymentMethod !== null ? (
+            <p className="license-payment-method">
+              {brandLabel(paymentMethod.brand) !== null && (
+                <span className="payment-brand-pill">{brandLabel(paymentMethod.brand)}</span>
+              )}
+              <span>•••• {paymentMethod.last4}</span>
+              <span className="status-text-small">有効期限 {paymentMethod.expiry}</span>
+            </p>
+          ) : (
+            <p className="status-text-small">登録されているカードはありません(モック決済)</p>
+          )}
+          <button type="button" className="btn-secondary" onClick={() => onGoToCheckout('change-card')}>
+            {paymentMethod !== null ? 'カードを変更する' : 'カードを登録する'}
+          </button>
+        </>
       ) : (
         <>
           <div className="license-product-card">
             <h3>IT-Index プレミアム 月額¥300</h3>
             <p className="status-text-small">モック決済です。実際の課金は発生しません</p>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => void handlePurchase()}
-              disabled={purchaseBusy}
-            >
-              {purchaseBusy ? '処理しています…' : '決済を確定する'}
+            <button type="button" className="btn-primary" onClick={() => onGoToCheckout('purchase')}>
+              購入手続きへ
             </button>
-            {purchaseError && <p className="sync-error">{purchaseError}</p>}
           </div>
 
           <div className="license-activate">

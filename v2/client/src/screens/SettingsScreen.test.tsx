@@ -9,10 +9,19 @@ function jsonResponse(status: number, body: unknown) {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) };
 }
 
-function renderSettingsScreen(onGoToSync: () => void = () => {}) {
+function renderSettingsScreen(
+  onGoToSync: () => void = () => {},
+  onGoToCheckout: (intent: 'purchase' | 'change-card') => void = () => {},
+) {
   const db = new ItIndexDB(`test-settingsscreen-${Math.random()}`);
   render(
-    <SettingsScreen db={db} themeChoice="system" onThemeChange={() => {}} onGoToSync={onGoToSync} />,
+    <SettingsScreen
+      db={db}
+      themeChoice="system"
+      onThemeChange={() => {}}
+      onGoToSync={onGoToSync}
+      onGoToCheckout={onGoToCheckout}
+    />,
   );
   return db;
 }
@@ -62,39 +71,55 @@ describe('SettingsScreen', () => {
       return fetchMock;
     }
 
-    it('未ライセンス表示→決済確定押下→コード表示→licensed反映', async () => {
+    it('未ライセンス時は商品カードを表示し、購入手続きへでチェックアウトに遷移する', async () => {
       localStorage.setItem('it-index-v2:token', 'tok-1');
       stubAuthAndLicenseFetch({ licensed: false });
+      const onGoToCheckout = vi.fn();
 
-      renderSettingsScreen();
+      renderSettingsScreen(undefined, onGoToCheckout);
 
       expect(await screen.findByText('IT-Index プレミアム 月額¥300')).toBeTruthy();
       expect(screen.getByText('モック決済です。実際の課金は発生しません')).toBeTruthy();
 
-      fireEvent.click(screen.getByRole('button', { name: '決済を確定する' }));
-
-      await waitFor(() => expect(screen.getByTestId('license-code').textContent).toBe('ABCD-1234'));
-      expect(screen.getByText(/決済が確定されました。ライセンスコード:/)).toBeTruthy();
-      // 商品カード・コード入力は「有効」表示へ切り替わって消える
-      expect(screen.queryByText('IT-Index プレミアム 月額¥300')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: '購入手続きへ' }));
+      expect(onGoToCheckout).toHaveBeenCalledWith('purchase');
     });
 
-    it('既にライセンスがある場合(409)は専用の文言に切り替える', async () => {
+    it('ライセンス有効時は端末内保存のライセンスコードとお支払い方法を表示し、カード変更に遷移できる', async () => {
       localStorage.setItem('it-index-v2:token', 'tok-1');
-      stubAuthAndLicenseFetch({
-        licensed: false,
-        purchase: {
-          status: 409,
-          body: { error: { code: 'license_already_active', message: 'このアカウントには既に有効なライセンスがあります' } },
-        },
-      });
+      localStorage.setItem('it-index-v2:license-code', 'ABCD-1234');
+      localStorage.setItem(
+        'it-index-v2:mock-payment-method',
+        JSON.stringify({ brand: 'visa', last4: '4242', expiry: '12/29', holderName: 'TARO YAMADA' }),
+      );
+      stubAuthAndLicenseFetch({ licensed: true });
+      const onGoToCheckout = vi.fn();
 
-      renderSettingsScreen();
-      await screen.findByText('IT-Index プレミアム 月額¥300');
+      renderSettingsScreen(undefined, onGoToCheckout);
 
-      fireEvent.click(screen.getByRole('button', { name: '決済を確定する' }));
+      expect(await screen.findByText('ライセンス有効')).toBeTruthy();
+      expect(screen.getByTestId('license-code').textContent).toBe('ABCD-1234');
+      expect(screen.getByText('VISA')).toBeTruthy();
+      expect(screen.getByText('•••• 4242')).toBeTruthy();
+      expect(screen.getByText('有効期限 12/29')).toBeTruthy();
 
-      await waitFor(() => expect(screen.getByText('既にライセンスがあります')).toBeTruthy());
+      fireEvent.click(screen.getByRole('button', { name: 'カードを変更する' }));
+      expect(onGoToCheckout).toHaveBeenCalledWith('change-card');
+    });
+
+    it('ライセンス有効だが端末内にカードが無い場合はカードを登録するを出す(コード有効化した端末等)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubAuthAndLicenseFetch({ licensed: true });
+      const onGoToCheckout = vi.fn();
+
+      renderSettingsScreen(undefined, onGoToCheckout);
+
+      expect(await screen.findByText('ライセンス有効')).toBeTruthy();
+      expect(screen.getByText('登録されているカードはありません(モック決済)')).toBeTruthy();
+      expect(screen.queryByTestId('license-code')).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: 'カードを登録する' }));
+      expect(onGoToCheckout).toHaveBeenCalledWith('change-card');
     });
 
     it('コード有効化: 成功するとライセンス有効表示になる', async () => {

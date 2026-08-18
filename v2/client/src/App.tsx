@@ -11,12 +11,14 @@ import Toast from './lib/Toast';
 import { screenKey, type Screen } from './navigation';
 import { persistScreen, readPersistedScreen } from './screenPersistence';
 import ChatScreen from './screens/ChatScreen';
+import CheckoutScreen from './screens/CheckoutScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import SearchScreen from './screens/SearchScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import SyncScreen from './screens/SyncScreen';
 import TermDetailScreen from './screens/TermDetailScreen';
 import TermIndexScreen from './screens/TermIndexScreen';
+import { purchaseLicense } from './sync/apiClient';
 import { getToken } from './sync/tokenStore';
 import { useAppInit } from './useAppInit';
 
@@ -294,7 +296,9 @@ export function App() {
       : null;
 
   return (
-    <div className="app">
+    // checkout表示中はタブナビを隠す(App.css .app-checkout-mode。誤タップでの決済フロー
+    // 離脱防止+全画面チェックアウトの見た目のため)
+    <div className={screen.name === 'checkout' ? 'app app-checkout-mode' : 'app'}>
       {/*
         DOM再構成(依頼者指定): .app-navを.app-headerの外に出し、両者を.app-topでまとめる。
         以前は.app-navが position:sticky の.app-header の子だったため、モバイル幅で
@@ -367,6 +371,19 @@ export function App() {
             themeChoice={themeChoice}
             onThemeChange={setThemeChoice}
             onGoToSync={() => setScreen({ name: 'sync' })}
+            onGoToCheckout={(intent) => setScreen({ name: 'checkout', intent })}
+          />
+        ) : screen.name === 'checkout' ? (
+          <CheckoutScreen
+            intent={screen.intent}
+            onBack={() => setScreen({ name: 'settings' })}
+            processPayment={() => {
+              // 未ログインで到達しない導線(設定タブはauthed時のみ購入ボタンを出す)だが、
+              // トークン欠落時も画面側の汎用エラー表示に落ちるよう防御的にrejectする
+              const token = getToken();
+              if (token === null) return Promise.reject(new Error('ログインが必要です'));
+              return purchaseLicense(token);
+            }}
           />
         ) : screen.name === 'sync' ? (
           <SyncScreen
