@@ -779,7 +779,8 @@ a,
   .modal-overlay,
   .modal-content,
   .toast,
-  .skeleton-line {
+  .skeleton-line,
+  .checkout-spinner {
     animation: none;
   }
 }
@@ -1054,6 +1055,160 @@ a,
 
 /*
  * ============================================================
+ * チェックアウト画面(screens/CheckoutScreen.tsx。要件定義書§4.2「決済はモック」)。
+ * Stripe Checkout風の全画面決済フォーム(本人指定)。色は既存のカスタムプロパティのみを
+ * 使い、ライト/ダーク両テーマに自動追従する。
+ * ============================================================
+ */
+.checkout-screen {
+  padding-top: 12px;
+}
+
+.checkout-panel {
+  max-width: 420px;
+  margin: 12px auto 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.checkout-summary {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.checkout-summary h2 {
+  margin: 0 0 4px;
+}
+
+.checkout-price {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.checkout-price-period {
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* フォーム入力の見た目は.settings-section(上のフォーム密着対策ルール)と同じリズムに揃える。
+   checkoutは.settings-section外に描画されるため、ここで同内容を再定義する */
+.checkout-panel label {
+  display: block;
+  margin: 12px 0 4px;
+}
+
+.checkout-panel input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 1rem;
+}
+
+/* カード番号入力の右端に重ねるブランドバッジ(VISA等のテキストピル)。relativeの範囲を
+   input単体に限定し、下にエラー文が出てもバッジ位置がずれないようにする */
+.checkout-card-field {
+  position: relative;
+}
+
+.checkout-card-field input {
+  padding-right: 88px;
+}
+
+.checkout-brand-badge {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* 有効期限/セキュリティコードの2カラム。min-width:0はflex子のはみ出し防止(既存方針) */
+.checkout-row {
+  display: flex;
+  gap: 8px;
+}
+
+.checkout-row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.checkout-field-error {
+  color: var(--danger);
+  font-size: 0.8rem;
+  margin: 4px 0 0;
+}
+
+.checkout-pay-btn {
+  width: 100%;
+  margin-top: 16px;
+  min-height: 44px;
+  font-size: 1rem;
+}
+
+.checkout-secure-note {
+  text-align: center;
+  margin: 8px 0 0;
+}
+
+/* 処理中演出。スピナーはchat-spinnerと同型のborder回転(reduced-motion時はanimationを
+   止め、併記した「決済を処理しています…」のテキストだけで伝える) */
+.checkout-processing {
+  text-align: center;
+  padding: 48px 20px;
+}
+
+.checkout-spinner {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: checkout-spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+
+@keyframes checkout-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.checkout-complete {
+  text-align: center;
+  padding: 32px 20px;
+}
+
+.checkout-complete-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+
+/* 決済中は画面下部/上部の5タブナビを隠す(誤タップでの離脱防止+全画面感。App.tsxが
+   checkout表示中だけルートdivにこのクラスを付ける。Phase Bで使用) */
+.app-checkout-mode .app-nav {
+  display: none;
+}
+
+/*
+ * ============================================================
  * モバイル幅(<720px)専用: サイズ設計を1から見直す(依頼者指定・実機Android WebView検証結果を
  * 踏まえた全面書き直し。以前は個別の場当たり調整の積み重ねだった)。
  * 間隔は4/8/12/16pxのスケール(--space-1〜4)に揃え、見出し・本文・補足の文字サイズを
@@ -1207,6 +1362,12 @@ a,
   .sync-auth,
   .chat-screen {
     padding-bottom: calc(var(--tabbar-height) + env(safe-area-inset-bottom) + var(--space-4));
+  }
+
+  /* チェックアウト画面はタブバーを隠す(.app-checkout-mode)ためタブバー退避分は不要。
+     safe-area下端の余白だけ確保する */
+  .checkout-screen {
+    padding-bottom: calc(env(safe-area-inset-bottom) + var(--space-4));
   }
 
   /* セクション間隔をスケールへ統一(依頼者指定「セクション間は16px」) */
