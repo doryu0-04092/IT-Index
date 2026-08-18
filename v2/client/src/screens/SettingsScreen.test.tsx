@@ -39,7 +39,7 @@ describe('SettingsScreen', () => {
     renderSettingsScreen(onGoToSync);
 
     expect(await screen.findByText('ライセンスの購入にはログインが必要です。')).toBeTruthy();
-    // AI設定セクションにも同じ文言の誘導ボタンがある(未ログイン時はどちらもonGoToSyncへ)ため、
+    // APIキー設定セクションにも同じ文言の誘導ボタンがある(未ログイン時はどちらもonGoToSyncへ)ため、
     // ライセンスセクション側(先頭)のボタンを指定してクリックする。
     fireEvent.click(screen.getAllByRole('button', { name: '同期タブへ' })[0]);
     expect(onGoToSync).toHaveBeenCalled();

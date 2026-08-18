@@ -13,7 +13,10 @@ export default tseslint.config(
     // android/app/src/main/assets/public、ビルド生成物をandroid/app/buildへコピーする。
     // ルート側のeslint.config.js(android/app/build/**・android/app/src/main/assets/**)と
     // 同じ理由(2026-08-09: 全16677件中16648件が成果物由来だった)でv2側も除外する。
-    ignores: ['**/dist/**', '**/node_modules/**', 'test-results/**', 'client/android/**'],
+    // **/.wrangler/**: `wrangler dev`/`d1 execute`実行時にバンドル・ローカルD1状態が
+    // server/.wrangler配下に生成される(.gitignoreは除外済みだがlintのignoresには
+    // 抜けていたため、生成物混入で他の変更のlintが偶発的に落ちる不具合があった。2026-08-18)。
+    ignores: ['**/dist/**', '**/node_modules/**', 'test-results/**', 'client/android/**', '**/.wrangler/**'],
   },
   ...tseslint.configs.recommended,
   {
