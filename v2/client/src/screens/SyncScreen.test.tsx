@@ -178,10 +178,10 @@ describe('SyncScreen', () => {
     expect(localStorage.getItem('it-index-v2:token')).toBeNull();
   });
 
-  // 設定タブ新設(PR)の回帰防止: AI設定(BYOK)・テーマ切替はSettingsScreen.tsxへ移設した
+  // 設定タブ新設(PR)の回帰防止: APIキー設定(BYOK)・テーマ切替はSettingsScreen.tsxへ移設した
   // ため、同期タブにはもう出ない(個別のUIテストはApiKeySection.test.tsx・
   // SettingsScreen.test.tsxへ移した)。
-  it('AIキー設定・テーマ切替のUIが無い(設定タブへ分離済み)', async () => {
+  it('APIキー設定・テーマ切替のUIが無い(設定タブへ分離済み)', async () => {
     localStorage.setItem('it-index-v2:token', 'tok-1');
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' })));
 

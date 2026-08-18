@@ -44,7 +44,7 @@ interface SyncResultSummary {
  * 未ログイン時はサインアップ/ログインフォーム、ログイン済みならリレー同期の実行と
  * 競合解決をまとめる画面(要件定義書§4.2「サーバーリレー同期」)。
  *
- * 設定タブ新設(PR)に伴い、AI設定(BYOK)とテーマ切替はSettingsScreen.tsxへ移設し、
+ * 設定タブ新設(PR)に伴い、APIキー設定(BYOK)とテーマ切替はSettingsScreen.tsxへ移設し、
  * この画面はアカウント(ログイン/サインアップ)・同期実行・競合解決に純化した
  * (v1ファイル取り込みは以降のUIレビュー反映で廃止した)。
  * 認証状態とログインフォームはsync/useAuthState.ts・sync/AuthForms.tsxへ切り出し、

@@ -20,7 +20,7 @@ export interface SettingsScreenProps {
   db: ItIndexDB;
   themeChoice: ThemeChoice;
   onThemeChange: (choice: ThemeChoice) => void;
-  /** 未ログイン時のライセンス誘導・AI設定の誘導から同期タブへ移動する */
+  /** 未ログイン時のライセンス誘導・APIキー設定の誘導から同期タブへ移動する */
   onGoToSync: () => void;
   /** ライセンス欄からチェックアウト画面へ移動する('purchase'=購入、'change-card'=カード変更) */
   onGoToCheckout: (intent: 'purchase' | 'change-card') => void;
@@ -28,9 +28,9 @@ export interface SettingsScreenProps {
 
 /**
  * 設定タブ(要件定義書§4「提供形態」・§8「決済のモック化」「接続先サーバー設定UI」)。
- * ライセンス購入モックUI・AI設定(BYOK)・接続先サーバー設定・表示(テーマ)・データ初期化を
+ * ライセンス購入モックUI・APIキー設定(BYOK)・接続先サーバー設定・表示(テーマ)・データ初期化を
  * 1画面に集約する。同期タブ(SyncScreen.tsx)はアカウント・同期実行・競合解決・v1取り込みの
- * みに純化し、AI設定(ApiKeySection)とテーマ(ThemeSwitcher)はここへ移設した。
+ * みに純化し、APIキー設定(ApiKeySection)とテーマ(ThemeSwitcher)はここへ移設した。
  *
  * ライセンスを主導線として最上部に置く(依頼者指定)。認証状態はuseAuthStateで自前に確認する
  * (SyncScreenと同じhookを使うが、インスタンスは別——sync/useAuthState.tsのコメント参照)。
@@ -54,12 +54,12 @@ export default function SettingsScreen({
       />
 
       <section className="settings-section">
-        <h2>AI設定</h2>
+        <h2>APIキー設定</h2>
         {auth.status === 'authed' ? (
           <ApiKeySection token={auth.token} />
         ) : (
           <p className="status-text">
-            AIキー設定にはログインが必要です。
+            APIキー設定にはログインが必要です。
             <button type="button" className="btn-text" onClick={onGoToSync}>
               同期タブへ
             </button>
@@ -274,7 +274,7 @@ function ServerSection() {
       />
 
       <div className="sync-api-key-actions">
-        {/* AI設定セクション(ApiKeySection.tsx)にも同名の「接続テスト」ボタンがある
+        {/* APIキー設定セクション(ApiKeySection.tsx)にも同名の「接続テスト」ボタンがある
             (ログイン済みでは両方が同時に表示される)ため、ここは区別できる文言にする */}
         <button
           type="button"
