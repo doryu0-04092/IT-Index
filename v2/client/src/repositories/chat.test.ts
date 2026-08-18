@@ -80,20 +80,27 @@ describe('createChatRepository', () => {
     expect(found?.id).toBe(session.id);
   });
 
-  describe('deleteEmptyOpenSessions(起動時クリーンアップ。本人指定)', () => {
-    it('open×メッセージ0件のセッションだけを削除し、メッセージがあるopenセッションは残す', async () => {
+  describe('deleteUnansweredOpenSessions(起動時クリーンアップ。本人指定)', () => {
+    it('assistantメッセージが無いopenセッションをメッセージごと削除し、返答のあるopenセッションは残す', async () => {
       const chatRepo = repo();
       const empty = await chatRepo.createSession(null, '開いてすぐ戻った語');
-      const touched = await chatRepo.createSession(null, 'ゼロトラスト');
-      await chatRepo.appendMessage(touched.id, 'user', 'ゼロトラストとは？');
+      const unanswered = await chatRepo.createSession(null, '返答が来なかった語');
+      await chatRepo.appendMessage(unanswered.id, 'user', 'これは何？');
+      const answered = await chatRepo.createSession(null, 'ゼロトラスト');
+      await chatRepo.appendMessage(answered.id, 'user', 'ゼロトラストとは？');
+      await chatRepo.appendMessage(answered.id, 'assistant', '境界を信用しない考え方です。');
 
-      await chatRepo.deleteEmptyOpenSessions();
+      await chatRepo.deleteUnansweredOpenSessions();
 
       expect(await chatRepo.getSession(empty.id)).toBeUndefined();
-      expect(await chatRepo.getSession(touched.id)).toBeDefined();
+      expect(await chatRepo.getSession(unanswered.id)).toBeUndefined();
+      // 削除したセッションのメッセージも残さない(孤児レコードを作らない)
+      expect(await chatRepo.getMessages(unanswered.id)).toHaveLength(0);
+      expect(await chatRepo.getSession(answered.id)).toBeDefined();
+      expect(await chatRepo.getMessages(answered.id)).toHaveLength(2);
     });
 
-    it('committing/committed/declinedのセッションは(メッセージ0件でも)削除しない', async () => {
+    it('committing/committed/declinedのセッションは(assistantメッセージが無くても)削除しない', async () => {
       const chatRepo = repo();
       const committing = await chatRepo.createSession(null, '取り込み中');
       await chatRepo.beginCommit(committing.id);
@@ -101,7 +108,7 @@ describe('createChatRepository', () => {
       const declined = await chatRepo.createSession(null, '登録しない選択済み');
       await chatRepo.declineSession(declined.id);
 
-      await chatRepo.deleteEmptyOpenSessions();
+      await chatRepo.deleteUnansweredOpenSessions();
 
       expect(await chatRepo.getSession(committing.id)).toBeDefined();
       expect(await chatRepo.getSession(declined.id)).toBeDefined();

@@ -166,6 +166,8 @@ describe('App', () => {
     const chatRepo = createChatRepository(db);
     const session = await chatRepo.createSession(null, 'ゼロトラスト');
     await chatRepo.appendMessage(session.id, 'user', 'ゼロトラストとは？');
+    // assistant返答が無いと起動時クリーンアップ(#132)で削除され、一覧に出る前に消えてしまう
+    await chatRepo.appendMessage(session.id, 'assistant', '境界を信用しない考え方です。');
 
     render(<App />);
     await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
@@ -237,7 +239,7 @@ describe('App', () => {
       await chatRepo.declineSession(created!.id);
     });
 
-    it('送信に失敗しても作成済みセッションにユーザー発言1件が残り、取り込み待ちに出る', async () => {
+    it('送信に失敗した場合はセッションが作られず、取り込み待ちにも出ない(#132)', async () => {
       setToken('tok-delay-2');
       vi.stubGlobal(
         'fetch',
@@ -265,22 +267,23 @@ describe('App', () => {
 
       await waitFor(() => expect(screen.getByText('サーバーエラー')).toBeTruthy());
 
+      // AI応答が受信できなかったため、登録用の情報(セッション・メッセージ)は一切残らない
       const chatRepo = createChatRepository(db);
       const open = await chatRepo.getOpenSessions();
-      const created = open.find((s) => s.subjectLabel === '遅延生成テストC');
-      expect(created).toBeTruthy();
-      expect(await chatRepo.getMessages(created!.id)).toHaveLength(1);
+      expect(open.find((s) => s.subjectLabel === '遅延生成テストC')).toBeUndefined();
 
+      // 検索画面に戻っても「取り込み待ち」には出ない
       fireEvent.click(screen.getByText('← 戻る'));
-      await waitFor(() => expect(screen.getByText('遅延生成テストC')).toBeTruthy());
-
-      await chatRepo.declineSession(created!.id);
+      await waitFor(() => expect(screen.getByRole('combobox')).toBeTruthy());
+      expect(screen.queryByText('遅延生成テストC')).toBeNull();
     });
 
     it('既存openセッションがあれば再利用し、新規セッションは作られない(従来どおり)', async () => {
       const chatRepo = createChatRepository(db);
       const existing = await chatRepo.createSession(null, '遅延生成テストD');
       await chatRepo.appendMessage(existing.id, 'user', '既存の質問');
+      // assistant返答が無いと起動時クリーンアップ(#132)で削除され、再利用対象が消えてしまう
+      await chatRepo.appendMessage(existing.id, 'assistant', '既存の返答');
 
       setToken('tok-delay-3');
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(seed) }));
@@ -302,11 +305,14 @@ describe('App', () => {
       await chatRepo.declineSession(existing.id);
     });
 
-    it('起動時クリーンアップはopen×メッセージ0件のセッションだけを削除する(メッセージありは残す)', async () => {
+    it('起動時クリーンアップはAI返答が無いopenセッションを削除する(返答ありは残す。#132)', async () => {
       const chatRepo = createChatRepository(db);
       const empty = await chatRepo.createSession(null, '遅延生成テストE-空');
-      const touched = await chatRepo.createSession(null, '遅延生成テストE-有');
-      await chatRepo.appendMessage(touched.id, 'user', 'なにか');
+      const unanswered = await chatRepo.createSession(null, '遅延生成テストE-質問のみ');
+      await chatRepo.appendMessage(unanswered.id, 'user', 'なにか');
+      const answered = await chatRepo.createSession(null, '遅延生成テストE-返答あり');
+      await chatRepo.appendMessage(answered.id, 'user', 'なにか');
+      await chatRepo.appendMessage(answered.id, 'assistant', 'こたえ');
 
       render(<App />);
       await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
@@ -314,9 +320,11 @@ describe('App', () => {
       await waitFor(async () => {
         expect(await chatRepo.getSession(empty.id)).toBeUndefined();
       });
-      expect(await chatRepo.getSession(touched.id)).toBeDefined();
+      // 旧保存順の残骸(質問のみ)も削除され、AI返答のある会話だけが残る
+      expect(await chatRepo.getSession(unanswered.id)).toBeUndefined();
+      expect(await chatRepo.getSession(answered.id)).toBeDefined();
 
-      await chatRepo.declineSession(touched.id);
+      await chatRepo.declineSession(answered.id);
     });
 
     it('下書き(sessionId:null)チャットはリロードしても復元されず検索画面に落ちる', async () => {

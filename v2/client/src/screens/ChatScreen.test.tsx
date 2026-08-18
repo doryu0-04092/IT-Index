@@ -441,7 +441,7 @@ describe('ChatScreen', () => {
       await waitFor(() => expect(screen.getByText('この会話を取り込む')).toBeTruthy());
     });
 
-    it('送信に失敗しても作成済みセッションにはユーザー発言1件が残る(v1準拠の挙動を維持)', async () => {
+    it('送信に失敗した場合はセッションもメッセージもDBに残らず、質問文が入力欄へ戻る(#132)', async () => {
       setToken('tok-1');
       const aiClient: AiClient = { send: vi.fn().mockRejectedValue(new Error('network error')) };
 
@@ -466,9 +466,42 @@ describe('ChatScreen', () => {
       fireEvent.click(screen.getByText('送信'));
 
       await waitFor(() => expect(screen.getByText('AIとの通信に失敗しました')).toBeTruthy());
+      // AI応答が受信できなかったため、登録用の情報(セッション・メッセージ)は一切残らない
       const sessions = await chatRepo.getOpenSessions();
-      expect(sessions).toHaveLength(1);
-      expect(await chatRepo.getMessages(sessions[0].id)).toHaveLength(1);
+      expect(sessions).toHaveLength(0);
+      // 送信できなかった質問文は入力欄に復元され、書き直して再送信できる
+      expect((textarea as HTMLTextAreaElement).value).toBe('ゼロトラストって何？');
+    });
+
+    it('2ターン目の送信に失敗した場合、既存セッションと過去のやり取りは残り、失敗した質問だけ保存されない(#132)', async () => {
+      setToken('tok-1');
+      const session = await chatRepo.createSession(null, 'ゼロトラスト');
+      await chatRepo.appendMessage(session.id, 'user', 'ゼロトラストって何？');
+      await chatRepo.appendMessage(session.id, 'assistant', '境界を信用しない考え方です。');
+      const aiClient: AiClient = { send: vi.fn().mockRejectedValue(new Error('network error')) };
+
+      render(
+        <ChatScreen
+          sessionId={session.id}
+          chatRepo={chatRepo}
+          termsRepo={termsRepo}
+          notesRepo={notesRepo}
+          aiClient={aiClient}
+          commitOrchestrator={fakeCommitOrchestrator()}
+          onBack={() => {}}
+          onGoToSync={() => {}}
+          onChangeSubject={() => {}}
+        />,
+      );
+
+      const textarea = await screen.findByLabelText('メッセージ');
+      fireEvent.change(textarea, { target: { value: 'もっと詳しく' } });
+      fireEvent.click(screen.getByText('送信'));
+
+      await waitFor(() => expect(screen.getByText('AIとの通信に失敗しました')).toBeTruthy());
+      // 過去のやり取り2件はそのまま。失敗した質問は追記されない
+      expect(await chatRepo.getMessages(session.id)).toHaveLength(2);
+      expect(await chatRepo.getSession(session.id)).toBeDefined();
     });
 
     it('用語モードの下書きでは辞書側の語名を見出しに表示し、送信時にそのtermIdでcreateSessionする', async () => {

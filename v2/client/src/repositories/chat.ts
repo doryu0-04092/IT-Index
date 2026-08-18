@@ -42,16 +42,16 @@ export interface ChatRepository {
   getRecentSessions(limit: number): Promise<ChatSessionRecord[]>;
   /**
    * アプリ起動時に一度だけ実行するクリーンアップ(本人指定)。open(取り込み待ち)かつ
-   * メッセージ0件のセッションだけを削除する。セッション生成を最初の送信成立時まで遅らせる
-   * ようにした(App.tsx openChatForTerm/openChatForQuery)後も、それ以前のバージョンで
-   * 作られた不可視の空セッション(画面を開いただけで一度も送信せず戻った際に残っていたもの)の
-   * 残骸が既存端末には残っている可能性があるため、その一括掃除に使う。
-   * 安全性: status==='open'かつメッセージ数0件のときだけ削除する——1件でもメッセージが
-   * あれば(送信を試みた実績がある、あるいは取り込み待ちとして意味を持つため)残す。
+   * assistantメッセージが1件も無いセッションを、そのメッセージごと削除する。
+   * 対象は2種類の残骸: (1)セッション生成を送信成立時まで遅らせる前のバージョンで作られた
+   * 不可視の空セッション(メッセージ0件)、(2)AI呼び出し前にuserメッセージを保存していた
+   * 旧保存順のバージョンで、AI呼び出し失敗により質問だけが残ったセッション(#132本人決定。
+   * 現在はAI応答の受信成功後にまとめて保存するため、この形の残骸は新たには生まれない)。
+   * 安全性: assistantメッセージが1件でもあれば「AIから返答が返ってきた」会話なので残す。
    * committing/committed/declinedは対象外(取り込み中・済み・登録しない選択済みのいずれも
    * 消してはいけない)。
    */
-  deleteEmptyOpenSessions(): Promise<void>;
+  deleteUnansweredOpenSessions(): Promise<void>;
 }
 
 async function pruneOldSessions(db: ItIndexDB): Promise<void> {
@@ -161,12 +161,16 @@ export function createChatRepository(db: ItIndexDB): ChatRepository {
       return all.sort((a, b) => b.lastActiveAt - a.lastActiveAt).slice(0, limit);
     },
 
-    async deleteEmptyOpenSessions() {
+    async deleteUnansweredOpenSessions() {
       await db.transaction('rw', db.chatSessions, db.chatMessages, async () => {
         const openSessions = await db.chatSessions.where('status').equals('open').toArray();
         for (const s of openSessions) {
-          const messageCount = await db.chatMessages.where('sessionId').equals(s.id).count();
-          if (messageCount === 0) await db.chatSessions.delete(s.id);
+          const messages = await db.chatMessages.where('sessionId').equals(s.id).toArray();
+          const hasAssistantReply = messages.some((m) => m.role === 'assistant');
+          if (!hasAssistantReply) {
+            await db.chatMessages.where('sessionId').equals(s.id).delete();
+            await db.chatSessions.delete(s.id);
+          }
         }
       });
     },
