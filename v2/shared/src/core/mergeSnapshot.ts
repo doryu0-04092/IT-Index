@@ -24,11 +24,38 @@ export interface NoteConflict {
   remote: NoteRecord;
 }
 
+/**
+ * マージ規則のオプション(#157)。プラットフォーム名はsharedに持ち込まず、方針名で抽象化する。
+ * 省略時は従来どおり(newest-wins + 競合記録)。
+ */
+export interface MergeOptions {
+  /**
+   * trueなら競合時にlocalを保持し、LWWで上書きしない(Androidネイティブ向け)。
+   * 競合の決着はPC側で付け、その決定が届いたときだけ採用する(openConflictBaselines参照)。
+   */
+  holdLocalOnConflict?: boolean;
+  /**
+   * holdLocalOnConflict時のみ使用。termId → その端末で未クローズ競合が検出された時点の
+   * remote.updatedAt。これより新しいremote版は「相手側(PC)の決定」とみなして採用する。
+   * PC側の解消はapplyConflictResolutionでupdatedAt=現在時刻になるため必ずbaselineを超える。
+   * PCが解消せず単に追加編集した場合も決定扱いになるが、PC権威モデルとして許容する(#157)。
+   */
+  openConflictBaselines?: Map<string, number>;
+}
+
+/** holdLocalOnConflict時に「相手側の決定」として採用したnote(呼び出し側が競合のクローズに使う) */
+export interface PeerDecision {
+  termId: string;
+  adopted: NoteRecord;
+}
+
 export interface MergeResult {
   notes: NoteRecord[];
   conflicts: NoteConflict[];
   asks: AskRecord[];
   terms: TermRecord[];
+  /** holdLocalOnConflict時のみ非空。省略モードでは常に[] */
+  peerDecisions: PeerDecision[];
 }
 
 /**
@@ -41,9 +68,14 @@ export interface MergeResult {
  *
  * 同じスナップショットを2回マージしても結果が変わらない（冪等）ことをテストで固める対象。
  */
-export function mergeSnapshot(local: LocalSnapshot, remoteFiles: SyncFile[]): MergeResult {
+export function mergeSnapshot(
+  local: LocalSnapshot,
+  remoteFiles: SyncFile[],
+  options?: MergeOptions,
+): MergeResult {
   const notes: NoteRecord[] = [];
   const conflicts: NoteConflict[] = [];
+  const peerDecisions: PeerDecision[] = [];
 
   const termIds = new Set<string>();
   local.notes.forEach((n) => termIds.add(n.termId));
@@ -55,13 +87,33 @@ export function mergeSnapshot(local: LocalSnapshot, remoteFiles: SyncFile[]): Me
     const candidates = [...(localNote ? [localNote] : []), ...remoteNotes];
 
     const newest = [...candidates].sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    notes.push(newest);
+    const conflictingRemote = localNote
+      ? remoteNotes.find((r) => isRealConflict(localNote, r))
+      : undefined;
 
-    if (localNote) {
-      const conflictingRemote = remoteNotes.find((r) => isRealConflict(localNote, r));
-      if (conflictingRemote) {
-        conflicts.push({ termId, local: localNote, remote: conflictingRemote });
-      }
+    if (localNote === undefined || conflictingRemote === undefined) {
+      // 競合なし: 両モード共通でnewest-wins
+      notes.push(newest);
+      continue;
+    }
+
+    if (!options?.holdLocalOnConflict) {
+      // 従来動作(PC): newest-winsで先に内容を確定し、競合としても記録する
+      notes.push(newest);
+      conflicts.push({ termId, local: localNote, remote: conflictingRemote });
+      continue;
+    }
+
+    // holdLocalOnConflict(Androidネイティブ): 競合検出時のremote版より新しい版が来ていれば
+    // 「相手側(PC)の決定」とみなして採用し、そうでなければ自分の版を保持する。
+    // 保持を入れないと「自分の書いた内容がLWWで勝手に変わった」状態から競合に気づくことになる。
+    const baseline = options.openConflictBaselines?.get(termId);
+    if (baseline !== undefined && conflictingRemote.updatedAt > baseline) {
+      notes.push(conflictingRemote);
+      peerDecisions.push({ termId, adopted: conflictingRemote });
+    } else {
+      notes.push(localNote);
+      conflicts.push({ termId, local: localNote, remote: conflictingRemote });
     }
   }
 
@@ -83,6 +135,7 @@ export function mergeSnapshot(local: LocalSnapshot, remoteFiles: SyncFile[]): Me
     conflicts,
     asks: [...askMap.values()],
     terms: [...termMap.values()],
+    peerDecisions,
   };
 }
 

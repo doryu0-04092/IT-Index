@@ -65,6 +65,27 @@ export interface SyncStateRecord {
 }
 
 /**
+ * 1回の「今すぐ同期」実行の記録(#157)。競合(NoteConflictRecord.syncEventId)はここへリンクし、
+ * 「どの同期でこの競合が発生・持ち越されたか」を辿れるようにする——v1のsyncEventsが競合と
+ * 参照関係を持たず突合できなかった反省による。端末ローカルの記録で同期対象外。
+ */
+export interface SyncEventRecord {
+  id: string;
+  /** 同期開始時刻(epoch ms) */
+  at: number;
+  /** push成功時のseq。push失敗で始まらなかった同期は記録自体を作らない */
+  pushedSeq: number | null;
+  receivedBlobs: number;
+  skippedBlobs: number;
+  /** この同期に紐づく競合件数(新規+持ち越し)。照合フェーズ完了時に確定する */
+  conflictCount: number;
+  /** 受信して検証に通ったblobのdeviceId(重複除去) */
+  peerDeviceIds: string[];
+  /** pullが完走したか。falseのまま残っていれば途中失敗の痕跡 */
+  completed: boolean;
+}
+
+/**
  * v1のNoteConflictRecord相当(../../src/types.ts参照)。AI統合(merged)を実装する
  * (docs不使用の依頼により、v1と同じ3択(local/remote/merged)・mergedキャッシュを持つ)。
  */
@@ -87,4 +108,17 @@ export interface NoteConflictRecord {
    */
   merged: { body: string; diagrams: string[] } | null;
   resolvedAt: number | null;
+  /**
+   * この競合が最後に検出/持ち越された同期イベント(#157)。Dexie version 3以前の
+   * 旧レコードはnull(同期画面には出さず履歴タブにのみ出る)。
+   */
+  syncEventId: string | null;
+  /**
+   * 利用者の選択(resolution)とは別軸の自動クローズ(#157)。
+   * - 'peer-decision': 相手側(PC)の解消結果を採用して統一した(Androidネイティブのみ発生)
+   * - 'superseded': 次の同期で新鮮なデータが届き、競合が再発しなかった
+   * openの定義 = resolution===null && closedReason===null
+   */
+  closedReason: 'peer-decision' | 'superseded' | null;
+  closedAt: number | null;
 }

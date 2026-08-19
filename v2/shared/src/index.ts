@@ -4,7 +4,7 @@ export { BUCKET_ORDER, GOJUON_GRID, NUMERIC_BUCKET, OTHER_BUCKET, bucketOf, buck
 export type { Bucket } from './core/kanaRow';
 export { computeWeights } from './core/computeWeights';
 export { mergeSnapshot, isSameContent } from './core/mergeSnapshot';
-export type { LocalSnapshot, SyncFile } from './core/mergeSnapshot';
+export type { LocalSnapshot, SyncFile, MergeOptions, PeerDecision, NoteConflict } from './core/mergeSnapshot';
 export { computeSyncDelta } from './core/syncDelta';
 export { isSyncTarget } from './core/syncTarget';
 export { validateSeedFile } from './core/validateSeed';

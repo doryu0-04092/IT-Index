@@ -952,6 +952,84 @@ a,
   border-top: 1px solid var(--border);
 }
 
+/* 採用中の可視化(#157依頼者指定)。採用側カードをアクセント色の枠+バッジで明示し、
+   「こちらを採用/採用中」のボタン文言差だけに頼らない */
+.sync-conflict-side {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.conflict-adopted {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.conflict-adopted-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sync-conflict-side-title {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* AI統合を採用中のとき、採用されている統合結果そのものを見せるプレビュー(#157) */
+.sync-conflict-merged-preview {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Androidネイティブ向けの「PC側で解消して」案内(#157) */
+.conflict-pc-only-notice {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* 履歴タブの連携履歴・競合(#157)。競合は同期イベント単位のグループで表示する */
+.sync-event-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.sync-event-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.conflict-event-group {
+  margin-bottom: 24px;
+}
+
+.conflict-event-heading {
+  font-size: 0.95rem;
+  margin: 12px 0 8px;
+}
+
+/* 連携履歴の「競合を見る」から来た時の移動先グループの強調 */
+.conflict-event-group-highlight {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+}
+
 /*
  * license_required時の設定タブ誘導(ChatScreen.tsx・ConflictItem.tsxで共通のクラス)。
  * これまで未定義だったため、この機能追加に合わせて最小限のレイアウトだけ加える。

@@ -1,6 +1,13 @@
 import Dexie, { type Table } from 'dexie';
 import type { AskRecord, NoteRecord, TermRecord } from '@it-index/shared';
-import type { ChatMessageRecord, ChatSessionRecord, NoteConflictRecord, SettingsRecord, SyncStateRecord } from './types';
+import type {
+  ChatMessageRecord,
+  ChatSessionRecord,
+  NoteConflictRecord,
+  SettingsRecord,
+  SyncEventRecord,
+  SyncStateRecord,
+} from './types';
 
 /**
  * v1(../../src/db.ts)のDexie設計を踏襲する。
@@ -12,6 +19,10 @@ import type { ChatMessageRecord, ChatSessionRecord, NoteConflictRecord, Settings
  *
  * version 3(AIチャットと分配統合。v1 ../../src/db.ts参照): chatSessions・chatMessagesを追加。
  * チャットは同期対象外(sync/localSnapshot.tsが組み立てるスナップショットに含めない)。
+ *
+ * version 4(#157 競合と同期履歴のリンク): syncEventsを追加し、noteConflictsに
+ * syncEventId索引を追加。既存の競合行はupgradeで新フィールド(syncEventId/closedReason/
+ * closedAt)をnullに正規化する——旧行は同期画面には出ず履歴タブにのみ出る。
  */
 export class ItIndexDB extends Dexie {
   terms!: Table<TermRecord, string>;
@@ -22,6 +33,7 @@ export class ItIndexDB extends Dexie {
   noteConflicts!: Table<NoteConflictRecord, string>;
   chatSessions!: Table<ChatSessionRecord, string>;
   chatMessages!: Table<ChatMessageRecord, string>;
+  syncEvents!: Table<SyncEventRecord, string>;
 
   constructor(name = 'it-index-v2') {
     super(name);
@@ -39,6 +51,21 @@ export class ItIndexDB extends Dexie {
       chatSessions: 'id, status, termId',
       chatMessages: 'id, sessionId, at',
     });
+    this.version(4)
+      .stores({
+        noteConflicts: 'id, termId, detectedAt, syncEventId',
+        syncEvents: 'id, at',
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table('noteConflicts')
+          .toCollection()
+          .modify((c: NoteConflictRecord) => {
+            c.syncEventId ??= null;
+            c.closedReason ??= null;
+            c.closedAt ??= null;
+          });
+      });
   }
 }
 

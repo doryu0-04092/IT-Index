@@ -8,10 +8,10 @@
  * 「履歴」タブのサブタブ。時系列を既定・最低限の機能とし、重み付けは個人的に作った
  * 特殊な機能の1つとして2番目に置く(本人指定)。「取り込み履歴」(v1のcommitsタブ相当。
  * ただし表示対象はdeclined(登録しない選択済み)セッションのみ)は3番目に追加する。
- * 連携履歴・競合選択は将来ここに追加できるよう型だけ拡張可能にしておく
- * (現時点では実装しない)。'sync' | 'conflicts' を将来追加する想定。
+ * 'sync'(連携履歴)と'conflicts'(競合)は#157で追加した——同期実行の記録(syncEvents)と、
+ * 同期イベントにリンクした競合の全件一覧(PC側では選び直しも可能)。
  */
-export type HistoryView = 'timeline' | 'weighted' | 'commits';
+export type HistoryView = 'timeline' | 'weighted' | 'commits' | 'sync' | 'conflicts';
 
 export type Screen =
   | { name: 'search' }

@@ -36,6 +36,14 @@ export interface NotesRepository {
     at: number,
     rejected: { body: string; diagrams: string[] },
   ): Promise<void>;
+  /**
+   * 相手側(PC)の決定の採用専用(#157。Androidネイティブの同期でのみ使う)。
+   * noteをそのまま(lastEditedBy・updatedAtを保持して)putし、この端末が保持していた
+   * 旧内容をnoteHistoryへ重複なしで積む。applyConflictResolutionと違いlastEditedByを
+   * この端末に書き換えない——書き換えるとisRealConflictの「lastEditedBy同一」判定の
+   * 材料が壊れ、次の同期で同じ内容が再び競合として検出されうるため。
+   */
+  adoptPeerDecision(note: NoteRecord): Promise<void>;
 }
 
 export function createNotesRepository(db: ItIndexDB): NotesRepository {
@@ -111,6 +119,25 @@ export function createNotesRepository(db: ItIndexDB): NotesRepository {
 
         const next: NoteRecord = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, noteHistory };
         await db.notes.put(next);
+      });
+    },
+
+    async adoptPeerDecision(note) {
+      await db.transaction('rw', db.notes, async () => {
+        const existing = await db.notes.get(note.termId);
+        const noteHistory = existing ? [...existing.noteHistory] : [];
+
+        // 保持していた自分の版を履歴に残す(採用で消える内容のロールバック用)。重複は積まない
+        if (existing) {
+          const seen = noteHistory.some(
+            (h) => h.body === existing.body && JSON.stringify(h.diagrams) === JSON.stringify(existing.diagrams),
+          );
+          if (!seen) {
+            noteHistory.push({ body: existing.body, diagrams: existing.diagrams, updatedAt: existing.updatedAt });
+          }
+        }
+
+        await db.notes.put({ ...note, noteHistory });
       });
     },
   };

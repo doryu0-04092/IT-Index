@@ -1,12 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { computeWeights, type AskRecord, type TermRecord } from '@it-index/shared';
+import type { AiClient } from '../ai/aiClient';
 import { loadSessionLabelRows, type SessionLabelRow } from '../lib/chatSessionLabels';
 import SessionListRow from '../lib/SessionListRow';
 import type { HistoryView } from '../navigation';
 import type { AsksRepository } from '../repositories/asks';
 import type { ChatRepository } from '../repositories/chat';
+import type { NoteConflictsRepository } from '../repositories/noteConflicts';
+import type { NotesRepository } from '../repositories/notes';
+import type { SyncEventsRepository } from '../repositories/syncEvents';
 import type { TermsRepository } from '../repositories/terms';
-import type { ChatSessionRecord } from '../types';
+import { useConflictResolution } from '../sync/useConflictResolution';
+import type { ChatSessionRecord, NoteConflictRecord, SyncEventRecord } from '../types';
+import ConflictItem from './ConflictItem';
 
 /** 「取り込み履歴」タブの状態バッジ(v1 ../../../src/ui/pc/HistoryScreen.tsx:40-51を移植) */
 function chatStatusLabel(status: ChatSessionRecord['status']): string {
@@ -22,10 +28,22 @@ function chatStatusLabel(status: ChatSessionRecord['status']): string {
   }
 }
 
+/** 連携履歴に出す同期イベントの上限。チャット履歴の30件(下のgetRecentSessions)と揃える */
+const SYNC_EVENTS_LIMIT = 30;
+
 export interface HistoryScreenProps {
   asksRepo: AsksRepository;
   termsRepo: TermsRepository;
   chatRepo: ChatRepository;
+  notesRepo: NotesRepository;
+  noteConflictsRepo: NoteConflictsRepository;
+  syncEventsRepo: SyncEventsRepository;
+  /** 競合タブの「AIで統合する」に使う(SyncScreenと同じ経路) */
+  aiClient: AiClient;
+  /** Androidネイティブならtrue(#157)。競合タブは表示のみになる */
+  isNativeApp: boolean;
+  /** 競合の選び直しに使う(useAppInit参照。発行前はnull=操作不可) */
+  deviceId: string | null;
   view: HistoryView;
   onChangeView: (view: HistoryView) => void;
   onSelectTerm: (termId: string) => void;
@@ -33,12 +51,16 @@ export interface HistoryScreenProps {
   onOpenChatSession: (sessionId: string) => void;
   /** 「取り込み履歴」タブの「取り込む」。SearchScreenの個別「取り込む」と同じ処理を再利用する */
   onCommitPending: (sessionId: string) => void;
+  /** license_required時の設定タブ誘導(SyncScreenと同じ流儀) */
+  onGoToSettings?: () => void;
 }
 
 const TABS: readonly { view: HistoryView; label: string }[] = [
   { view: 'timeline', label: '時系列' },
   { view: 'weighted', label: '重み付け' },
   { view: 'commits', label: '取り込み履歴' },
+  { view: 'sync', label: '連携履歴' },
+  { view: 'conflicts', label: '競合' },
 ];
 
 /**
@@ -48,13 +70,12 @@ const TABS: readonly { view: HistoryView; label: string }[] = [
  *
  * 「取り込み履歴」タブ(本人指定「検索機能周りに関してはV1を踏襲」)は、AIチャットの記録
  * (v1 ../../../src/ui/pc/HistoryScreen.tsx:64-69・270-294のcommitsタブを移植)。
- * 取り込み待ち(open)・登録しない(declined)・取り込み済み(committed)・取り込み中
- * (committing)のすべてを最終やり取り日時(lastActiveAt)の降順で時系列に並べる
- * ——v1同様、状態で絞り込まない。行にはラベルの他に状態バッジ(chatStatusLabel)と日時を
- * 添え、タップでそのチャットを開く。「取り込む」ボタンはopen/declinedの行にだけ出す
- * (v1:283準拠。committedは既に反映済み、committingは処理中のため出さない)。
- * 連携履歴・競合選択タブは将来ここにサブタブとして追加できるが、現時点では実装しない
- * (要件外)。
+ *
+ * 「連携履歴」「競合」タブは#157で追加(v1の連携履歴・競合選択タブに相当)。
+ * v1と違い両者は参照関係を持つ: 競合はsyncEventIdで同期イベントにリンクし、
+ * 競合タブでは同期イベント単位にグループ表示する。連携履歴の「競合を見る」から
+ * 該当グループへ移動できる。PC側では競合タブから選び直しができる(SyncScreenと同じ
+ * useConflictResolutionを共有)。Androidネイティブでは表示のみ。
  *
  * データ取得(asks・term引き当て)はサブタブ間で共通・1回だけ行う(旧WeightedScreen.tsxの
  * ロードを移植)。並べ替え・表示だけをサブタブごとに分ける。tombstone(削除済み)の語は
@@ -64,15 +85,39 @@ export default function HistoryScreen({
   asksRepo,
   termsRepo,
   chatRepo,
+  notesRepo,
+  noteConflictsRepo,
+  syncEventsRepo,
+  aiClient,
+  isNativeApp,
+  deviceId,
   view,
   onChangeView,
   onSelectTerm,
   onOpenChatSession,
   onCommitPending,
+  onGoToSettings,
 }: HistoryScreenProps) {
   const [asks, setAsks] = useState<AskRecord[]>([]);
   const [termsById, setTermsById] = useState<Map<string, TermRecord>>(new Map());
   const [commitRows, setCommitRows] = useState<SessionLabelRow[] | null>(null);
+  const [syncEvents, setSyncEvents] = useState<SyncEventRecord[]>([]);
+  const [conflicts, setConflicts] = useState<NoteConflictRecord[]>([]);
+  // 連携履歴の「競合を見る」で移動した先のグループを強調する(画面内の一時状態。永続化しない)
+  const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
+
+  const loadSyncData = useCallback(async () => {
+    setSyncEvents(await syncEventsRepo.getRecent(SYNC_EVENTS_LIMIT));
+    setConflicts(await noteConflictsRepo.getAllOrdered());
+  }, [syncEventsRepo, noteConflictsRepo]);
+
+  const { mergingId, mergeErrors, mergeErrorCodes, chooseLocal, chooseRemote, merge } = useConflictResolution({
+    deviceId,
+    notesRepo,
+    noteConflictsRepo,
+    aiClient,
+    onAfterResolve: loadSyncData,
+  });
 
   useEffect(() => {
     void (async () => {
@@ -84,8 +129,10 @@ export default function HistoryScreen({
       // (上のコメント参照)。getRecentSessionsが既にlastActiveAt降順で返す。
       const sessions = await chatRepo.getRecentSessions(30);
       setCommitRows(await loadSessionLabelRows(chatRepo, termsRepo, sessions));
+
+      await loadSyncData();
     })();
-  }, [asksRepo, termsRepo, chatRepo]);
+  }, [asksRepo, termsRepo, chatRepo, loadSyncData]);
 
   // 取り込みはバックグラウンドで進む(App.tsx側)。押した時点でこの一覧からは消してよい
   // (SearchScreen.tsxのhandleCommitPendingと同じ理由)。
@@ -118,6 +165,39 @@ export default function HistoryScreen({
       .filter((r): r is { ask: AskRecord; term: TermRecord } => r.term !== undefined)
       .sort((a, b) => b.ask.at - a.ask.at);
   }, [asks, termsById]);
+
+  // 競合タブ: 同期イベント単位のグループ(新しい順)。syncEventId:nullの旧レコード
+  // (Dexie version 3以前)は「同期記録なし」グループに寄せる
+  const conflictGroups = useMemo(() => {
+    const eventsById = new Map(syncEvents.map((e) => [e.id, e]));
+    const groups = new Map<string | null, NoteConflictRecord[]>();
+    for (const c of conflicts) {
+      const key = c.syncEventId !== null && eventsById.has(c.syncEventId) ? c.syncEventId : null;
+      const list = groups.get(key) ?? [];
+      list.push(c);
+      groups.set(key, list);
+    }
+    return [...groups.entries()]
+      .map(([eventId, list]) => ({
+        eventId,
+        event: eventId !== null ? eventsById.get(eventId) : undefined,
+        list: list.sort((a, b) => b.detectedAt - a.detectedAt),
+      }))
+      .sort((a, b) => (b.event?.at ?? b.list[0].detectedAt) - (a.event?.at ?? a.list[0].detectedAt));
+  }, [conflicts, syncEvents]);
+
+  const conflictCountByEvent = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of conflicts) {
+      if (c.syncEventId !== null) counts.set(c.syncEventId, (counts.get(c.syncEventId) ?? 0) + 1);
+    }
+    return counts;
+  }, [conflicts]);
+
+  function jumpToConflicts(eventId: string) {
+    setHighlightedEventId(eventId);
+    onChangeView('conflicts');
+  }
 
   return (
     <div className="history-screen">
@@ -165,7 +245,7 @@ export default function HistoryScreen({
             ))}
           </ul>
         </>
-      ) : (
+      ) : view === 'commits' ? (
         <>
           {commitRows !== null && commitRows.length === 0 && <p className="status-text">まだ記録がありません。</p>}
           <ul className="result-list">
@@ -188,6 +268,65 @@ export default function HistoryScreen({
               </SessionListRow>
             ))}
           </ul>
+        </>
+      ) : view === 'sync' ? (
+        <>
+          {syncEvents.length === 0 && <p className="status-text">まだ同期の記録がありません。</p>}
+          <ul className="result-list">
+            {syncEvents.map((event) => {
+              const conflictCount = conflictCountByEvent.get(event.id) ?? 0;
+              return (
+                <li key={event.id} className="result-row sync-event-row">
+                  <div className="sync-event-summary">
+                    <span className="result-term">{new Date(event.at).toLocaleString('ja-JP')}</span>
+                    <span className="result-field">
+                      {event.completed
+                        ? `受信${event.receivedBlobs}件(スキップ${event.skippedBlobs}件)・競合${conflictCount}件`
+                        : '途中で失敗しました'}
+                    </span>
+                  </div>
+                  {conflictCount > 0 && (
+                    <button type="button" className="btn-secondary" onClick={() => jumpToConflicts(event.id)}>
+                      競合を見る
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : (
+        <>
+          {isNativeApp && conflicts.length > 0 && (
+            <p className="status-text">競合の解消(選び直し)はパソコン側で行ってください。</p>
+          )}
+          {conflicts.length === 0 && <p className="status-text">まだ競合の記録がありません。</p>}
+          {conflictGroups.map((group) => (
+            <div
+              key={group.eventId ?? 'no-event'}
+              className={`conflict-event-group${group.eventId === highlightedEventId ? ' conflict-event-group-highlight' : ''}`}
+            >
+              <h3 className="conflict-event-heading">
+                {group.event ? `${new Date(group.event.at).toLocaleString('ja-JP')} の同期` : '(同期記録なし)'}
+              </h3>
+              <ul className="sync-conflict-list">
+                {group.list.map((c) => (
+                  <ConflictItem
+                    key={c.id}
+                    conflict={c}
+                    canResolve={!isNativeApp}
+                    merging={mergingId === c.id}
+                    mergeError={mergeErrors[c.id] ?? null}
+                    mergeErrorCode={mergeErrorCodes[c.id] ?? null}
+                    onChooseLocal={() => chooseLocal(c)}
+                    onChooseRemote={() => chooseRemote(c)}
+                    onMerge={() => void merge(c)}
+                    onGoToSettings={onGoToSettings}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
         </>
       )}
     </div>

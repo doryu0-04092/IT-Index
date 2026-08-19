@@ -71,6 +71,7 @@ flowchart LR
 |---|---|---|
 | `keyStore` 廃止(Phase 2完了時) | APIキーを端末に置かない | §2 |
 | `syncEvents` → `syncState` | ピア単位の履歴から「リレーと最後に同期した位置(カーソル)」へ | リレー一本化でピア概念が消える |
+| `syncEvents` 再導入(#157) | 同期実行1回=1レコードのログ(v1と違いピア単位ではなく実行単位)。競合が`noteConflicts.syncEventId`でリンクし、履歴タブの「連携履歴」「競合」から追跡できる | 競合の発生元の同期を辿れるようにする(v1は両者に参照関係が無く突合できなかった) |
 | `terms.createdBy` 追加 | 作成端末/アカウントの記録 | v1の未解決課題([drive-sync.md §課題](../drive-sync.md)): origin:'ai'語の絞り込みができなかった |
 | 同期対象の区分 | v1の区分を踏襲(notes/asks/AI起源termsのみ同期。chat・settingsはしない) | 設計ごと引き継ぐ |
 
@@ -116,7 +117,7 @@ sequenceDiagram
     B->>R: pull(前回カーソル以降の全端末差分)
     R-->>B: 差分列(端末A分を含む)
     Note over B: 純関数mergeSnapshotで決定的マージ<br/>取り込みはDexieトランザクションで原子的に<br/>(v1の未達要件を必達化)
-    B->>B: 競合はnoteConflictsに記録(v1と同じUI)
+    B->>B: 競合はnoteConflictsに記録(#157: 解消はPC側のみ。Androidネイティブは案内表示+自版保持で、PCの決定を次の同期で採用して統一する。競合はsyncEventsにリンクし履歴タブから追跡・選び直しできる)
 ```
 
 - **冪等**: 同じ差分を2回取り込んでも結果が変わらない(v1のマージ設計が既にこの性質を持つ)

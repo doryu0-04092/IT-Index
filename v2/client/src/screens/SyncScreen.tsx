@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AiClient } from '../ai/aiClient';
-import { resolveConflict } from '../ai/resolveConflict';
 import type { ItIndexDB } from '../db';
 import { ApiRequestError } from '../sync/apiClient';
 import AuthForms from '../sync/AuthForms';
-import { pullFromRelay, pushToRelay, type SyncEngineDeps } from '../sync/syncEngine';
+import { runSync, type SyncEngineDeps, type SyncRunResult } from '../sync/syncEngine';
 import { useAuthState } from '../sync/useAuthState';
+import { useConflictResolution } from '../sync/useConflictResolution';
 import type { AsksRepository } from '../repositories/asks';
 import type { NoteConflictRecord } from '../types';
 import type { NoteConflictsRepository } from '../repositories/noteConflicts';
 import type { NotesRepository } from '../repositories/notes';
+import type { SyncEventsRepository } from '../repositories/syncEvents';
 import type { SyncStateRepository } from '../repositories/syncState';
 import type { TermsRepository } from '../repositories/terms';
 import ConflictItem from './ConflictItem';
@@ -18,10 +19,13 @@ export interface SyncScreenProps {
   db: ItIndexDB;
   /** シード取り込み・deviceId発行が終わるまでnull(useAppInit参照)。読み込み中は操作させない */
   deviceId: string | null;
+  /** Androidネイティブならtrue(#157)。競合はPC側で解消する方針のため、trueでは解消操作を出さない */
+  isNativeApp: boolean;
   termsRepo: TermsRepository;
   notesRepo: NotesRepository;
   asksRepo: AsksRepository;
   noteConflictsRepo: NoteConflictsRepository;
+  syncEventsRepo: SyncEventsRepository;
   syncStateRepo: SyncStateRepository;
   /** 「AIで統合する」(要件定義書§5.5)の呼び出しに使う。ChatScreenと同じAIプロキシ経路 */
   aiClient: AiClient;
@@ -34,29 +38,25 @@ export interface SyncScreenProps {
   onGoToSettings?: () => void;
 }
 
-interface SyncResultSummary {
-  receivedBlobs: number;
-  skippedBlobs: number;
-  conflicts: number;
-}
-
 /**
  * 未ログイン時はサインアップ/ログインフォーム、ログイン済みならリレー同期の実行と
  * 競合解決をまとめる画面(要件定義書§4.2「サーバーリレー同期」)。
  *
- * 設定タブ新設(PR)に伴い、APIキー設定(BYOK)とテーマ切替はSettingsScreen.tsxへ移設し、
- * この画面はアカウント(ログイン/サインアップ)・同期実行・競合解決に純化した
- * (v1ファイル取り込みは以降のUIレビュー反映で廃止した)。
- * 認証状態とログインフォームはsync/useAuthState.ts・sync/AuthForms.tsxへ切り出し、
- * SettingsScreen(ライセンスのログイン誘導)と共有する。
+ * #157での変更点:
+ * - 競合リストは「直近の同期(最新syncEvent)に紐づく競合」だけを表示する。次の同期で
+ *   新鮮なデータが届き競合が再発しなければリストから消える(全履歴は履歴タブの競合一覧で見る)
+ * - 解消操作はPC側のみ(isNativeApp=falseのとき)。Androidネイティブでは案内文言を出す
+ * - 解消ロジックはsync/useConflictResolution.tsへ切り出し、履歴タブと共有する
  */
 export default function SyncScreen({
   db,
   deviceId,
+  isNativeApp,
   termsRepo,
   notesRepo,
   asksRepo,
   noteConflictsRepo,
+  syncEventsRepo,
   syncStateRepo,
   aiClient,
   onSyncNotify,
@@ -67,23 +67,37 @@ export default function SyncScreen({
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
-  const [lastResult, setLastResult] = useState<SyncResultSummary | null>(null);
+  const [lastResult, setLastResult] = useState<SyncRunResult | null>(null);
 
   const [conflicts, setConflicts] = useState<NoteConflictRecord[]>([]);
   const [resolvedConflicts, setResolvedConflicts] = useState<NoteConflictRecord[]>([]);
-  // 「AIで統合する」の進行中・失敗は競合レコードごとに個別管理する(id -> 状態)。
-  // 一覧の複数件を並行して統合しようとしても互いに干渉しないようにするため。
-  const [mergingId, setMergingId] = useState<string | null>(null);
-  const [mergeErrors, setMergeErrors] = useState<Record<string, string | null>>({});
-  const [mergeErrorCodes, setMergeErrorCodes] = useState<Record<string, string | null>>({});
 
   const loadConflicts = useCallback(async () => {
-    setConflicts(await noteConflictsRepo.getUnresolved());
-    setResolvedConflicts(await noteConflictsRepo.getResolved());
-  }, [noteConflictsRepo]);
+    // 直近の同期に紐づく競合だけを出す(#157)。同期記録がまだ無ければ空
+    const latest = await syncEventsRepo.getLatest();
+    const linked = latest ? await noteConflictsRepo.getBySyncEventId(latest.id) : [];
+    const active = linked.filter((c) => c.closedReason === null);
+    setConflicts(active.filter((c) => c.resolution === null));
+    setResolvedConflicts(
+      active.filter((c) => c.resolution !== null).sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0)),
+    );
+  }, [noteConflictsRepo, syncEventsRepo]);
+
+  const { mergingId, mergeErrors, mergeErrorCodes, chooseLocal, chooseRemote, merge } = useConflictResolution({
+    deviceId,
+    notesRepo,
+    noteConflictsRepo,
+    aiClient,
+    onAfterResolve: loadConflicts,
+  });
 
   useEffect(() => {
+    // 認証確定時の競合一覧ロードは起動時副作用で、effectで行うのが正しい(useAppInit.tsの
+    // 同名コメント参照)。loadConflictsはawait(getLatest)の後にしかsetStateを呼ばないが、
+    // react-hooks/set-state-in-effectは間接呼び出しの先まで静的に検出するため、
+    // このロードパターンに限り無効化する。
     if (auth.status === 'authed') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       void loadConflicts();
     }
   }, [auth.status, loadConflicts]);
@@ -98,21 +112,30 @@ export default function SyncScreen({
 
   async function handleSyncNow() {
     if (auth.status !== 'authed' || !deviceId) return;
-    const deps: SyncEngineDeps = { db, termsRepo, notesRepo, asksRepo, noteConflictsRepo, syncStateRepo, deviceId };
+    const deps: SyncEngineDeps = {
+      db,
+      termsRepo,
+      notesRepo,
+      asksRepo,
+      noteConflictsRepo,
+      syncEventsRepo,
+      syncStateRepo,
+      deviceId,
+      holdLocalOnConflict: isNativeApp,
+    };
 
     setSyncBusy(true);
     setSyncError(null);
     try {
-      await pushToRelay(deps, auth.token);
-      const outcome = await pullFromRelay(deps, auth.token);
+      const outcome = await runSync(deps, auth.token);
       setLastResult(outcome);
       setLastSyncedAt(Date.now());
       await loadConflicts();
-      // 完了/失敗をトースト通知する(依頼者指定。v1でToastを出していた「進行中/失敗」に
-      // 相当する操作として同期の完了もここに含める。既存のインライン表示(lastResult等)は
-      // そのまま残し、Toastは追加の通知として重ねる)。
+      // 完了/失敗をトースト通知する(依頼者指定)。統一(パソコン側の決定の取り込み)が
+      // あった場合はその旨も知らせる——利用者から見て内容が変わる操作のため
+      const unified = outcome.adoptedDecisions > 0 ? `・パソコン側の解消結果に${outcome.adoptedDecisions}件統一` : '';
       onSyncNotify?.(
-        `同期しました(受信${outcome.receivedBlobs}件・競合${outcome.conflicts}件)。`,
+        `同期しました(受信${outcome.receivedBlobs}件・競合${outcome.conflictCount}件${unified})。`,
         'info',
       );
     } catch (err) {
@@ -124,73 +147,6 @@ export default function SyncScreen({
       onSyncNotify?.(message, 'error');
     } finally {
       setSyncBusy(false);
-    }
-  }
-
-  /**
-   * 選択・選び直しの実処理(移植元: ../../../src/ui/shared/ConflictResolver.tsx apply())。
-   * 「未解決の競合」「解決済みの競合」の両リストから同じ関数を使う——決着をつける操作は
-   * どちらのリストで押しても同じ(notesへの反映・noteConflictsのresolution更新)ため。
-   *
-   * rejectedの決め方はv1と同じ: how==='remote'の時だけlocalを、それ以外(local/merged)は
-   * remoteを「不採用側」としてnoteHistoryへ記録する(notesRepo.applyConflictResolution)。
-   * mergedを選んだ場合にlocal自体は明示的には記録されないが、既存noteに既にlocal相当が
-   * 入っていれば(次に反映)、そちらの記録(existing分)で兼ねられる——v1のまま踏襲した。
-   */
-  async function applyResolution(
-    conflict: NoteConflictRecord,
-    how: 'local' | 'remote' | 'merged',
-    chosen: { body: string; diagrams: string[] },
-    mergedCache: { body: string; diagrams: string[] } | null,
-  ) {
-    if (!deviceId) return;
-    const rejected =
-      how === 'remote'
-        ? { body: conflict.local.body, diagrams: conflict.local.diagrams }
-        : { body: conflict.remote.body, diagrams: conflict.remote.diagrams };
-    // このDate.now()はrender中ではなくonClickハンドラ経由(handleChooseLocal等、コンポーネント
-    // 直下の名前付き関数)から呼ばれる。以前は`.map()`内の無名クロージャから直接呼んでいたため
-    // react-hooks/purityが誤検知していたが、関数を切り出したことで誤検知は起きなくなった。
-    const at = Date.now();
-    await notesRepo.applyConflictResolution(conflict.termId, chosen.body, chosen.diagrams, deviceId, at, rejected);
-    await noteConflictsRepo.setResolution(conflict.id, how, mergedCache, at);
-    await loadConflicts();
-  }
-
-  function handleChooseLocal(conflict: NoteConflictRecord) {
-    void applyResolution(conflict, 'local', conflict.local, null);
-  }
-
-  function handleChooseRemote(conflict: NoteConflictRecord) {
-    void applyResolution(conflict, 'remote', conflict.remote, null);
-  }
-
-  /**
-   * 「AIで統合する」(要件定義書§5.5・移植元: ConflictResolver.tsx chooseMerged())。
-   * 既にconflict.mergedへキャッシュがあれば、それを採用するだけでAIを再度呼ばない
-   * ——同じ2案を何度統合しても同じ結果になるはずで、呼び出し回数(BYOK無しなら上限あり)を
-   * 浪費させないため。
-   */
-  async function handleMerge(conflict: NoteConflictRecord) {
-    setMergeErrors((prev) => ({ ...prev, [conflict.id]: null }));
-    setMergeErrorCodes((prev) => ({ ...prev, [conflict.id]: null }));
-    if (conflict.merged) {
-      await applyResolution(conflict, 'merged', conflict.merged, conflict.merged);
-      return;
-    }
-    setMergingId(conflict.id);
-    try {
-      const result = await resolveConflict(conflict.termId, conflict.local, conflict.remote, aiClient);
-      if (!result) throw new Error('AIの応答を解釈できませんでした。');
-      await applyResolution(conflict, 'merged', result, result);
-    } catch (err) {
-      setMergeErrors((prev) => ({
-        ...prev,
-        [conflict.id]: err instanceof ApiRequestError ? err.message : err instanceof Error ? err.message : String(err),
-      }));
-      setMergeErrorCodes((prev) => ({ ...prev, [conflict.id]: err instanceof ApiRequestError ? err.code : null }));
-    } finally {
-      setMergingId(null);
     }
   }
 
@@ -215,7 +171,7 @@ export default function SyncScreen({
         {lastSyncedAt && <p className="status-text">最終同期: {new Date(lastSyncedAt).toLocaleString('ja-JP')}</p>}
         {lastResult && (
           <p className="status-text">
-            受信{lastResult.receivedBlobs}件(検証失敗{lastResult.skippedBlobs}件をスキップ)・競合{lastResult.conflicts}件
+            受信{lastResult.receivedBlobs}件(検証失敗{lastResult.skippedBlobs}件をスキップ)・競合{lastResult.conflictCount}件
           </p>
         )}
         {syncError && <p className="sync-error">{syncError}</p>}
@@ -224,20 +180,28 @@ export default function SyncScreen({
       {conflicts.length > 0 && (
         <div className="sync-conflicts">
           <h3>未解決の競合({conflicts.length}件)</h3>
-          <p className="status-text">
-            どちらかを採用するか、2つをAIで統合できます。何もしなければ新しい方(自動採用)のままです。
-          </p>
+          {isNativeApp ? (
+            <p className="status-text">
+              競合が見つかりました。競合の解消はパソコン側で行ってください。
+            </p>
+          ) : (
+            <p className="status-text">
+              どちらかを採用するか、2つをAIで統合できます。何もしなければこの端末では新しい方(自動採用)のままです。
+              解消するとスマートフォン側も次の同期で同じ内容に統一されます。
+            </p>
+          )}
           <ul className="sync-conflict-list">
             {conflicts.map((c) => (
               <ConflictItem
                 key={c.id}
                 conflict={c}
+                canResolve={!isNativeApp}
                 merging={mergingId === c.id}
                 mergeError={mergeErrors[c.id] ?? null}
                 mergeErrorCode={mergeErrorCodes[c.id] ?? null}
-                onChooseLocal={() => handleChooseLocal(c)}
-                onChooseRemote={() => handleChooseRemote(c)}
-                onMerge={() => void handleMerge(c)}
+                onChooseLocal={() => chooseLocal(c)}
+                onChooseRemote={() => chooseRemote(c)}
+                onMerge={() => void merge(c)}
                 onGoToSettings={onGoToSettings}
               />
             ))}
@@ -254,12 +218,13 @@ export default function SyncScreen({
               <ConflictItem
                 key={c.id}
                 conflict={c}
+                canResolve={!isNativeApp}
                 merging={mergingId === c.id}
                 mergeError={mergeErrors[c.id] ?? null}
                 mergeErrorCode={mergeErrorCodes[c.id] ?? null}
-                onChooseLocal={() => handleChooseLocal(c)}
-                onChooseRemote={() => handleChooseRemote(c)}
-                onMerge={() => void handleMerge(c)}
+                onChooseLocal={() => chooseLocal(c)}
+                onChooseRemote={() => chooseRemote(c)}
+                onMerge={() => void merge(c)}
                 onGoToSettings={onGoToSettings}
               />
             ))}
