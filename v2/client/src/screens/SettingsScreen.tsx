@@ -5,6 +5,7 @@ import ThemeSwitcher from '../lib/ThemeSwitcher';
 import type { ThemeChoice } from '../lib/theme';
 import { brandLabel } from '../lib/cardValidation';
 import { formatBillingDate, nextBillingDate } from '../lib/billingCycle';
+import LicenseHelpModal from '../lib/LicenseHelpModal';
 import { activateLicense, ApiRequestError, cancelLicense } from '../sync/apiClient';
 import {
   clearServerBaseUrl,
@@ -111,6 +112,9 @@ function LicenseSection({
   const [codeDraft, setCodeDraft] = useState('');
   const [activateBusy, setActivateBusy] = useState(false);
   const [activateError, setActivateError] = useState<string | null>(null);
+  // 「何のための月額オプションか」のヘルプ(#151)。未ライセンス(購入検討中)と
+  // ライセンス有効(何に支払っているかの確認)の両方から開けるよう見出し行に置く
+  const [helpOpen, setHelpOpen] = useState(false);
 
   async function handleActivate() {
     const code = codeDraft.trim();
@@ -156,7 +160,13 @@ function LicenseSection({
 
   return (
     <section className="settings-section">
-      <h2>ライセンス</h2>
+      <div className="license-heading-row">
+        <h2>ライセンス</h2>
+        <button type="button" className="btn-text" onClick={() => setHelpOpen(true)}>
+          このプランでできること
+        </button>
+      </div>
+      {helpOpen && <LicenseHelpModal onClose={() => setHelpOpen(false)} />}
       {auth.licensed ? (
         <>
           <p className="status-text">ライセンス有効</p>

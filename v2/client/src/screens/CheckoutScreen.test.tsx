@@ -6,8 +6,15 @@ import CheckoutScreen, { type CheckoutScreenProps } from './CheckoutScreen';
 /**
  * savePaymentMethodは常にspyで包んで返す(overridesは中身の実装だけを差し替える)。
  * お支払い方法がサーバーへ渡ったか・渡らなかったかの検証に使う。
+ *
+ * 購入(intent='purchase')はカード入力の前に説明ステップ(intro)が挟まる(#151)ため、
+ * フォームを対象とする既存テストのために既定でintroを通過させる。intro自体を
+ * 検証するテストは stayOnIntro: true を渡す。
  */
-function renderCheckout(overrides: Partial<CheckoutScreenProps> = {}) {
+function renderCheckout(
+  overrides: Partial<CheckoutScreenProps> = {},
+  { stayOnIntro = false }: { stayOnIntro?: boolean } = {},
+) {
   const { savePaymentMethod: saveImpl, ...rest } = overrides;
   const savePaymentMethod = vi.fn<CheckoutScreenProps['savePaymentMethod']>(
     saveImpl ?? (() => Promise.resolve()),
@@ -21,6 +28,9 @@ function renderCheckout(overrides: Partial<CheckoutScreenProps> = {}) {
     ...rest,
   };
   render(<CheckoutScreen {...props} />);
+  if (props.intent === 'purchase' && !stayOnIntro) {
+    fireEvent.click(screen.getByRole('button', { name: 'カード入力へ進む' }));
+  }
   return { savePaymentMethod };
 }
 
@@ -179,9 +189,47 @@ describe('CheckoutScreen', () => {
     expect(screen.getByRole('button', { name: 'このカードに変更する' })).toBeTruthy();
   });
 
-  it('戻るでonBackを呼ぶ', () => {
+  it('購入時: カード入力の前に月額サブスクの説明を表示する(#151)', () => {
+    renderCheckout({}, { stayOnIntro: true });
+
+    // 月額制であることと、購入で使えるようになる機能を明示する
+    expect(screen.getByText('月額制のサブスクリプション')).toBeTruthy();
+    expect(screen.getByText('購入すると使えるようになる機能')).toBeTruthy();
+    expect(screen.getByText('端末間同期')).toBeTruthy();
+    expect(screen.getByText('APIキーなしでのAI利用')).toBeTruthy();
+    expect(screen.getByText('モック決済です。実際の課金は発生しません')).toBeTruthy();
+    // 説明の段階ではカード入力を出さない
+    expect(screen.queryByLabelText('カード番号')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'カード入力へ進む' }));
+    expect(screen.getByLabelText('カード番号')).toBeTruthy();
+  });
+
+  it('カード変更モードでは説明ステップを出さず、直接フォームから始める', () => {
+    renderCheckout({ intent: 'change-card' });
+
+    expect(screen.getByLabelText('カード番号')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'カード入力へ進む' })).toBeNull();
+  });
+
+  it('購入時の戻る: 説明ではonBack、フォームでは説明へ戻る', () => {
     const onBack = vi.fn();
-    renderCheckout({ onBack });
+    renderCheckout({ onBack }, { stayOnIntro: true });
+
+    // フォームへ進んでから戻ると説明に戻る(設定タブへは飛ばない)
+    fireEvent.click(screen.getByRole('button', { name: 'カード入力へ進む' }));
+    fireEvent.click(screen.getByRole('button', { name: '← 戻る' }));
+    expect(onBack).not.toHaveBeenCalled();
+    expect(screen.getByText('購入すると使えるようになる機能')).toBeTruthy();
+
+    // 説明で戻ると設定タブへ(onBack)
+    fireEvent.click(screen.getByRole('button', { name: '← 戻る' }));
+    expect(onBack).toHaveBeenCalled();
+  });
+
+  it('カード変更モードの戻るはonBackを呼ぶ', () => {
+    const onBack = vi.fn();
+    renderCheckout({ intent: 'change-card', onBack });
 
     fireEvent.click(screen.getByRole('button', { name: '← 戻る' }));
     expect(onBack).toHaveBeenCalled();
