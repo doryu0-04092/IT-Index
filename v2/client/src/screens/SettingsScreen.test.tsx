@@ -108,6 +108,39 @@ describe('SettingsScreen', () => {
       expect(onGoToCheckout).toHaveBeenCalledWith('purchase');
     });
 
+    it('ヘルプでプランの説明モーダルを開閉できる(未ライセンス時)(#151)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubAuthAndLicenseFetch({ licensed: false });
+
+      renderSettingsScreen();
+      await screen.findByText('IT-Index プレミアム 月額¥300');
+
+      // 開く前は説明を出さない
+      expect(screen.queryByText('IT-Index プレミアムとは')).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: 'このプランでできること' }));
+      expect(screen.getByText('IT-Index プレミアムとは')).toBeTruthy();
+      // 月額サブスクであることと、購入で使えるようになる機能を明示する
+      expect(screen.getByText('月額制のサブスクリプション')).toBeTruthy();
+      expect(screen.getByText('端末間同期')).toBeTruthy();
+      expect(screen.getByText('APIキーなしでのAI利用')).toBeTruthy();
+
+      // ✕(aria-label)とフッターの「閉じる」の2つがあるため、後者(フッター側)で閉じる
+      fireEvent.click(screen.getAllByRole('button', { name: '閉じる' })[1]);
+      expect(screen.queryByText('IT-Index プレミアムとは')).toBeNull();
+    });
+
+    it('ヘルプはライセンス有効時にも開ける(何に支払っているかの確認)(#151)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubAuthAndLicenseFetch({ licensed: true, licenseCode: 'ABCD-1234', paymentMethod: VISA_CARD });
+
+      renderSettingsScreen();
+      await screen.findByText('ライセンス有効');
+
+      fireEvent.click(screen.getByRole('button', { name: 'このプランでできること' }));
+      expect(screen.getByText('IT-Index プレミアムとは')).toBeTruthy();
+    });
+
     it('別端末でもサーバー由来のライセンスコードとお支払い方法を表示する(端末内保存に依存しない)', async () => {
       // この不具合の再現条件そのもの: localStorageにカード情報が一切無い端末
       localStorage.setItem('it-index-v2:token', 'tok-1');

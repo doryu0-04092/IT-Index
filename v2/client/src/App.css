@@ -1127,6 +1127,32 @@ a,
   font-size: 1rem;
 }
 
+/* 購入前の説明(#151)。特典一覧はチェックアウトの説明ステップと
+   設定タブのヘルプモーダル(LicenseHelpModal)で共用 */
+.premium-benefits {
+  margin: 8px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.checkout-benefits-heading {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+
+/* ライセンス見出しとヘルプボタン(#151)を1行に並べる。h2のマージンはそのまま生かし、
+   他セクションの見出しと上下間隔を揃える */
+.license-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 /* 「実際のクレジットカード番号は登録しないでください」の注意書き(本人指定)。
    モック注記(status-text-small)より一段強く、危険色で示す */
 .checkout-warning-note {

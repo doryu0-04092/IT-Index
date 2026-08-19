@@ -1,7 +1,9 @@
 /**
  * チェックアウト画面(要件定義書§4.2「決済はモック」)。設定タブから遷移する全画面の
  * クレジットカード入力フォーム(本人指定: Stripe Checkout風・全画面形式)。用途は2つ:
- * - intent='purchase': ライセンス購入。成功時はprocessPaymentが返したライセンスコードを表示し、
+ * - intent='purchase': ライセンス購入。カード入力の前に「月額サブスクで何ができるか」の
+ *   説明ステップ(intro)を挟む(#151。特典文言はlib/LicenseHelpModal.tsxのPremiumBenefitsと共有)。
+ *   成功時はprocessPaymentが返したライセンスコードを表示し、
  *   お支払い方法(ブランド・下4桁など表示用の4項目)をsavePaymentMethodでサーバーへ保存する。
  * - intent='change-card': お支払い方法の変更。課金処理(processPayment)は呼ばず、
  *   savePaymentMethodだけを呼ぶ(モックのため実際の請求先変更は発生しない)。
@@ -18,6 +20,7 @@
  */
 import { useState } from 'react';
 import { ApiRequestError, type PaymentMethod } from '../sync/apiClient';
+import { PremiumBenefits } from '../lib/LicenseHelpModal';
 import {
   brandLabel,
   detectBrand,
@@ -46,6 +49,7 @@ export interface CheckoutScreenProps {
 }
 
 type Step =
+  | { kind: 'intro' }
   | { kind: 'form' }
   | { kind: 'processing' }
   | { kind: 'complete'; code: string }
@@ -63,7 +67,9 @@ export default function CheckoutScreen({
   savePaymentMethod,
   processingMinDelayMs = 1500,
 }: CheckoutScreenProps) {
-  const [step, setStep] = useState<Step>({ kind: 'form' });
+  // 購入時はカード入力の前に「月額サブスクで何ができるか」の説明を挟む(#151)。
+  // カード変更は既にライセンスを持つ人の操作なので説明は出さず、従来どおりフォームから始める
+  const [step, setStep] = useState<Step>(intent === 'purchase' ? { kind: 'intro' } : { kind: 'form' });
   const [cardNumber, setCardNumber] = useState('');
   const [expiry, setExpiry] = useState('');
   const [cvc, setCvc] = useState('');
@@ -122,6 +128,39 @@ export default function CheckoutScreen({
       }
       failToForm(err);
     }
+  }
+
+  if (step.kind === 'intro') {
+    return (
+      <section className="checkout-screen">
+        <button type="button" className="back-link" onClick={onBack}>
+          ← 戻る
+        </button>
+
+        <div className="checkout-panel">
+          <div className="checkout-summary">
+            <h2>IT-Index プレミアム</h2>
+            <p className="checkout-price">
+              ¥300 <span className="checkout-price-period">/ 月</span>
+            </p>
+            <p className="status-text">
+              <strong>月額制のサブスクリプション</strong>です(毎月自動更新)。
+              解約はいつでも設定タブから行えます。
+            </p>
+          </div>
+
+          <div>
+            <h3 className="checkout-benefits-heading">購入すると使えるようになる機能</h3>
+            <PremiumBenefits />
+          </div>
+
+          <p className="status-text-small">モック決済です。実際の課金は発生しません</p>
+          <button type="button" className="btn-primary" onClick={() => setStep({ kind: 'form' })}>
+            カード入力へ進む
+          </button>
+        </div>
+      </section>
+    );
   }
 
   if (step.kind === 'processing') {
@@ -193,7 +232,12 @@ export default function CheckoutScreen({
 
   return (
     <section className="checkout-screen">
-      <button type="button" className="back-link" onClick={onBack}>
+      {/* 購入時の「戻る」は説明ステップへ戻す(1つ前の画面へ)。カード変更は説明が無いので設定へ */}
+      <button
+        type="button"
+        className="back-link"
+        onClick={intent === 'purchase' ? () => setStep({ kind: 'intro' }) : onBack}
+      >
         ← 戻る
       </button>
 
@@ -207,6 +251,7 @@ export default function CheckoutScreen({
               <p className="checkout-price">
                 ¥300 <span className="checkout-price-period">/ 月</span>
               </p>
+              <p className="status-text-small">月額制のサブスクリプション(毎月自動更新)です</p>
             </>
           )}
           <p className="status-text-small">モック決済です。実際の課金は発生しません</p>
