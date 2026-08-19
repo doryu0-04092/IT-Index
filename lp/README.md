@@ -46,3 +46,12 @@ node lp/build-standalone.mjs
 「APKをダウンロード」からAndroid版のインストールへ進める。
 
 > `index.html` を直したら生成物も作り直してリリースに上げ直すこと(生成物側だけを直さない)。
+
+## Web配信(公式ホストの /lp/)
+
+`v2` の `npm run deploy` がビルド後に `node ../lp/copy-to-dist.mjs` を実行し、
+`index.html` と `assets/` を `v2/client/dist/lp/` へコピーしてWorkerの静的アセットとして配信する。
+
+- 公開URL: **https://it-index.doryu.workers.dev/lp/**
+- LPを更新したら `cd v2 && npm run deploy` だけで反映される(専用の手順なし)
+- リリース添付用の単一ファイル版(上記)とは別物: Web配信は画像を別ファイルのまま配る(キャッシュが効く)
