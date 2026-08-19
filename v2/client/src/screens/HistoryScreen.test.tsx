@@ -3,8 +3,12 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { buildTermRecord, type AskRecord, type TermRecord } from '@it-index/shared';
 import type { AsksRepository } from '../repositories/asks';
 import type { ChatRepository } from '../repositories/chat';
+import type { NoteConflictsRepository } from '../repositories/noteConflicts';
+import type { NotesRepository } from '../repositories/notes';
+import type { SyncEventsRepository } from '../repositories/syncEvents';
 import type { TermsRepository } from '../repositories/terms';
-import type { ChatMessageRecord, ChatSessionRecord } from '../types';
+import type { HistoryView } from '../navigation';
+import type { ChatMessageRecord, ChatSessionRecord, NoteConflictRecord, SyncEventRecord } from '../types';
 import HistoryScreen from './HistoryScreen';
 
 function fakeAsksRepo(asks: AskRecord[]): AsksRepository {
@@ -89,11 +93,75 @@ function ask(termId: string, at: number): AskRecord {
   return { id: `${termId}-${at}`, termId, sessionId: null, at, deviceId: 'd1', source: 'search' };
 }
 
+function fakeNotesRepo(): NotesRepository {
+  return {
+    getByTermId: () => Promise.resolve(undefined),
+    getAll: () => Promise.resolve([]),
+    saveBody: () => Promise.resolve(),
+    applyCommit: () => Promise.resolve(),
+    upsertFromSync: () => Promise.resolve(),
+    applyConflictResolution: vi.fn(() => Promise.resolve()),
+    adoptPeerDecision: () => Promise.resolve(),
+  };
+}
+
+function fakeNoteConflictsRepo(conflicts: NoteConflictRecord[] = []): NoteConflictsRepository {
+  return {
+    add: () => Promise.reject(new Error('not implemented')),
+    getAllOrdered: () => Promise.resolve([...conflicts].sort((a, b) => b.detectedAt - a.detectedAt)),
+    getOpen: () => Promise.resolve(conflicts.filter((c) => c.resolution === null && c.closedReason === null)),
+    findOpenByTermAndPeer: () => Promise.resolve(undefined),
+    getBySyncEventId: (id) => Promise.resolve(conflicts.filter((c) => c.syncEventId === id)),
+    refresh: () => Promise.resolve(),
+    carryOver: () => Promise.resolve(),
+    closeAuto: () => Promise.resolve(),
+    setResolution: vi.fn(() => Promise.resolve()),
+  };
+}
+
+function fakeSyncEventsRepo(events: SyncEventRecord[] = []): SyncEventsRepository {
+  const sorted = () => [...events].sort((a, b) => b.at - a.at);
+  return {
+    put: () => Promise.resolve(),
+    getLatest: () => Promise.resolve(sorted()[0]),
+    getRecent: (limit) => Promise.resolve(sorted().slice(0, limit)),
+    updateOutcome: () => Promise.resolve(),
+  };
+}
+
+function makeSyncEvent(id: string, at: number, conflictCount = 0): SyncEventRecord {
+  return { id, at, pushedSeq: 1, receivedBlobs: 1, skippedBlobs: 0, conflictCount, peerDeviceIds: ['d2'], completed: true };
+}
+
+function makeConflictRecord(overrides: Partial<NoteConflictRecord> = {}): NoteConflictRecord {
+  const base = { diagrams: [], noteHistory: [] };
+  return {
+    id: 'conflict-1',
+    termId: 'tcp-ip',
+    detectedAt: 1000,
+    peerDeviceId: 'd2',
+    local: { ...base, termId: 'tcp-ip', body: 'この端末の内容', updatedAt: 100, lastEditedBy: 'd1' },
+    remote: { ...base, termId: 'tcp-ip', body: '相手の端末の内容', updatedAt: 200, lastEditedBy: 'd2' },
+    resolution: null,
+    merged: null,
+    resolvedAt: null,
+    syncEventId: 'event-1',
+    closedReason: null,
+    closedAt: null,
+    ...overrides,
+  };
+}
+
 function renderHistory(
   asksRepo: AsksRepository,
   termsRepo: TermsRepository,
-  view: 'timeline' | 'weighted' | 'commits' = 'timeline',
+  view: HistoryView = 'timeline',
   chatRepo: ChatRepository = fakeChatRepo(),
+  options: {
+    conflicts?: NoteConflictRecord[];
+    syncEvents?: SyncEventRecord[];
+    isNativeApp?: boolean;
+  } = {},
 ) {
   const onChangeView = vi.fn();
   const onSelectTerm = vi.fn();
@@ -104,6 +172,12 @@ function renderHistory(
       asksRepo={asksRepo}
       termsRepo={termsRepo}
       chatRepo={chatRepo}
+      notesRepo={fakeNotesRepo()}
+      noteConflictsRepo={fakeNoteConflictsRepo(options.conflicts ?? [])}
+      syncEventsRepo={fakeSyncEventsRepo(options.syncEvents ?? [])}
+      aiClient={{ send: vi.fn() }}
+      isNativeApp={options.isNativeApp ?? false}
+      deviceId="d1"
       view={view}
       onChangeView={onChangeView}
       onSelectTerm={onSelectTerm}
@@ -181,11 +255,11 @@ describe('HistoryScreen', () => {
   });
 
   describe('取り込み履歴タブ(本人指定「検索機能周りに関してはV1を踏襲」。全ステータスを時系列表示)', () => {
-    it('タブ順は時系列→重み付け→取り込み履歴', async () => {
+    it('タブ順は時系列→重み付け→取り込み履歴→連携履歴→競合', async () => {
       renderHistory(fakeAsksRepo([]), fakeTermsRepo([]));
       await waitFor(() => expect(screen.getAllByRole('button').length).toBeGreaterThan(0));
       const tabs = screen.getAllByRole('button').filter((b) => b.className.includes('app-nav-link'));
-      expect(tabs.map((b) => b.textContent)).toEqual(['時系列', '重み付け', '取り込み履歴']);
+      expect(tabs.map((b) => b.textContent)).toEqual(['時系列', '重み付け', '取り込み履歴', '連携履歴', '競合']);
     });
 
     it('セッションを一覧表示し(ラベル+状態バッジ+日時)、行タップでonOpenChatSessionが呼ばれる', async () => {
@@ -336,6 +410,81 @@ describe('HistoryScreen', () => {
     it('0件時は「まだ記録がありません。」を表示する', async () => {
       renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'commits');
       await waitFor(() => expect(screen.getByText('まだ記録がありません。')).toBeTruthy());
+    });
+  });
+
+  describe('連携履歴・競合タブ(#157)', () => {
+    it('連携履歴タブは同期を新しい順に表示し、競合ありの行の「競合を見る」で競合タブへ移動する', async () => {
+      const events = [makeSyncEvent('event-1', 1000), makeSyncEvent('event-2', 2000, 1)];
+      const conflicts = [makeConflictRecord({ syncEventId: 'event-2' })];
+      const { onChangeView } = renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'sync', fakeChatRepo(), {
+        syncEvents: events,
+        conflicts,
+      });
+
+      await waitFor(() => expect(screen.getByText(/競合1件/)).toBeTruthy());
+      const rows = screen.getAllByRole('listitem');
+      // 新しい順(event-2が先頭)
+      expect(within(rows[0]).getByText(/競合1件/)).toBeTruthy();
+      expect(within(rows[1]).getByText(/競合0件/)).toBeTruthy();
+      // 競合0件の行には「競合を見る」が無い
+      expect(within(rows[1]).queryByRole('button', { name: '競合を見る' })).toBeNull();
+
+      fireEvent.click(within(rows[0]).getByRole('button', { name: '競合を見る' }));
+      expect(onChangeView).toHaveBeenCalledWith('conflicts');
+    });
+
+    it('競合タブは同期イベント単位にグループ表示し、PC側では選び直しができる', async () => {
+      const events = [makeSyncEvent('event-1', 1000, 1)];
+      const conflicts = [makeConflictRecord({ syncEventId: 'event-1', resolution: 'local', resolvedAt: 1500 })];
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'conflicts', fakeChatRepo(), {
+        syncEvents: events,
+        conflicts,
+      });
+
+      await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+      // 同期イベントの見出し(日時 + 「の同期」)でグループ化されている
+      expect(screen.getByText(/の同期$/)).toBeTruthy();
+      // 採用中バッジと選び直しボタン(未採用側のみ)が出る
+      expect(screen.getByText('✓ 採用中')).toBeTruthy();
+      expect(screen.getAllByRole('button', { name: 'こちらを採用' })).toHaveLength(1);
+    });
+
+    it('競合タブはAndroidネイティブでは表示のみ(選び直し不可)', async () => {
+      const events = [makeSyncEvent('event-1', 1000, 1)];
+      const conflicts = [makeConflictRecord({ syncEventId: 'event-1' })];
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'conflicts', fakeChatRepo(), {
+        syncEvents: events,
+        conflicts,
+        isNativeApp: true,
+      });
+
+      await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+      expect(screen.getByText(/選び直し\)はパソコン側で行ってください/)).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'こちらを採用' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'AIで統合する' })).toBeNull();
+    });
+
+    it('自動クローズ済みの競合は理由を表示し、選び直しの対象にしない', async () => {
+      const events = [makeSyncEvent('event-1', 1000, 1)];
+      const conflicts = [
+        makeConflictRecord({ id: 'c1', termId: 'tcp-ip', syncEventId: 'event-1', closedReason: 'peer-decision', closedAt: 2000 }),
+        makeConflictRecord({ id: 'c2', termId: 'dns', syncEventId: 'event-1', closedReason: 'superseded', closedAt: 2000 }),
+      ];
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'conflicts', fakeChatRepo(), {
+        syncEvents: events,
+        conflicts,
+      });
+
+      await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+      expect(screen.getByText('パソコン側の解消結果に統一済みです。')).toBeTruthy();
+      expect(screen.getByText('解消済みです(次の同期で競合が再発しませんでした)。')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'こちらを採用' })).toBeNull();
+    });
+
+    it('競合0件時は「まだ競合の記録がありません。」を表示する', async () => {
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'conflicts');
+      await waitFor(() => expect(screen.getByText('まだ競合の記録がありません。')).toBeTruthy());
     });
   });
 });

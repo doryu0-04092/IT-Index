@@ -6,8 +6,10 @@ import { createChatRepository, type ChatRepository } from './repositories/chat';
 import { createNoteConflictsRepository, type NoteConflictsRepository } from './repositories/noteConflicts';
 import { createNotesRepository, type NotesRepository } from './repositories/notes';
 import { createSettingsRepository, type SettingsRepository } from './repositories/settings';
+import { createSyncEventsRepository, type SyncEventsRepository } from './repositories/syncEvents';
 import { createSyncStateRepository, type SyncStateRepository } from './repositories/syncState';
 import { createTermsRepository, type TermsRepository } from './repositories/terms';
+import { detectIsNativeApp } from './lib/platform';
 import { fetchSeedFile, importSeed } from './seed/importSeed';
 
 export interface AppInit {
@@ -17,9 +19,16 @@ export interface AppInit {
   chatRepo: ChatRepository;
   settingsRepo: SettingsRepository;
   noteConflictsRepo: NoteConflictsRepository;
+  syncEventsRepo: SyncEventsRepository;
   syncStateRepo: SyncStateRepository;
   /** settingsRepo.get()が終わるまでnull(初回起動時にcrypto.randomUUID()で発行される) */
   deviceId: string | null;
+  /**
+   * Androidネイティブ(Capacitorアプリ)ならtrue(#157)。判定が終わるまでfalse
+   * (誤ってfalse側で描画されても「解消操作が一瞬見える」だけで、判定は起動直後に確定する。
+   * PCブラウザ・スマートフォンのブラウザはどちらもfalse=解消できる側)。
+   */
+  isNativeApp: boolean;
   /**
    * 既存語への自動反映の範囲(要件定義書§5.3)。設定UIは無く、settingsRepo.get()の既定値
    * ('askedOnly')で動作する。settingsRepo.get()が終わるまでは'askedOnly'を仮の値として使う
@@ -48,9 +57,11 @@ export function useAppInit(): AppInit {
   const chatRepo = useMemo(() => createChatRepository(db), []);
   const settingsRepo = useMemo(() => createSettingsRepository(db), []);
   const noteConflictsRepo = useMemo(() => createNoteConflictsRepository(db), []);
+  const syncEventsRepo = useMemo(() => createSyncEventsRepository(db), []);
   const syncStateRepo = useMemo(() => createSyncStateRepository(db), []);
 
   const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [isNativeApp, setIsNativeApp] = useState(false);
   const [autoUpdateExistingTerms, setAutoUpdateExistingTerms] = useState<AutoUpdateExistingTermsMode>('askedOnly');
   const [seedError, setSeedError] = useState<string | null>(null);
   const [seedSettled, setSeedSettled] = useState(false);
@@ -88,6 +99,8 @@ export function useAppInit(): AppInit {
       setDeviceId(s.deviceId);
       setAutoUpdateExistingTerms(s.autoUpdateExistingTerms);
     });
+    // プラットフォーム判定(#157)。競合解消UIの出し分け(PC=解消可/Androidネイティブ=案内のみ)に使う
+    void detectIsNativeApp().then(setIsNativeApp);
     // 起動時クリーンアップ(本人指定)。旧バージョンの残骸——不可視の空セッションと、
     // AI呼び出し失敗で質問だけが残ったセッション(#132以前の保存順によるもの)——を
     // 一度だけ削除する。setStateを呼ばないためeffect内から直接fire-and-forgetしてよい
@@ -102,8 +115,10 @@ export function useAppInit(): AppInit {
     chatRepo,
     settingsRepo,
     noteConflictsRepo,
+    syncEventsRepo,
     syncStateRepo,
     deviceId,
+    isNativeApp,
     autoUpdateExistingTerms,
     seedError,
     seedSettled,

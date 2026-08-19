@@ -51,6 +51,10 @@ function fakeNotesRepo(initial?: NoteRecord): NotesRepository {
       note = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, noteHistory: note ? [...note.noteHistory] : [] };
       return Promise.resolve();
     },
+    adoptPeerDecision: (n) => {
+      note = n;
+      return Promise.resolve();
+    },
   };
 }
 

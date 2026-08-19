@@ -6,6 +6,7 @@ import { ItIndexDB } from '../db';
 import { createAsksRepository } from '../repositories/asks';
 import { createNoteConflictsRepository, type NoteConflict } from '../repositories/noteConflicts';
 import { createNotesRepository } from '../repositories/notes';
+import { createSyncEventsRepository } from '../repositories/syncEvents';
 import { createSyncStateRepository } from '../repositories/syncState';
 import { createTermsRepository } from '../repositories/terms';
 import { ApiRequestError } from '../sync/apiClient';
@@ -36,8 +37,32 @@ function createSyncDeps() {
     notesRepo: createNotesRepository(db),
     asksRepo: createAsksRepository(db),
     noteConflictsRepo: createNoteConflictsRepository(db),
+    syncEventsRepo: createSyncEventsRepository(db),
     syncStateRepo: createSyncStateRepository(db),
   };
+}
+
+/**
+ * 競合を事前に仕込む(#157で画面は「最新の同期イベントに紐づく競合」だけを表示するため、
+ * 同期イベントも一緒に作ってリンクさせる)。
+ */
+async function seedConflict(
+  deps: ReturnType<typeof createSyncDeps>,
+  conflict: NoteConflict,
+  detectedAt = 1000,
+) {
+  const eventId = 'event-test';
+  await deps.syncEventsRepo.put({
+    id: eventId,
+    at: detectedAt,
+    pushedSeq: 1,
+    receivedBlobs: 1,
+    skippedBlobs: 0,
+    conflictCount: 1,
+    peerDeviceIds: ['device-2'],
+    completed: true,
+  });
+  return deps.noteConflictsRepo.add(conflict, 'device-2', detectedAt, eventId);
 }
 
 /**
@@ -47,16 +72,23 @@ function createSyncDeps() {
  */
 function renderSyncScreen(
   deps: ReturnType<typeof createSyncDeps> = createSyncDeps(),
-  options: { deviceId?: string | null; aiClient?: AiClient; onGoToSettings?: () => void } = {},
+  options: {
+    deviceId?: string | null;
+    aiClient?: AiClient;
+    onGoToSettings?: () => void;
+    isNativeApp?: boolean;
+  } = {},
 ) {
   render(
     <SyncScreen
       db={deps.db}
       deviceId={options.deviceId ?? 'device-1'}
+      isNativeApp={options.isNativeApp ?? false}
       termsRepo={deps.termsRepo}
       notesRepo={deps.notesRepo}
       asksRepo={deps.asksRepo}
       noteConflictsRepo={deps.noteConflictsRepo}
+      syncEventsRepo={deps.syncEventsRepo}
       syncStateRepo={deps.syncStateRepo}
       aiClient={options.aiClient ?? fakeAiClient()}
       onGoToSettings={options.onGoToSettings}
@@ -213,7 +245,7 @@ describe('SyncScreen', () => {
 
   it('「AIで統合する」を適用するとnotesに反映され、再度統合を選んでもキャッシュがあれば再呼び出ししない', async () => {
     const deps = createSyncDeps();
-    await deps.noteConflictsRepo.add(makeConflict('tcp-ip'), 'device-2', 1000);
+    await seedConflict(deps, makeConflict('tcp-ip'));
     const send = vi.fn().mockResolvedValue({
       text: JSON.stringify({ body: '統合された説明', diagrams: [] }),
       stopReason: 'end_turn',
@@ -246,7 +278,7 @@ describe('SyncScreen', () => {
 
   it('AI統合が失敗した場合はエラーを表示し、license_requiredなら設定タブへ誘導する(未適用のまま)', async () => {
     const deps = createSyncDeps();
-    await deps.noteConflictsRepo.add(makeConflict('tcp-ip'), 'device-2', 1000);
+    await seedConflict(deps, makeConflict('tcp-ip'));
     const send = vi.fn().mockRejectedValue(
       new ApiRequestError(
         { code: 'license_required', message: 'ライセンスが必要です。設定タブから購入(モック)するか、自分のサーバーを設定してください。' },
@@ -273,7 +305,7 @@ describe('SyncScreen', () => {
 
   it('AI統合の応答を解釈できない場合もエラーを表示する(license_required以外の通常のエラー文言)', async () => {
     const deps = createSyncDeps();
-    await deps.noteConflictsRepo.add(makeConflict('tcp-ip'), 'device-2', 1000);
+    await seedConflict(deps, makeConflict('tcp-ip'));
     const send = vi.fn().mockResolvedValue({ text: '壊れた応答', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } });
     stubAuthedFetch();
 
@@ -288,7 +320,7 @@ describe('SyncScreen', () => {
 
   it('解決済みの競合を選び直すと、この端末のnotesの内容が置き換わる', async () => {
     const deps = createSyncDeps();
-    await deps.noteConflictsRepo.add(makeConflict('tcp-ip'), 'device-2', 1000);
+    await seedConflict(deps, makeConflict('tcp-ip'));
     stubAuthedFetch();
 
     renderSyncScreen(deps);
@@ -305,9 +337,45 @@ describe('SyncScreen', () => {
     await waitFor(async () => expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('相手の端末の内容'));
   });
 
+  it('Androidネイティブでは解消操作を出さず、パソコン側での解消を案内する(#157)', async () => {
+    const deps = createSyncDeps();
+    await seedConflict(deps, makeConflict('tcp-ip'));
+    stubAuthedFetch();
+
+    renderSyncScreen(deps, { isNativeApp: true });
+    await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+
+    // 案内はセクション見出し下と各競合カード内の2箇所に出る
+    expect(screen.getAllByText(/競合の解消はパソコン側で行ってください/)).toHaveLength(2);
+    // 各競合カード内の案内(自分の内容を保持・次の同期で統一)
+    expect(screen.getByText(/この端末で保存した内容をそのまま表示し続けます/)).toBeTruthy();
+    expect(screen.getByText(/次の同期でパソコン側と同じ内容に統一されます/)).toBeTruthy();
+    // 解消操作は一切出さない
+    expect(screen.queryByRole('button', { name: 'こちらを採用' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'AIで統合する' })).toBeNull();
+  });
+
+  it('採用中の選択肢にはバッジが付く(#157)', async () => {
+    const deps = createSyncDeps();
+    await seedConflict(deps, makeConflict('tcp-ip'));
+    stubAuthedFetch();
+
+    renderSyncScreen(deps);
+    await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+    expect(screen.queryByText('✓ 採用中')).toBeNull(); // 未解決の間はバッジ無し
+
+    const item = screen.getByText('tcp-ip').closest('li')!;
+    fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[0]); // この端末の内容
+
+    await waitFor(() => expect(screen.getByText('✓ 採用中')).toBeTruthy());
+    // 採用済み側にはボタンが出ず、未採用側の1つだけ残る
+    const resolved = screen.getByText('tcp-ip').closest('li')!;
+    expect(within(resolved).getAllByRole('button', { name: 'こちらを採用' })).toHaveLength(1);
+  });
+
   it('解決済みの競合の一覧を表示する', async () => {
     const deps = createSyncDeps();
-    await deps.noteConflictsRepo.add(makeConflict('tcp-ip'), 'device-2', 1000);
+    await seedConflict(deps, makeConflict('tcp-ip'));
     stubAuthedFetch();
 
     renderSyncScreen(deps);

@@ -53,8 +53,10 @@ export function App() {
     asksRepo,
     chatRepo,
     noteConflictsRepo,
+    syncEventsRepo,
     syncStateRepo,
     deviceId,
+    isNativeApp,
     autoUpdateExistingTerms,
     seedError,
     seedSettled,
@@ -359,11 +361,18 @@ export function App() {
             asksRepo={asksRepo}
             termsRepo={termsRepo}
             chatRepo={chatRepo}
+            notesRepo={notesRepo}
+            noteConflictsRepo={noteConflictsRepo}
+            syncEventsRepo={syncEventsRepo}
+            aiClient={aiClient}
+            isNativeApp={isNativeApp}
+            deviceId={deviceId}
             view={screen.view}
             onChangeView={(view) => setScreen({ name: 'history', view })}
             onSelectTerm={(termId) => openDetail(termId, screen)}
             onOpenChatSession={(sessionId) => setScreen({ name: 'chat', sessionId, returnTo: screen })}
             onCommitPending={commitPendingTerm}
+            onGoToSettings={() => setScreen({ name: 'settings' })}
           />
         ) : screen.name === 'settings' ? (
           <SettingsScreen
@@ -394,10 +403,12 @@ export function App() {
           <SyncScreen
             db={db}
             deviceId={deviceId}
+            isNativeApp={isNativeApp}
             termsRepo={termsRepo}
             notesRepo={notesRepo}
             asksRepo={asksRepo}
             noteConflictsRepo={noteConflictsRepo}
+            syncEventsRepo={syncEventsRepo}
             syncStateRepo={syncStateRepo}
             aiClient={aiClient}
             onSyncNotify={notify}
