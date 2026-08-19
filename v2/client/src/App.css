@@ -264,6 +264,18 @@ a,
   border-radius: 8px;
   background: var(--bg);
   color: var(--fg);
+  /* 直後の「AIで検索」ボタンとの間隔(#158)。v1(src/index.css .search-input)にあった
+     margin-bottomがv2移植時に失われ、間隔0でborder同士が接触し、高DPIのAndroid実機では
+     重なったように描画されていた */
+  margin-bottom: 8px;
+}
+
+/* 「〜をAIで検索」(#158)。v1の.search-ai-search(src/index.css:321-326)がv2でのクラス名変更
+   (.search-ask-ai)時にCSSごと失われていたのを復元する。overflow-wrap:anywhereは
+   長い入力文字列がボタン名に入っても横へはみ出させないため(v1と同じ理由) */
+.search-ask-ai {
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
 }
 
 .result-list {
