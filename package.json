@@ -19,7 +19,8 @@
     "dev:electron": "npm run build:electron:main && node electron/scripts/dev.mjs",
     "build:electron:main": "tsc -p electron/tsconfig.json && node electron/scripts/post-build.mjs",
     "build:electron": "npm run build && npm run build:electron:main && electron-builder",
-    "build:android": "vite build && npx cap sync android"
+    "build:android": "vite build && npx cap sync android",
+    "build:lp": "node lp/build-standalone.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
