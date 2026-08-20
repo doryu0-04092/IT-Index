@@ -5,6 +5,7 @@ import { ItIndexDB } from '../db';
 import { createAsksRepository, type AsksRepository } from '../repositories/asks';
 import { createChatRepository, type ChatRepository } from '../repositories/chat';
 import { createNotesRepository, type NotesRepository } from '../repositories/notes';
+import { createSettingsRepository } from '../repositories/settings';
 import { createTermsRepository, type TermsRepository } from '../repositories/terms';
 import { createCommitOrchestrator, type CommitOrchestratorDeps } from './commitOrchestrator';
 import { createScriptedAiClient } from './testSupport';
@@ -17,6 +18,7 @@ function baseDeps(
   return {
     db,
     asksRepo: createAsksRepository(db),
+    settingsRepo: createSettingsRepository(db),
     deviceId: 'device-A',
     autoUpdateExistingTerms: 'askedOnly',
     ...overrides,
@@ -96,6 +98,37 @@ describe('createCommitOrchestrator', () => {
     await orchestrator.triggerCommit(session.id);
 
     expect(onCommitted).toHaveBeenCalledWith(session.id);
+  });
+
+  it('取り込み成功時は「push待ち」印が確定と同一トランザクションで立つ(#179 write-ahead)', async () => {
+    const session = await chatRepo.createSession(null);
+    await chatRepo.appendMessage(session.id, 'user', 'TCP/IPって何？');
+
+    const settingsRepo = createSettingsRepository(db);
+    const aiClient = createScriptedAiClient(['[]']);
+    const orchestrator = createCommitOrchestrator(
+      baseDeps(db, { chatRepo, termsRepo, notesRepo, settingsRepo, aiClient }),
+    );
+    expect((await settingsRepo.get()).pendingAutoPushAt).toBeNull();
+
+    await orchestrator.triggerCommit(session.id);
+
+    expect((await settingsRepo.get()).pendingAutoPushAt).not.toBeNull();
+  });
+
+  it('AI失敗・ロールバック時は「push待ち」印が立たない(取り込まれていないものをpush予約しない)(#179)', async () => {
+    const session = await chatRepo.createSession(null);
+    await chatRepo.appendMessage(session.id, 'user', 'TCP/IPって何？');
+
+    const settingsRepo = createSettingsRepository(db);
+    const aiClient = { send: vi.fn().mockRejectedValue(new Error('AI失敗(テスト用)')) };
+    const orchestrator = createCommitOrchestrator(
+      baseDeps(db, { chatRepo, termsRepo, notesRepo, settingsRepo, aiClient, onError: vi.fn() }),
+    );
+
+    await orchestrator.triggerCommit(session.id);
+
+    expect((await settingsRepo.get()).pendingAutoPushAt).toBeNull();
   });
 
   it('取り込みで語が増えた場合もonCommittedを呼ぶ(リレーへの自動pushの起点)(#177)', async () => {

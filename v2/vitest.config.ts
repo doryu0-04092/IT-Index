@@ -21,6 +21,7 @@ export default defineConfig({
         'shared/src/core/syncTarget.ts',
         'client/src/sync/syncEngine.ts',
         'client/src/sync/localSnapshot.ts',
+        'client/src/sync/pendingPush.ts',
         'client/src/sync/useConflictResolution.ts',
         'client/src/repositories/noteConflicts.ts',
         'client/src/repositories/syncEvents.ts',

@@ -2,6 +2,7 @@ import type { ItIndexDB } from '../db';
 import type { AsksRepository } from '../repositories/asks';
 import type { ChatRepository } from '../repositories/chat';
 import type { NotesRepository } from '../repositories/notes';
+import type { SettingsRepository } from '../repositories/settings';
 import type { TermsRepository } from '../repositories/terms';
 import type { AiClient } from './aiClient';
 import { commitProposal, proposeDistribution, type AutoUpdateExistingTermsMode } from './distribution';
@@ -13,6 +14,8 @@ export interface CommitOrchestratorDeps {
   termsRepo: TermsRepository;
   notesRepo: NotesRepository;
   asksRepo: AsksRepository;
+  /** 自動pushの「push待ち」印(#179)を確定の書き込みと同一トランザクションで立てるために使う */
+  settingsRepo: SettingsRepository;
   aiClient: AiClient;
   deviceId: string;
   /** 要件定義書§5.3「既存語の自動更新」。設定は持つがUIは無く、既定'askedOnly'で動作する */
@@ -66,15 +69,24 @@ export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOr
 
       // 実際のDB書き込みは1つのトランザクションに包む(全部書き込まれるか、何も
       // 書き込まれないかのどちらかにする)。
-      await deps.db.transaction('rw', [deps.db.terms, deps.db.notes, deps.db.asks, deps.db.chatSessions], async () => {
-        await commitProposal(proposal, deps.autoUpdateExistingTerms, {
-          termsRepo: deps.termsRepo,
-          notesRepo: deps.notesRepo,
-          asksRepo: deps.asksRepo,
-          chatRepo: deps.chatRepo,
-          deviceId: deps.deviceId,
-        });
-      });
+      await deps.db.transaction(
+        'rw',
+        [deps.db.terms, deps.db.notes, deps.db.asks, deps.db.chatSessions, deps.db.settings],
+        async () => {
+          await commitProposal(proposal, deps.autoUpdateExistingTerms, {
+            termsRepo: deps.termsRepo,
+            notesRepo: deps.notesRepo,
+            asksRepo: deps.asksRepo,
+            chatRepo: deps.chatRepo,
+            deviceId: deps.deviceId,
+          });
+          // 自動pushの「push待ち」印(#179)。確定の書き込みと同一トランザクションで立てる
+          // ——ここが分かれていると、確定コミット直後のクラッシュで「取り込んだのに
+          // push予定が消えている」状態(意図の破損)が生まれるため。ロールバック時は
+          // 印も一緒に消える(取り込まれていないものをpush予約しない)。
+          await deps.settingsRepo.setPendingAutoPushAt(Date.now());
+        },
+      );
       // トランザクション成功後にのみ通知する(部分的な書き込みは残らないため、
       // 通知が飛んだ時点で読み直せば必ず完全な結果が見える)
       deps.onCommitted?.(sessionId);

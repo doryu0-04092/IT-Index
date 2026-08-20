@@ -19,6 +19,7 @@ import SyncScreen from './screens/SyncScreen';
 import TermDetailScreen from './screens/TermDetailScreen';
 import TermIndexScreen from './screens/TermIndexScreen';
 import { purchaseLicense, savePaymentMethod } from './sync/apiClient';
+import { retryPendingPush, runAutoPush } from './sync/pendingPush';
 import { pushToRelay, type SyncEngineDeps } from './sync/syncEngine';
 import { getToken } from './sync/tokenStore';
 import { useAppInit } from './useAppInit';
@@ -53,6 +54,7 @@ export function App() {
     notesRepo,
     asksRepo,
     chatRepo,
+    settingsRepo,
     noteConflictsRepo,
     syncEventsRepo,
     syncStateRepo,
@@ -168,26 +170,47 @@ export function App() {
    *   (1回目は相手がまだpushしておらず空振りするため)。取り込み時点でpushしておけば
    *   各端末が1回ずつ同期するだけで揃う。
    *
-   * AI APIは使わない(pushはリレーのみで完結する)。未ログイン・deviceId未確定なら何もしない。
-   * 失敗(オフライン等)は静かに握りつぶす: 送るのは差分ではなく毎回全件のスナップショット
-   * なので、次の同期のpushで同じ内容が必ず届き、失われるものが無い。
+   * AI APIは使わない(pushはリレーのみで完結する)。
+   *
+   * write-ahead(#179): pushの前に「push待ち」印を永続化し、成功が確認できた時だけ消す
+   * (sync/pendingPush.ts)。失敗・未ログイン・クラッシュでは印が残り、起動時・
+   * オンライン復帰時・次の自動push時に再試行される——「上げたつもりの変更がリレーに無い」
+   * 状態を残さないため(実行予定フラグの喪失=意図の破損、という本人指定の方針)。
    */
   const pushSnapshotToRelay = useCallback(() => {
-    const token = getToken();
-    if (!token || !deviceId) return;
-    const deps: SyncEngineDeps = {
-      db,
-      termsRepo,
-      notesRepo,
-      asksRepo,
-      noteConflictsRepo,
-      syncEventsRepo,
-      syncStateRepo,
-      deviceId,
-      holdLocalOnConflict: isNativeApp,
-    };
-    void pushToRelay(deps, token).catch(() => undefined);
-  }, [termsRepo, notesRepo, asksRepo, noteConflictsRepo, syncEventsRepo, syncStateRepo, deviceId, isNativeApp]);
+    void runAutoPush(settingsRepo, () => {
+      const token = getToken();
+      if (!token || !deviceId) {
+        // 未ログイン等でpush不能: rejectして印を残す(ログイン後の起動時リトライで拾う)
+        return Promise.reject(new Error('push不能(未ログインまたはdeviceId未確定)'));
+      }
+      const deps: SyncEngineDeps = {
+        db,
+        termsRepo,
+        notesRepo,
+        asksRepo,
+        noteConflictsRepo,
+        syncEventsRepo,
+        syncStateRepo,
+        deviceId,
+        holdLocalOnConflict: isNativeApp,
+      };
+      return pushToRelay(deps, token);
+    });
+  }, [settingsRepo, termsRepo, notesRepo, asksRepo, noteConflictsRepo, syncEventsRepo, syncStateRepo, deviceId, isNativeApp]);
+
+  // push待ちの再試行(#179): 起動時(deviceId確定後)とオンライン復帰時に、残っている
+  // 「push待ち」印を拾って再pushする。印はrunAutoPush側で成功時にのみ消える。
+  useEffect(() => {
+    if (!deviceId) return;
+    void retryPendingPush(settingsRepo, pushSnapshotToRelay);
+  }, [deviceId, settingsRepo, pushSnapshotToRelay]);
+
+  useEffect(() => {
+    const onOnline = () => void retryPendingPush(settingsRepo, pushSnapshotToRelay);
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [settingsRepo, pushSnapshotToRelay]);
 
   // 確定オーケストレーション(要件定義書§5.3)。deviceId確定前はAI確定操作自体が起きない
   // (ChatScreenを開くには辞書取り込み・deviceId発行が済んでいる必要がある)ため、
@@ -200,6 +223,7 @@ export function App() {
         termsRepo,
         notesRepo,
         asksRepo,
+        settingsRepo,
         aiClient,
         deviceId: deviceId ?? '',
         autoUpdateExistingTerms,
@@ -221,7 +245,7 @@ export function App() {
           pushSnapshotToRelay();
         },
       }),
-    [chatRepo, termsRepo, notesRepo, asksRepo, aiClient, deviceId, autoUpdateExistingTerms, notify, pushSnapshotToRelay],
+    [chatRepo, termsRepo, notesRepo, asksRepo, settingsRepo, aiClient, deviceId, autoUpdateExistingTerms, notify, pushSnapshotToRelay],
   );
 
   // 「AIに聞く」(用語詳細から)。取り込み待ち(open)の既存セッションがあれば再開する。
