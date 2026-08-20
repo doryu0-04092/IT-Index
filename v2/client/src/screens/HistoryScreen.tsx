@@ -53,6 +53,8 @@ export interface HistoryScreenProps {
   onCommitPending: (sessionId: string) => void;
   /** license_required時の設定タブ誘導(SyncScreenと同じ流儀) */
   onGoToSettings?: () => void;
+  /** 競合の解消がnotesへ反映された直後の通知(#169。リレーへの自動pushに接続) */
+  onResolutionApplied?: () => void;
   /**
    * 取り込み(確定)完了の通知(#167)。この画面を開いたまま裏で取り込みが完了した場合に、
    * 時系列・取り込み履歴(状態バッジ)等を追従させる再読込トリガー(行の差し替えのみ)。
@@ -107,6 +109,7 @@ export default function HistoryScreen({
   onOpenChatSession,
   onCommitPending,
   onGoToSettings,
+  onResolutionApplied,
   commitRefreshTick = 0,
 }: HistoryScreenProps) {
   const [asks, setAsks] = useState<AskRecord[]>([]);
@@ -128,6 +131,7 @@ export default function HistoryScreen({
     noteConflictsRepo,
     aiClient,
     onAfterResolve: loadSyncData,
+    onResolutionApplied,
   });
 
   useEffect(() => {

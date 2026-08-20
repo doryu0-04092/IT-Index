@@ -337,6 +337,35 @@ describe('SyncScreen', () => {
     await waitFor(async () => expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('相手の端末の内容'));
   });
 
+  it('競合を解消するとonResolutionAppliedが呼ばれる(リレーへの自動pushの起点)(#169)', async () => {
+    const deps = createSyncDeps();
+    await seedConflict(deps, makeConflict('tcp-ip'));
+    const onResolutionApplied = vi.fn();
+    stubAuthedFetch();
+
+    render(
+      <SyncScreen
+        db={deps.db}
+        deviceId="device-1"
+        isNativeApp={false}
+        termsRepo={deps.termsRepo}
+        notesRepo={deps.notesRepo}
+        asksRepo={deps.asksRepo}
+        noteConflictsRepo={deps.noteConflictsRepo}
+        syncEventsRepo={deps.syncEventsRepo}
+        syncStateRepo={deps.syncStateRepo}
+        aiClient={fakeAiClient()}
+        onResolutionApplied={onResolutionApplied}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+
+    const item = screen.getByText('tcp-ip').closest('li')!;
+    fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[0]);
+
+    await waitFor(() => expect(onResolutionApplied).toHaveBeenCalledTimes(1));
+  });
+
   it('Androidネイティブでは競合カードを出さず、件数つきの案内文だけを表示する(#157, #165)', async () => {
     const deps = createSyncDeps();
     await seedConflict(deps, makeConflict('tcp-ip'));

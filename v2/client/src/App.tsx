@@ -19,6 +19,7 @@ import SyncScreen from './screens/SyncScreen';
 import TermDetailScreen from './screens/TermDetailScreen';
 import TermIndexScreen from './screens/TermIndexScreen';
 import { purchaseLicense, savePaymentMethod } from './sync/apiClient';
+import { pushToRelay, type SyncEngineDeps } from './sync/syncEngine';
 import { getToken } from './sync/tokenStore';
 import { useAppInit } from './useAppInit';
 
@@ -187,6 +188,28 @@ export function App() {
       }),
     [chatRepo, termsRepo, notesRepo, asksRepo, aiClient, deviceId, autoUpdateExistingTerms, notify],
   );
+
+  // 競合解消の自動push(#169依頼者指定)。解消した瞬間に決定をリレー(Cloudflare)へ移して
+  // おけば、相手端末がその時オフラインでも次の同期で取り込める——手動の「今すぐ同期」を
+  // 忘れると決定が届かない穴を塞ぐ。AI APIは使わない(pushはリレーのみで完結する)。
+  // 失敗(オフライン等)は静かに握りつぶす: スナップショット方式のため、次の同期のpushで
+  // 必ず同じ内容が届き、失われるものが無い。
+  const pushResolutionToRelay = useCallback(() => {
+    const token = getToken();
+    if (!token || !deviceId) return;
+    const deps: SyncEngineDeps = {
+      db,
+      termsRepo,
+      notesRepo,
+      asksRepo,
+      noteConflictsRepo,
+      syncEventsRepo,
+      syncStateRepo,
+      deviceId,
+      holdLocalOnConflict: isNativeApp,
+    };
+    void pushToRelay(deps, token).catch(() => undefined);
+  }, [termsRepo, notesRepo, asksRepo, noteConflictsRepo, syncEventsRepo, syncStateRepo, deviceId, isNativeApp]);
 
   // 「AIに聞く」(用語詳細から)。取り込み待ち(open)の既存セッションがあれば再開する。
   // committing中のセッションはfindOpenSessionByTermId('open'限定)にマッチしないため、
@@ -381,6 +404,7 @@ export function App() {
             onCommitPending={commitPendingTerm}
             onGoToSettings={() => setScreen({ name: 'settings' })}
             commitRefreshTick={commitRefreshTick}
+            onResolutionApplied={pushResolutionToRelay}
           />
         ) : screen.name === 'settings' ? (
           <SettingsScreen
@@ -420,6 +444,8 @@ export function App() {
             syncStateRepo={syncStateRepo}
             aiClient={aiClient}
             onSyncNotify={notify}
+            onSyncApplied={() => setCommitRefreshTick((t) => t + 1)}
+            onResolutionApplied={pushResolutionToRelay}
             onGoToSettings={() => setScreen({ name: 'settings' })}
           />
         ) : screen.name === 'chat' ? (

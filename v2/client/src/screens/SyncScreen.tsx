@@ -32,6 +32,17 @@ export interface SyncScreenProps {
   /** 同期成功・失敗をトースト通知するための呼び出し(依頼者指定。App.tsxのToastへ接続) */
   onSyncNotify?: (message: string, variant: 'error' | 'info') => void;
   /**
+   * 同期が完了しデータが変わった可能性があるときの通知(#169)。App.tsxが
+   * commitRefreshTickを上げ、開いたままの画面(検索・索引・単語詳細・履歴)へ
+   * 裏側のデータ差し替えだけで自動反映する(取り込み完了(#167)と同じ仕組み)。
+   */
+  onSyncApplied?: () => void;
+  /**
+   * 競合の解消がnotesへ反映された直後の通知(#169)。App.tsxがリレーへの自動push
+   * (Cloudflareのみ・AI API不要)に接続する。sync/useConflictResolution.tsのコメント参照。
+   */
+  onResolutionApplied?: () => void;
+  /**
    * license_required時の設定タブ誘導(ChatScreen.tsx onGoToSettingsと同じ流儀)。未指定時は
    * ボタンを出さないだけで、通常経路(App.tsx)では必ず渡す。
    */
@@ -60,6 +71,8 @@ export default function SyncScreen({
   syncStateRepo,
   aiClient,
   onSyncNotify,
+  onSyncApplied,
+  onResolutionApplied,
   onGoToSettings,
 }: SyncScreenProps) {
   const { auth, authError, authBusy, handleAuthSubmit, handleLogout } = useAuthState();
@@ -89,6 +102,7 @@ export default function SyncScreen({
     noteConflictsRepo,
     aiClient,
     onAfterResolve: loadConflicts,
+    onResolutionApplied,
   });
 
   useEffect(() => {
@@ -131,6 +145,11 @@ export default function SyncScreen({
       setLastResult(outcome);
       setLastSyncedAt(Date.now());
       await loadConflicts();
+      // 開いたままの他画面へ同期結果を自動反映する(#169)。受信0件でもpush側の状態
+      // (取り込み待ち等)は変わらないため、受信か統一があった場合だけ通知する
+      if (outcome.receivedBlobs > 0 || outcome.adoptedDecisions > 0) {
+        onSyncApplied?.();
+      }
       // 完了/失敗をトースト通知する(依頼者指定)。統一(パソコン側の決定の取り込み)が
       // あった場合はその旨も知らせる——利用者から見て内容が変わる操作のため
       const unified = outcome.adoptedDecisions > 0 ? `・パソコン側の解消結果に${outcome.adoptedDecisions}件統一` : '';

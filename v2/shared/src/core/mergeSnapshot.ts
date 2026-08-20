@@ -87,8 +87,14 @@ export function mergeSnapshot(
     const candidates = [...(localNote ? [localNote] : []), ...remoteNotes];
 
     const newest = [...candidates].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    // 競合相手は「最も新しい競合版」を採る(#169)。find(=最初に見つかった版)だと、1回のpullに
+    // 同じ端末の古いblobと解消後のblobが両方入った場合に古い方を拾ってしまい、
+    // 「baselineより新しくない=相手側の決定ではない」と誤判定して解消結果をバッチごと捨てていた
+    // (PC解消→PC同期→Android同期の自然な1往復で統一されない実バグ)。
     const conflictingRemote = localNote
-      ? remoteNotes.find((r) => isRealConflict(localNote, r))
+      ? remoteNotes
+          .filter((r) => isRealConflict(localNote, r))
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0]
       : undefined;
 
     if (localNote === undefined || conflictingRemote === undefined) {

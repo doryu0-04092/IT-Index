@@ -387,6 +387,63 @@ describe('syncEngine', () => {
       expect(result.adoptedDecisions).toBe(0);
     });
 
+    it('PCで取り込んだAI語+ノートが、同期後のAndroidに届く(#169回帰)', async () => {
+      const relay = makeRelay();
+      vi.stubGlobal('fetch', relay.fetchMock);
+      const pc = track(makeDeps('device-pc', false));
+      const android = track(makeDeps('device-an', true));
+
+      const record = buildTermRecord({
+        term: 'ゼロトラスト',
+        readings: ['ゼロトラスト'],
+        summary: null,
+        field: 'セキュリティ',
+        origin: 'ai',
+        now: 1000,
+      });
+      await pc.termsRepo.upsertFromAi(record);
+      await pc.notesRepo.applyCommit(record.id, 'AIが起こした説明', [], 'device-pc', 1000);
+
+      await runSync(pc, 'tok');
+      const outcome = await runSync(android, 'tok');
+
+      expect(outcome.skippedBlobs).toBe(0);
+      expect((await android.termsRepo.getAll()).map((t) => t.term)).toContain('ゼロトラスト');
+      expect((await android.notesRepo.getByTermId(record.id))?.body).toBe('AIが起こした説明');
+    });
+
+    it('PC解消→PC同期→Android同期の1往復で統一される(1バッチに旧blobと解消blobが混在する実機再現)(#169回帰)', async () => {
+      // 修正前の実バグ: 競合相手をfind(=最初に見つかった版=一番古いblob)で選んでいたため、
+      // Androidの1回のpullに「解消前のPC blob」と「解消後のblob」が両方入ると古い方を拾い、
+      // 「baselineより新しくない=PCの決定ではない」と誤判定して解消結果をバッチごと捨てていた
+      const relay = makeRelay();
+      vi.stubGlobal('fetch', relay.fetchMock);
+      const pc = track(makeDeps('device-pc', false));
+      const android = track(makeDeps('device-an', true));
+
+      await pc.notesRepo.saveBody('term-x', 'PC版の内容', 'device-pc', 1000);
+      await android.notesRepo.saveBody('term-x', 'Android版の内容', 'device-an', 2000);
+
+      // 実機の操作順: PC同期 → Android同期(競合検出・保持) → PC同期(PCが競合を知る)
+      await runSync(pc, 'tok');
+      await runSync(android, 'tok');
+      await runSync(pc, 'tok');
+
+      // PCで「PC版の内容」を選んで解消 → PC同期(解消結果をpush)
+      const conflict = (await pc.noteConflictsRepo.getOpen())[0];
+      await pc.notesRepo.applyConflictResolution('term-x', 'PC版の内容', [], 'device-pc', 5000, {
+        body: 'Android版の内容',
+        diagrams: [],
+      });
+      await pc.noteConflictsRepo.setResolution(conflict.id, 'local', null, 5000);
+      await runSync(pc, 'tok');
+
+      // Android同期1回(pullに解消前blob+解消後blobが同時に入る)で統一されること
+      const outcome = await runSync(android, 'tok');
+      expect(outcome.adoptedDecisions).toBe(1);
+      expect((await android.notesRepo.getByTermId('term-x'))?.body).toBe('PC版の内容');
+    });
+
     it('2端末結合: PCで解消→Androidが決定を採用して統一→PC側も競合ゼロ(デッドロック回帰)', async () => {
       const relay = makeRelay();
       vi.stubGlobal('fetch', relay.fetchMock);
