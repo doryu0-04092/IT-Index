@@ -53,6 +53,11 @@ export interface HistoryScreenProps {
   onCommitPending: (sessionId: string) => void;
   /** license_required時の設定タブ誘導(SyncScreenと同じ流儀) */
   onGoToSettings?: () => void;
+  /**
+   * 取り込み(確定)完了の通知(#167)。この画面を開いたまま裏で取り込みが完了した場合に、
+   * 時系列・取り込み履歴(状態バッジ)等を追従させる再読込トリガー(行の差し替えのみ)。
+   */
+  commitRefreshTick?: number;
 }
 
 const TABS: readonly { view: HistoryView; label: string }[] = [
@@ -102,6 +107,7 @@ export default function HistoryScreen({
   onOpenChatSession,
   onCommitPending,
   onGoToSettings,
+  commitRefreshTick = 0,
 }: HistoryScreenProps) {
   const [asks, setAsks] = useState<AskRecord[]>([]);
   const [termsById, setTermsById] = useState<Map<string, TermRecord>>(new Map());
@@ -137,7 +143,8 @@ export default function HistoryScreen({
 
       await loadSyncData();
     })();
-  }, [asksRepo, termsRepo, chatRepo, loadSyncData]);
+    // commitRefreshTick: 開いたまま取り込みが完了した場合の追従(#167。行の差し替えのみ)
+  }, [asksRepo, termsRepo, chatRepo, loadSyncData, commitRefreshTick]);
 
   // 取り込みはバックグラウンドで進む(App.tsx側)。押した時点でこの一覧からは消してよい
   // (SearchScreen.tsxのhandleCommitPendingと同じ理由)。

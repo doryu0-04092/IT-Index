@@ -37,7 +37,7 @@ export interface SearchScreenProps {
    * 一覧の再取得トリガー。このコンポーネント自身の操作(取り込み・登録しないボタン)では
    * 上がらない——そちらは直接stateを更新するので不要。
    */
-  pendingRefreshTick: number;
+  commitRefreshTick: number;
   /** シード取り込みが異常終了した場合のみ渡される。通常時はnull */
   seedError: string | null;
   /** シード取り込み(再試行含む)が完了するたびに増分される。termsの再読み込みトリガー */
@@ -61,7 +61,7 @@ export default function SearchScreen({
   onCommitPending,
   onDeclineSession,
   failedCommitSessionIds,
-  pendingRefreshTick,
+  commitRefreshTick,
   seedError,
   seedRefreshTick,
   onRetrySeed,
@@ -74,16 +74,19 @@ export default function SearchScreen({
   const [pending, setPending] = useState<PendingSession[]>([]);
 
   useEffect(() => {
+    // commitRefreshTick: 取り込み完了で新しい語が増えた/既存語が更新された場合に、
+    // この画面を開いたまま語一覧と登録単語数を追従させる(#167。データの差し替えのみで
+    // 再マウントしないため、入力中の検索文字列・フォーカスは保たれる)
     void termsRepo.getAll().then(setTerms);
-  }, [termsRepo, seedRefreshTick]);
+  }, [termsRepo, seedRefreshTick, commitRefreshTick]);
 
   // 取り込み待ち(status:'open')セッション一覧(v1 ../../../src/ui/pc/SearchScreen.tsx:86-111を
   // 移植)。「登録しない」を選んだ(declined)セッションはここには出さない——履歴タブの
   // 「取り込み履歴」に移した(本人指定「検索機能周りに関してはV1を踏襲」)。この画面は
   // App.tsxの<main key={screenKey(screen)}>により検索へ戻るたびに再マウントされるため
   // 通常は再取得不要だが、この画面を開いたまま(チャット画面へ行かず)取り込み・確定処理が
-  // 完了した場合に一覧を追従させるため、pendingRefreshTickも依存に持つ
-  // (v1 App.tsxのpendingRefreshTickと同じ役割)。
+  // 完了した場合に一覧を追従させるため、commitRefreshTickも依存に持つ
+  // (v1 App.tsxのcommitRefreshTickと同じ役割)。
   useEffect(() => {
     let cancelled = false;
     void chatRepo.getOpenSessions().then(async (sessions) => {
@@ -93,7 +96,7 @@ export default function SearchScreen({
     return () => {
       cancelled = true;
     };
-  }, [chatRepo, termsRepo, pendingRefreshTick]);
+  }, [chatRepo, termsRepo, commitRefreshTick]);
 
   // 取り込みはバックグラウンドで進む(App.tsx側)。押した時点でこの一覧からは消してよい
   // ——結果を待たせない(v1 ../../../src/ui/pc/SearchScreen.tsx:114-117を移植)。

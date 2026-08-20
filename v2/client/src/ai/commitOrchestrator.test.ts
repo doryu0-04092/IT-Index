@@ -69,6 +69,50 @@ describe('createCommitOrchestrator', () => {
     expect(open.map((s) => s.id)).not.toContain(session.id);
   });
 
+  it('取り込みが完了するとonCommittedを呼ぶ(トランザクション成功後のみ)(#167)', async () => {
+    const session = await chatRepo.createSession(null);
+    await chatRepo.appendMessage(session.id, 'user', 'TCP/IPって何？');
+
+    const onCommitted = vi.fn();
+    const aiClient = createScriptedAiClient(['[]']);
+    const orchestrator = createCommitOrchestrator(
+      baseDeps(db, { chatRepo, termsRepo, notesRepo, aiClient, onCommitted }),
+    );
+
+    await orchestrator.triggerCommit(session.id);
+
+    expect(onCommitted).toHaveBeenCalledWith(session.id);
+    expect(onCommitted).toHaveBeenCalledTimes(1);
+  });
+
+  it('メッセージ0件の確定でもonCommittedを呼ぶ(一覧の状態は変わるため)(#167)', async () => {
+    const session = await chatRepo.createSession(null);
+
+    const onCommitted = vi.fn();
+    const orchestrator = createCommitOrchestrator(
+      baseDeps(db, { chatRepo, termsRepo, notesRepo, aiClient: { send: vi.fn() }, onCommitted }),
+    );
+
+    await orchestrator.triggerCommit(session.id);
+
+    expect(onCommitted).toHaveBeenCalledWith(session.id);
+  });
+
+  it('AI呼び出しが失敗した場合はonCommittedを呼ばない(#167)', async () => {
+    const session = await chatRepo.createSession(null);
+    await chatRepo.appendMessage(session.id, 'user', 'TCP/IPって何？');
+
+    const onCommitted = vi.fn();
+    const aiClient = { send: vi.fn().mockRejectedValue(new Error('AI失敗(テスト用)')) };
+    const orchestrator = createCommitOrchestrator(
+      baseDeps(db, { chatRepo, termsRepo, notesRepo, aiClient, onCommitted, onError: vi.fn() }),
+    );
+
+    await orchestrator.triggerCommit(session.id);
+
+    expect(onCommitted).not.toHaveBeenCalled();
+  });
+
   it('AI呼び出しが失敗した場合はセッションをopenに戻しonErrorを呼ぶ(committing --> open)', async () => {
     const session = await chatRepo.createSession(null);
     await chatRepo.appendMessage(session.id, 'user', 'TCP/IPって何？');

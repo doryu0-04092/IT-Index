@@ -69,10 +69,12 @@ export function App() {
   // 確定に失敗したセッションIDの集合。「取り込み待ち」一覧に失敗マークを表示するために使う
   // (v1 #41を移植)。次に確定に成功したら該当セッションを取り除く。
   const [failedCommitSessionIds, setFailedCommitSessionIds] = useState<Set<string>>(new Set());
-  // commitOrchestrator.triggerCommit()が完了するたびに増分する。SearchScreenの
-  // 「取り込み待ち」一覧の再取得トリガー(この画面を開いたままチャット画面を経由せず
-  // 一覧上のボタンで確定した場合に一覧を追従させるため。v1のpendingRefreshTickを移植)。
-  const [pendingRefreshTick, setPendingRefreshTick] = useState(0);
+  // 取り込み(確定)が完了・失敗するたびに増分する(#167でpendingRefreshTickから一般化)。
+  // 検索(語一覧+取り込み待ち)・索引・単語詳細・履歴がこれを依存に持ち、開いたままの画面へ
+  // 裏側のデータ差し替えだけで自動反映する(再マウントしないため入力・フォーカスは保たれる)。
+  // 増分の起点はcommitOrchestratorのonCommitted/onError——チャット経由・一覧経由の
+  // どちらの確定でも同じ通知が飛ぶ。
+  const [commitRefreshTick, setCommitRefreshTick] = useState(0);
 
   // テーマ手動切替(依頼者指定。lib/theme.ts参照)。既定はOS追従('system')——v1(常に明示保存)
   // と異なり、保存が無い初回起動時はOSの設定にそのまま追従させる。
@@ -177,7 +179,11 @@ export function App() {
           // 取り込み失敗をトースト通知する(移植元: ../../src/App.tsx:247-250のsetGlobalError。
           // v1準拠——失敗時のみエラートーストを出す)。
           notify('取り込みに失敗しました。もう一度お試しください。', 'error');
+          // 失敗でもセッション状態はcommitting→openへ戻っており、一覧表示の追従が要る(#167)
+          setCommitRefreshTick((t) => t + 1);
         },
+        // 取り込み完了の自動反映(#167)。チャット経由・一覧経由のどちらでもここから通知が飛ぶ
+        onCommitted: () => setCommitRefreshTick((t) => t + 1),
       }),
     [chatRepo, termsRepo, notesRepo, asksRepo, aiClient, deviceId, autoUpdateExistingTerms, notify],
   );
@@ -246,17 +252,14 @@ export function App() {
         next.delete(sessionId);
         return next;
       });
-      void commitOrchestrator
-        .triggerCommit(sessionId)
-        .then(async () => {
-          // 取り込み成功をトースト通知する(依頼者指定。失敗はcommitOrchestratorのonErrorが
-          // 既に通知するため、ここでは成功時(status==='committed')だけ判定する)。
-          const updated = await chatRepo.getSession(sessionId);
-          if (updated?.status === 'committed') notify('取り込みました。', 'info');
-        })
-        .finally(() => {
-          setPendingRefreshTick((t) => t + 1);
-        });
+      // 一覧の再読込はcommitOrchestratorのonCommitted/onErrorがtickを上げるため、ここでは
+      // 行わない(#167。チャット経由の確定と通知経路を1本化した)。
+      void commitOrchestrator.triggerCommit(sessionId).then(async () => {
+        // 取り込み成功をトースト通知する(依頼者指定。失敗はcommitOrchestratorのonErrorが
+        // 既に通知するため、ここでは成功時(status==='committed')だけ判定する)。
+        const updated = await chatRepo.getSession(sessionId);
+        if (updated?.status === 'committed') notify('取り込みました。', 'info');
+      });
     },
     [commitOrchestrator, chatRepo, notify],
   );
@@ -265,7 +268,7 @@ export function App() {
   // (v1 ../../src/ui/pc/SearchScreen.tsx:119-123・App.tsx declineSessionを移植)。
   const declinePendingSession = useCallback(
     (sessionId: string) => {
-      void chatRepo.declineSession(sessionId).then(() => setPendingRefreshTick((t) => t + 1));
+      void chatRepo.declineSession(sessionId).then(() => setCommitRefreshTick((t) => t + 1));
     },
     [chatRepo],
   );
@@ -349,13 +352,17 @@ export function App() {
             onCommitPending={commitPendingTerm}
             onDeclineSession={declinePendingSession}
             failedCommitSessionIds={failedCommitSessionIds}
-            pendingRefreshTick={pendingRefreshTick}
+            commitRefreshTick={commitRefreshTick}
             seedError={seedError}
             seedRefreshTick={seedRefreshTick}
             onRetrySeed={() => void runSeedImport()}
           />
         ) : screen.name === 'index' ? (
-          <TermIndexScreen termsRepo={termsRepo} onSelectTerm={(termId) => openDetail(termId, { name: 'index' })} />
+          <TermIndexScreen
+            termsRepo={termsRepo}
+            onSelectTerm={(termId) => openDetail(termId, { name: 'index' })}
+            commitRefreshTick={commitRefreshTick}
+          />
         ) : screen.name === 'history' ? (
           <HistoryScreen
             asksRepo={asksRepo}
@@ -373,6 +380,7 @@ export function App() {
             onOpenChatSession={(sessionId) => setScreen({ name: 'chat', sessionId, returnTo: screen })}
             onCommitPending={commitPendingTerm}
             onGoToSettings={() => setScreen({ name: 'settings' })}
+            commitRefreshTick={commitRefreshTick}
           />
         ) : screen.name === 'settings' ? (
           <SettingsScreen
@@ -439,6 +447,7 @@ export function App() {
             onBack={() => setScreen(screen.returnTo)}
             onDeleted={handleTermDeleted}
             onOpenChat={(termId) => void openChatForTerm(termId, screen)}
+            commitRefreshTick={commitRefreshTick}
           />
         )}
       </main>

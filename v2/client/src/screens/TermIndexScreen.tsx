@@ -5,6 +5,11 @@ import type { TermsRepository } from '../repositories/terms';
 export interface TermIndexScreenProps {
   termsRepo: TermsRepository;
   onSelectTerm: (termId: string) => void;
+  /**
+   * 取り込み(確定)完了の通知(#167)。この画面を開いたまま裏で取り込みが完了した場合に
+   * 一覧へ行を追加するための再読込トリガー(データの差し替えのみ。再マウントしない)。
+   */
+  commitRefreshTick?: number;
 }
 
 const LATIN_BUCKETS = BUCKET_ORDER.filter((b) => /^[A-Z]$/.test(b));
@@ -49,7 +54,7 @@ function sectionId(bucket: string): string {
  * 一本化しないと、ジャンプで動かしたスクロール位置がバケット内に残ってしまう
  * (本人指摘の不具合)。
  */
-export default function TermIndexScreen({ termsRepo, onSelectTerm }: TermIndexScreenProps) {
+export default function TermIndexScreen({ termsRepo, onSelectTerm, commitRefreshTick = 0 }: TermIndexScreenProps) {
   const [buckets, setBuckets] = useState<Map<string, TermRecord[]> | null>(null);
   const [renderedCount, setRenderedCount] = useState(SECTIONS_PER_CHUNK);
   // 未描画セクションへのジャンプ先を、描画が追いつくまで持ち越す(#135)。描画自体は
@@ -58,8 +63,10 @@ export default function TermIndexScreen({ termsRepo, onSelectTerm }: TermIndexSc
   const pendingJumpRef = useRef<Bucket | null>(null);
 
   useEffect(() => {
+    // commitRefreshTick: 開いたまま取り込みが完了した場合の追従(#167)。バケットの
+    // 差し替えのみで、段階描画の進み(renderedCount)とスクロール位置はそのまま保つ
     void termsRepo.getAll().then((terms) => setBuckets(groupIntoBuckets(terms)));
-  }, [termsRepo]);
+  }, [termsRepo, commitRefreshTick]);
 
   const hasOther = (buckets?.get(OTHER_BUCKET)?.length ?? 0) > 0;
   // filterの型絞り込みで「その他」抜きの型にならないよう明示する(indexOfへBucketを渡すため)
