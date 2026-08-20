@@ -18,6 +18,15 @@ export interface SettingsRecord {
    * UIは設けない(既定値'askedOnly'で動作する。issue範囲外)。
    */
   autoUpdateExistingTerms: 'askedOnly' | 'all';
+  /**
+   * リレーへの自動push(#177/#169)の「push待ち」印(#179)。write-ahead方式:
+   * pushを試みる**前**にここへ時刻を書き、成功したらnullへ戻す。失敗・クラッシュしても
+   * 意図が残り、起動時・オンライン復帰時・次の自動push時に再試行される。
+   * 実行予定フラグの喪失は意図の破損に当たるため、取り込み(確定)では
+   * commitProposalと同一トランザクションで立てる(ai/commitOrchestrator.ts)。
+   * 旧レコード(このフィールドが無い行)はrepositories/settings.tsのget()でnullに正規化する。
+   */
+  pendingAutoPushAt: number | null;
 }
 
 /**
