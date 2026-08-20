@@ -75,7 +75,12 @@ const TABS: readonly { view: HistoryView; label: string }[] = [
  * v1と違い両者は参照関係を持つ: 競合はsyncEventIdで同期イベントにリンクし、
  * 競合タブでは同期イベント単位にグループ表示する。連携履歴の「競合を見る」から
  * 該当グループへ移動できる。PC側では競合タブから選び直しができる(SyncScreenと同じ
- * useConflictResolutionを共有)。Androidネイティブでは表示のみ。
+ * useConflictResolutionを共有)。
+ *
+ * Androidネイティブ(#165)では「競合」タブ自体を出さない(連携履歴のみ)。競合の決着は
+ * すべてPC側で付ける方針のため、操作できない一覧をAndroidに置かない(本人指定)。
+ * 連携履歴の行の「競合n件」の件数表示は記録の痕跡として残すが、「競合を見る」は
+ * 行き先が無いため出さない。
  *
  * データ取得(asks・term引き当て)はサブタブ間で共通・1回だけ行う(旧WeightedScreen.tsxの
  * ロードを移植)。並べ替え・表示だけをサブタブごとに分ける。tombstone(削除済み)の語は
@@ -202,7 +207,8 @@ export default function HistoryScreen({
   return (
     <div className="history-screen">
       <nav className="app-nav" aria-label="履歴の切り替え">
-        {TABS.map((tab) => (
+        {/* Androidネイティブでは競合タブを出さない(#165。ファイル冒頭コメント参照) */}
+        {TABS.filter((tab) => !(isNativeApp && tab.view === 'conflicts')).map((tab) => (
           <button
             key={tab.view}
             type="button"
@@ -285,7 +291,8 @@ export default function HistoryScreen({
                         : '途中で失敗しました'}
                     </span>
                   </div>
-                  {conflictCount > 0 && (
+                  {/* Androidでは競合タブが無いため行き先も無い(#165)。件数表示だけ残す */}
+                  {!isNativeApp && conflictCount > 0 && (
                     <button type="button" className="btn-secondary" onClick={() => jumpToConflicts(event.id)}>
                       競合を見る
                     </button>

@@ -337,20 +337,23 @@ describe('SyncScreen', () => {
     await waitFor(async () => expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('相手の端末の内容'));
   });
 
-  it('Androidネイティブでは解消操作を出さず、パソコン側での解消を案内する(#157)', async () => {
+  it('Androidネイティブでは競合カードを出さず、件数つきの案内文だけを表示する(#157, #165)', async () => {
     const deps = createSyncDeps();
     await seedConflict(deps, makeConflict('tcp-ip'));
     stubAuthedFetch();
 
     renderSyncScreen(deps, { isNativeApp: true });
-    await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/競合が1件あります/)).toBeTruthy());
 
-    // 案内はセクション見出し下と各競合カード内の2箇所に出る
-    expect(screen.getAllByText(/競合の解消はパソコン側で行ってください/)).toHaveLength(2);
-    // 各競合カード内の案内(自分の内容を保持・次の同期で統一)
-    expect(screen.getByText(/この端末で保存した内容をそのまま表示し続けます/)).toBeTruthy();
-    expect(screen.getByText(/次の同期でパソコン側と同じ内容に統一されます/)).toBeTruthy();
-    // 解消操作は一切出さない
+    // 案内文: 件数・PC側での解消・自分の内容の保持・次の同期での統一
+    expect(screen.getByText(/解消はパソコン側で行ってください/)).toBeTruthy();
+    expect(screen.getByText(/この端末で保存した内容を表示します/)).toBeTruthy();
+    expect(screen.getByText(/次の同期で同じ内容に統一されます/)).toBeTruthy();
+    // 競合カード(両側の内容表示)自体を出さない(#165)
+    expect(screen.queryByText('tcp-ip')).toBeNull();
+    expect(screen.queryByText('この端末の内容')).toBeNull();
+    expect(screen.queryByText('相手の端末の内容')).toBeNull();
+    // 解消操作も一切出さない
     expect(screen.queryByRole('button', { name: 'こちらを採用' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'AIで統合する' })).toBeNull();
   });
