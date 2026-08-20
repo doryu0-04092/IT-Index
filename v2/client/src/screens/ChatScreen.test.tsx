@@ -72,6 +72,60 @@ describe('ChatScreen', () => {
     expect(onGoToSync).toHaveBeenCalled();
   });
 
+  it('長い会話では「ここより前の会話はAIへ送っていません」の区切りを出す(#181)', async () => {
+    setToken('tok-1');
+    const session = await chatRepo.createSession(null, 'ゼロトラスト');
+    for (let i = 0; i < 20; i++) {
+      await chatRepo.appendMessage(session.id, 'user', `質問${i}`);
+      await chatRepo.appendMessage(session.id, 'assistant', `回答${i}`);
+    }
+    const aiClient: AiClient = { send: vi.fn() };
+
+    render(
+      <ChatScreen
+        sessionId={session.id}
+        chatRepo={chatRepo}
+        termsRepo={termsRepo}
+        notesRepo={notesRepo}
+        aiClient={aiClient}
+        commitOrchestrator={fakeCommitOrchestrator()}
+        onBack={() => {}}
+        onGoToSync={() => {}}
+        onChangeSubject={() => {}}
+      />,
+    );
+
+    expect(await screen.findByTestId('chat-omitted-divider')).toBeTruthy();
+    // 表示は全件のまま(送信だけを絞っている)
+    expect(screen.getByText('質問0')).toBeTruthy();
+    expect(screen.getByText('質問19')).toBeTruthy();
+  });
+
+  it('短い会話では区切りを出さない(全部送っているため)(#181)', async () => {
+    setToken('tok-1');
+    const session = await chatRepo.createSession(null, 'ゼロトラスト');
+    await chatRepo.appendMessage(session.id, 'user', '質問');
+    await chatRepo.appendMessage(session.id, 'assistant', '回答');
+    const aiClient: AiClient = { send: vi.fn() };
+
+    render(
+      <ChatScreen
+        sessionId={session.id}
+        chatRepo={chatRepo}
+        termsRepo={termsRepo}
+        notesRepo={notesRepo}
+        aiClient={aiClient}
+        commitOrchestrator={fakeCommitOrchestrator()}
+        onBack={() => {}}
+        onGoToSync={() => {}}
+        onChangeSubject={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText('回答')).toBeTruthy();
+    expect(screen.queryByTestId('chat-omitted-divider')).toBeNull();
+  });
+
   it('ログイン済みなら履歴を表示し、送信すると応答が追記される', async () => {
     setToken('tok-1');
     const session = await chatRepo.createSession(null, 'ゼロトラスト');

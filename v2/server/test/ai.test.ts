@@ -173,6 +173,40 @@ describe('POST /api/ai/chat', () => {
     expect(body.error.code).toBe('invalid_request');
   });
 
+  it('検証エラー: 件数が121件以上は400(境界は120件。#181)', async () => {
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: Array.from({ length: 121 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: 'x',
+      })),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: { code: string } }>();
+    expect(body.error.code).toBe('invalid_request');
+  });
+
+  it('120件までは検証を通る(確定=分配統合の全量送信が通る外枠。#181)', async () => {
+    mockAnthropicOnce(() =>
+      anthropicSuccessResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    );
+
+    const token = await signupAndGetToken();
+    const res = await chat(token, {
+      messages: Array.from({ length: 120 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: 'x',
+      })),
+    });
+
+    // 検証で弾かれず上流呼び出しまで到達することが、このテストの主眼
+    expect(res.status).toBe(200);
+  });
+
   it('利用者上限到達で429(上限を小さく設定)', async () => {
     const originalPerUserLimit = env.AI_DAILY_LIMIT_PER_USER;
     env.AI_DAILY_LIMIT_PER_USER = '1';

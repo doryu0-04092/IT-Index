@@ -3,6 +3,7 @@ import type { ChatSessionRecord } from '../types';
 import type { AiClient, AiMessage } from './aiClient';
 import { buildSubjectContextBlock, CHAT_SYSTEM_PROMPT } from './prompts';
 import type { SubjectContext } from './subjectContext';
+import { trimChatHistory } from './trimHistory';
 
 /**
  * 応答を控えた(stop_reason==="refusal")場合にtextが空になりうる契約
@@ -47,11 +48,12 @@ export async function sendChatTurn(
   // ユーザーが実際に入力したテキストには文脈付与の文字列を一切混ぜない。
   // 文脈は毎ターンsystem側で動的に組み立てる(docs/ai-client.md §2)。
   // 今回の質問はまだDBに無いため、保存済み履歴の末尾へメモリ上で連結してAIへ渡す。
+  //
+  // 送るのは直近ぶんだけに絞る(#181。ai/trimHistory.ts)。**保存と表示は全件のまま**で、
+  // 絞るのは送信だけ。会話が伸びるほど毎ターンの送信量が増える問題(v1からの積み残し)への対処。
   const history = sessionId === null ? [] : await deps.chatRepo.getMessages(sessionId);
-  const messages: AiMessage[] = [
-    ...history.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user' as const, content: userText },
-  ];
+  const trimmed = trimChatHistory(history.map((m) => ({ role: m.role, content: m.content })));
+  const messages: AiMessage[] = [...trimmed.messages, { role: 'user' as const, content: userText }];
 
   const system = deps.subject
     ? `${CHAT_SYSTEM_PROMPT}\n\n---\n現在の話題:\n${buildSubjectContextBlock(deps.subject)}`
