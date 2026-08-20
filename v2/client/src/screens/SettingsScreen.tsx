@@ -6,6 +6,7 @@ import type { ThemeChoice } from '../lib/theme';
 import { brandLabel } from '../lib/cardValidation';
 import { formatBillingDate, nextBillingDate } from '../lib/billingCycle';
 import LicenseHelpModal from '../lib/LicenseHelpModal';
+import ServerHelpModal from '../lib/ServerHelpModal';
 import { activateLicense, ApiRequestError, cancelLicense } from '../sync/apiClient';
 import {
   clearServerBaseUrl,
@@ -160,7 +161,7 @@ function LicenseSection({
 
   return (
     <section className="settings-section">
-      <div className="license-heading-row">
+      <div className="settings-heading-row">
         <h2>ライセンス</h2>
         <button type="button" className="btn-text" onClick={() => setHelpOpen(true)}>
           このプランでできること
@@ -372,6 +373,8 @@ function ServerSection() {
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 「何のための設定か」のヘルプ(#163)。ライセンスのヘルプ(#151)と同じ方式で見出し行に置く
+  const [helpOpen, setHelpOpen] = useState(false);
 
   async function handleTest() {
     if (testing) return;
@@ -405,7 +408,13 @@ function ServerSection() {
 
   return (
     <section className="settings-section">
-      <h2>接続先サーバー</h2>
+      <div className="settings-heading-row">
+        <h2>接続先サーバー</h2>
+        <button type="button" className="btn-text" onClick={() => setHelpOpen(true)}>
+          この設定について
+        </button>
+      </div>
+      {helpOpen && <ServerHelpModal onClose={() => setHelpOpen(false)} />}
       <p className="status-text">
         自分のCloudflareに立てたサーバーへ接続できます(手順はリポジトリのdocs/v2/deploy.md)。
       </p>
