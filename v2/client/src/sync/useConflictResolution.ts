@@ -21,6 +21,7 @@ export function useConflictResolution({
   noteConflictsRepo,
   aiClient,
   onAfterResolve,
+  onResolutionApplied,
 }: {
   deviceId: string | null;
   notesRepo: NotesRepository;
@@ -28,6 +29,13 @@ export function useConflictResolution({
   aiClient: AiClient;
   /** 反映後の一覧再読込(呼び出し画面が自分のリストを読み直す) */
   onAfterResolve: () => Promise<void>;
+  /**
+   * 解消がnotesへ反映された直後の通知(#169依頼者指定)。App.tsxがリレーへの自動push
+   * (AI APIとは無関係、Cloudflareのリレーのみ)に接続する——解消した瞬間に決定を
+   * リレーへ移しておけば、相手端末がその時オフラインでも次の同期で取り込める。
+   * 手動の「今すぐ同期」を忘れると決定が届かない穴を塞ぐ。
+   */
+  onResolutionApplied?: () => void;
 }) {
   const [mergingId, setMergingId] = useState<string | null>(null);
   const [mergeErrors, setMergeErrors] = useState<Record<string, string | null>>({});
@@ -53,6 +61,7 @@ export function useConflictResolution({
     await notesRepo.applyConflictResolution(conflict.termId, chosen.body, chosen.diagrams, deviceId, at, rejected);
     await noteConflictsRepo.setResolution(conflict.id, how, mergedCache, at);
     await onAfterResolve();
+    onResolutionApplied?.();
   }
 
   function chooseLocal(conflict: NoteConflictRecord) {
