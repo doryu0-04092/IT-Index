@@ -98,6 +98,39 @@ describe('createCommitOrchestrator', () => {
     expect(onCommitted).toHaveBeenCalledWith(session.id);
   });
 
+  it('取り込みで語が増えた場合もonCommittedを呼ぶ(リレーへの自動pushの起点)(#177)', async () => {
+    // #177: これが飛ばないと、2端末で内容が揃うのに3回の同期が必要になる
+    // (1回目は相手がまだpushしておらず空振りするため)。取り込み時点でpushしておけば
+    // 各端末が1回ずつ同期するだけで揃う
+    const session = await chatRepo.createSession(null);
+    await chatRepo.appendMessage(session.id, 'user', 'ゼロトラストって何？');
+
+    const onCommitted = vi.fn();
+    const aiClient = createScriptedAiClient([
+      JSON.stringify([
+        {
+          isTerm: true,
+          term: 'ゼロトラスト',
+          readings: ['ゼロトラスト'],
+          field: 'セキュリティ',
+          summary: '何も信頼しない前提の考え方',
+          draftBody: '何も信頼しない前提の考え方',
+          diagrams: [],
+          askedByUser: true,
+        },
+      ]),
+    ]);
+    const orchestrator = createCommitOrchestrator(
+      baseDeps(db, { chatRepo, termsRepo, notesRepo, aiClient, onCommitted }),
+    );
+
+    await orchestrator.triggerCommit(session.id);
+
+    // 語が実際に増えた上で通知が飛ぶ(通知時点で読み直せば完全な結果が見える)
+    expect((await termsRepo.getAll()).map((t) => t.term)).toContain('ゼロトラスト');
+    expect(onCommitted).toHaveBeenCalledWith(session.id);
+  });
+
   it('AI呼び出しが失敗した場合はonCommittedを呼ばない(#167)', async () => {
     const session = await chatRepo.createSession(null);
     await chatRepo.appendMessage(session.id, 'user', 'TCP/IPって何？');

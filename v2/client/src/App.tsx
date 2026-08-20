@@ -158,6 +158,37 @@ export function App() {
   // 変わってもこの参照を作り直す必要が無い。ai/aiClient.ts参照)。
   const aiClient = useMemo(() => createProxyAiClient(getToken), []);
 
+  /**
+   * 端末の現在のスナップショットをリレー(Cloudflare)へ自動pushする。
+   *
+   * 手動の「今すぐ同期」を待たずに変更をリレーへ移しておくためのもので、契機は2つ:
+   * - 競合の解消(#169): 相手端末がその時オフラインでも、次の同期で決定を取り込める
+   * - 取り込み(確定)の完了(#177): これが無いと、2端末で内容が揃うのに
+   *   「端末1で同期 → 端末2で同期 → もう一度端末1で同期」の3回が必要になる
+   *   (1回目は相手がまだpushしておらず空振りするため)。取り込み時点でpushしておけば
+   *   各端末が1回ずつ同期するだけで揃う。
+   *
+   * AI APIは使わない(pushはリレーのみで完結する)。未ログイン・deviceId未確定なら何もしない。
+   * 失敗(オフライン等)は静かに握りつぶす: 送るのは差分ではなく毎回全件のスナップショット
+   * なので、次の同期のpushで同じ内容が必ず届き、失われるものが無い。
+   */
+  const pushSnapshotToRelay = useCallback(() => {
+    const token = getToken();
+    if (!token || !deviceId) return;
+    const deps: SyncEngineDeps = {
+      db,
+      termsRepo,
+      notesRepo,
+      asksRepo,
+      noteConflictsRepo,
+      syncEventsRepo,
+      syncStateRepo,
+      deviceId,
+      holdLocalOnConflict: isNativeApp,
+    };
+    void pushToRelay(deps, token).catch(() => undefined);
+  }, [termsRepo, notesRepo, asksRepo, noteConflictsRepo, syncEventsRepo, syncStateRepo, deviceId, isNativeApp]);
+
   // 確定オーケストレーション(要件定義書§5.3)。deviceId確定前はAI確定操作自体が起きない
   // (ChatScreenを開くには辞書取り込み・deviceId発行が済んでいる必要がある)ため、
   // deviceIdがnullの間は空文字で仮組みしておく。
@@ -183,33 +214,15 @@ export function App() {
           // 失敗でもセッション状態はcommitting→openへ戻っており、一覧表示の追従が要る(#167)
           setCommitRefreshTick((t) => t + 1);
         },
-        // 取り込み完了の自動反映(#167)。チャット経由・一覧経由のどちらでもここから通知が飛ぶ
-        onCommitted: () => setCommitRefreshTick((t) => t + 1),
+        // 取り込み完了時(#167で画面反映、#177でリレーへの自動push)。チャット経由・
+        // 一覧経由のどちらの確定でもここから通知が飛ぶ
+        onCommitted: () => {
+          setCommitRefreshTick((t) => t + 1);
+          pushSnapshotToRelay();
+        },
       }),
-    [chatRepo, termsRepo, notesRepo, asksRepo, aiClient, deviceId, autoUpdateExistingTerms, notify],
+    [chatRepo, termsRepo, notesRepo, asksRepo, aiClient, deviceId, autoUpdateExistingTerms, notify, pushSnapshotToRelay],
   );
-
-  // 競合解消の自動push(#169依頼者指定)。解消した瞬間に決定をリレー(Cloudflare)へ移して
-  // おけば、相手端末がその時オフラインでも次の同期で取り込める——手動の「今すぐ同期」を
-  // 忘れると決定が届かない穴を塞ぐ。AI APIは使わない(pushはリレーのみで完結する)。
-  // 失敗(オフライン等)は静かに握りつぶす: スナップショット方式のため、次の同期のpushで
-  // 必ず同じ内容が届き、失われるものが無い。
-  const pushResolutionToRelay = useCallback(() => {
-    const token = getToken();
-    if (!token || !deviceId) return;
-    const deps: SyncEngineDeps = {
-      db,
-      termsRepo,
-      notesRepo,
-      asksRepo,
-      noteConflictsRepo,
-      syncEventsRepo,
-      syncStateRepo,
-      deviceId,
-      holdLocalOnConflict: isNativeApp,
-    };
-    void pushToRelay(deps, token).catch(() => undefined);
-  }, [termsRepo, notesRepo, asksRepo, noteConflictsRepo, syncEventsRepo, syncStateRepo, deviceId, isNativeApp]);
 
   // 「AIに聞く」(用語詳細から)。取り込み待ち(open)の既存セッションがあれば再開する。
   // committing中のセッションはfindOpenSessionByTermId('open'限定)にマッチしないため、
@@ -404,7 +417,7 @@ export function App() {
             onCommitPending={commitPendingTerm}
             onGoToSettings={() => setScreen({ name: 'settings' })}
             commitRefreshTick={commitRefreshTick}
-            onResolutionApplied={pushResolutionToRelay}
+            onResolutionApplied={pushSnapshotToRelay}
           />
         ) : screen.name === 'settings' ? (
           <SettingsScreen
@@ -445,7 +458,7 @@ export function App() {
             aiClient={aiClient}
             onSyncNotify={notify}
             onSyncApplied={() => setCommitRefreshTick((t) => t + 1)}
-            onResolutionApplied={pushResolutionToRelay}
+            onResolutionApplied={pushSnapshotToRelay}
             onGoToSettings={() => setScreen({ name: 'settings' })}
           />
         ) : screen.name === 'chat' ? (
