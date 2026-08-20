@@ -444,6 +444,318 @@ describe('syncEngine', () => {
       expect((await android.notesRepo.getByTermId('term-x'))?.body).toBe('PC版の内容');
     });
 
+    // #171: 同期の未検証ケース(失敗経路・ページ跨ぎ・混在バッチ)。
+    // 各テストは「実行内容 → 想定結果」を先に定めてから実装している。
+    it('B1: pushが413(容量超過)で失敗した場合、同期イベントを作らず例外を投げる', async () => {
+      const deps = track(makeDeps('device-1'));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(jsonResponse(413, { error: { code: 'payload_too_large', message: 'ペイロードが大きすぎます' } })),
+      );
+
+      await expect(runSync(deps, 'tok')).rejects.toThrow();
+
+      // pushが通らなかった同期は「始まらなかった」ものとして記録しない
+      expect(await deps.syncEventsRepo.getLatest()).toBeUndefined();
+    });
+
+    it('B2: pullの2ページ目で失敗した場合、イベントはcompleted:falseで残り1ページ目のcursorは進む', async () => {
+      const deps = track(makeDeps('device-1'));
+      const fileOf = (body: string, updatedAt: number) => ({
+        syncSchemaVersion: 1,
+        deviceId: 'device-2',
+        writtenAt: updatedAt,
+        notes: [{ termId: 'term-a', body, diagrams: [], updatedAt, lastEditedBy: 'device-2', noteHistory: [] }],
+        asks: [],
+        aiTerms: [],
+      });
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if (url === '/api/sync/push') return Promise.resolve(jsonResponse(201, { seq: 1 }));
+        const since = sinceOf(url);
+        if (since === 0) {
+          return Promise.resolve(
+            jsonResponse(200, {
+              blobs: [{ seq: 1, deviceId: 'device-2', payload: JSON.stringify(fileOf('1ページ目', 100)), createdAt: 1 }],
+              latest: 2,
+            }),
+          );
+        }
+        return Promise.reject(new TypeError('Failed to fetch')); // 2ページ目で回線断
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      await expect(runSync(deps, 'tok')).rejects.toThrow();
+
+      const event = await deps.syncEventsRepo.getLatest();
+      expect(event?.completed).toBe(false); // 途中失敗の痕跡が残る
+      expect(await deps.syncStateRepo.getCursor()).toBe(1); // 1ページ目は原子的に反映済み
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('1ページ目');
+    });
+
+    it('B3: 競合検出と解消blobがページを跨いでも、同一のrunSync内で統一される', async () => {
+      const deps = track(makeDeps('device-an', true));
+      await deps.notesRepo.saveBody('term-a', 'Android版の内容', 'device-an', 300);
+      const pcFile = (body: string, updatedAt: number) => ({
+        syncSchemaVersion: 1,
+        deviceId: 'device-pc',
+        writtenAt: updatedAt,
+        notes: [{ termId: 'term-a', body, diagrams: [], updatedAt, lastEditedBy: 'device-pc', noteHistory: [] }],
+        asks: [],
+        aiTerms: [],
+      });
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if (url === '/api/sync/push') return Promise.resolve(jsonResponse(201, { seq: 1 }));
+        const since = sinceOf(url);
+        if (since === 0) {
+          // 1ページ目: 解消前のPC版 → ここで競合が記録される(baseline=400)
+          return Promise.resolve(
+            jsonResponse(200, {
+              blobs: [{ seq: 1, deviceId: 'device-pc', payload: JSON.stringify(pcFile('PC版(解消前)', 400)), createdAt: 1 }],
+              latest: 2,
+            }),
+          );
+        }
+        if (since === 1) {
+          // 2ページ目: PCの解消結果 → baselineを超えるので決定として採用される
+          return Promise.resolve(
+            jsonResponse(200, {
+              blobs: [{ seq: 2, deviceId: 'device-pc', payload: JSON.stringify(pcFile('PCの解消結果', 900)), createdAt: 2 }],
+              latest: 2,
+            }),
+          );
+        }
+        return Promise.resolve(jsonResponse(200, { blobs: [], latest: 2 }));
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await runSync(deps, 'tok');
+
+      expect(result.adoptedDecisions).toBe(1);
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('PCの解消結果');
+      expect(await deps.noteConflictsRepo.getOpen()).toHaveLength(0);
+    });
+
+    it('B4: 壊れたblobと正常なblobが同じバッチにあっても、正常分だけ取り込む', async () => {
+      const deps = track(makeDeps('device-1'));
+      const goodFile = {
+        syncSchemaVersion: 1,
+        deviceId: 'device-2',
+        writtenAt: 1,
+        notes: [{ termId: 'term-a', body: '正常な本文', diagrams: [], updatedAt: 100, lastEditedBy: 'device-2', noteHistory: [] }],
+        asks: [],
+        aiTerms: [],
+      };
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if (url === '/api/sync/push') return Promise.resolve(jsonResponse(201, { seq: 1 }));
+        return Promise.resolve(
+          jsonResponse(200, {
+            blobs: [
+              { seq: 1, deviceId: 'device-2', payload: '{not json', createdAt: 1 },
+              { seq: 2, deviceId: 'device-2', payload: JSON.stringify(goodFile), createdAt: 2 },
+            ],
+            latest: 2,
+          }),
+        );
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const result = await runSync(deps, 'tok');
+
+      expect(result.receivedBlobs).toBe(1);
+      expect(result.skippedBlobs).toBe(1);
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('正常な本文');
+      expect(await deps.syncStateRepo.getCursor()).toBe(2); // 壊れた分もcursorは進む
+    });
+
+    it('B5: 再発時に内容が変わらなければAI統合キャッシュ(merged)を破棄しない', async () => {
+      const deps = track(makeDeps('device-1'));
+      const relay = makeRelay();
+      vi.stubGlobal('fetch', relay.fetchMock);
+      relay.blobs.push({ seq: 1, deviceId: 'device-2', payload: JSON.stringify(fileOf('device-2', 'term-a', '相手の内容', 400)), createdAt: 1 });
+      await deps.notesRepo.saveBody('term-a', 'この端末の内容', 'device-1', 300);
+      await runSync(deps, 'tok');
+
+      // AI統合の結果をキャッシュしてから、未解決へ戻す(選び直しの途中を模す)
+      const conflict = (await deps.noteConflictsRepo.getAllOrdered())[0];
+      await deps.noteConflictsRepo.setResolution(conflict.id, 'merged', { body: '統合結果', diagrams: [] }, 500);
+      await deps.db.noteConflicts.update(conflict.id, { resolution: null, resolvedAt: null });
+
+      // 同じ内容のまま相手が再送 → 競合は再発するが2版の内容は変わっていない
+      relay.blobs.push({ seq: 2, deviceId: 'device-2', payload: JSON.stringify(fileOf('device-2', 'term-a', '相手の内容', 400)), createdAt: 2 });
+      await runSync(deps, 'tok');
+
+      const after = (await deps.noteConflictsRepo.getAllOrdered())[0];
+      expect(after.merged).toEqual({ body: '統合結果', diagrams: [] }); // 再利用できる状態のまま
+    });
+
+    it('B5b: 再発時にlocal側だけが変わった場合もAI統合キャッシュを破棄する', async () => {
+      // contentChangedはlocal・remoteのどちらかが変われば真。remote据え置きでlocalだけ
+      // 書き換えた場合も、以前の2版から作った統合結果は古くなるため破棄されること。
+      // 検証はAndroid経路(自版保持)で行う——PC経路(LWW)だと相手の内容が採用されて
+      // noteHistoryに入るため、次回は「相手はこちらの過去版を持っているだけ」と判定されて
+      // 競合が再発せずsupersededになり、この分岐に到達しない(#171で挙動を確認)。
+      const deps = track(makeDeps('device-an', true));
+      const relay = makeRelay();
+      vi.stubGlobal('fetch', relay.fetchMock);
+      relay.blobs.push({ seq: 1, deviceId: 'device-2', payload: JSON.stringify(fileOf('device-2', 'term-a', '相手の内容', 400)), createdAt: 1 });
+      await deps.notesRepo.saveBody('term-a', 'この端末の内容', 'device-1', 300);
+      await runSync(deps, 'tok');
+
+      const conflict = (await deps.noteConflictsRepo.getAllOrdered())[0];
+      await deps.noteConflictsRepo.setResolution(conflict.id, 'merged', { body: '統合結果', diagrams: [] }, 500);
+      await deps.db.noteConflicts.update(conflict.id, { resolution: null, resolvedAt: null });
+
+      // この端末側だけを書き換える(相手のblobは同じ内容のまま再送)
+      await deps.notesRepo.saveBody('term-a', 'この端末の新しい内容', 'device-1', 600);
+      relay.blobs.push({ seq: relay.blobs.length + 1, deviceId: 'device-2', payload: JSON.stringify(fileOf('device-2', 'term-a', '相手の内容', 400)), createdAt: 2 });
+      await runSync(deps, 'tok');
+
+      expect((await deps.noteConflictsRepo.getAllOrdered())[0].merged).toBeNull();
+    });
+
+    it('B5c: 再発時にremote側だけが変わった場合もAI統合キャッシュを破棄する', async () => {
+      // local据え置き・remoteだけ別内容(かつbaseline以下=決定ではない)で再発するケース。
+      // Android経路では自版を保持し続けるためlocalは変わらない
+      const deps = track(makeDeps('device-an', true));
+      const relay = makeRelay();
+      vi.stubGlobal('fetch', relay.fetchMock);
+      relay.blobs.push({ seq: 1, deviceId: 'device-pc', payload: JSON.stringify(fileOf('device-pc', 'term-a', 'PC版(1)', 400)), createdAt: 1 });
+      await deps.notesRepo.saveBody('term-a', 'Android版の内容', 'device-an', 300);
+      await runSync(deps, 'tok'); // 競合記録(baseline=400)
+
+      const conflict = (await deps.noteConflictsRepo.getAllOrdered())[0];
+      await deps.noteConflictsRepo.setResolution(conflict.id, 'merged', { body: '統合結果', diagrams: [] }, 500);
+      await deps.db.noteConflicts.update(conflict.id, { resolution: null, resolvedAt: null });
+
+      // 相手が別内容だが古い時刻の版を送る(baseline以下なので決定にはならない)
+      relay.blobs.push({
+        seq: relay.blobs.length + 1,
+        deviceId: 'device-pc',
+        payload: JSON.stringify(fileOf('device-pc', 'term-a', 'PC版(2)', 350)),
+        createdAt: 2,
+      });
+      await runSync(deps, 'tok');
+
+      const after = (await deps.noteConflictsRepo.getAllOrdered())[0];
+      expect(after.local.body).toBe('Android版の内容'); // localは据え置き
+      expect(after.remote.body).toBe('PC版(2)'); // remoteだけ変わった
+      expect(after.merged).toBeNull(); // 古い統合結果は破棄される
+    });
+
+    it('B9: 決定を出した端末と競合記録の相手端末が違う場合でも、統一され例外にならない(3端末)', async () => {
+      // 競合はdevice-pcとの間で記録されたが、決定として採用されるのはdevice-3の新しい版。
+      // 競合行(peerDeviceId=device-pc)は見つからないため自動クローズはされないが、
+      // notesは統一され同期は完走する(防御分岐)
+      const deps = track(makeDeps('device-an', true));
+      const relay = makeRelay();
+      vi.stubGlobal('fetch', relay.fetchMock);
+      relay.blobs.push({ seq: 1, deviceId: 'device-pc', payload: JSON.stringify(fileOf('device-pc', 'term-a', 'PC版', 400)), createdAt: 1 });
+      await deps.notesRepo.saveBody('term-a', 'Android版の内容', 'device-an', 300);
+      await runSync(deps, 'tok');
+      expect((await deps.noteConflictsRepo.getOpen())[0].peerDeviceId).toBe('device-pc');
+
+      // 別端末(device-3)がbaselineより新しい版を出す
+      relay.blobs.push({
+        seq: relay.blobs.length + 1,
+        deviceId: 'device-3',
+        payload: JSON.stringify(fileOf('device-3', 'term-a', '端末3の版', 900)),
+        createdAt: 2,
+      });
+      const outcome = await runSync(deps, 'tok');
+
+      expect(outcome.adoptedDecisions).toBe(1);
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('端末3の版');
+    });
+
+    it('B6: 解消直後の自動push(pushToRelay単発)でも、相手は次のpullで決定を取り込める', async () => {
+      const relay = makeRelay();
+      vi.stubGlobal('fetch', relay.fetchMock);
+      const pc = track(makeDeps('device-pc', false));
+      const android = track(makeDeps('device-an', true));
+
+      await pc.notesRepo.saveBody('term-x', 'PC版の内容', 'device-pc', 1000);
+      await android.notesRepo.saveBody('term-x', 'Android版の内容', 'device-an', 2000);
+      await runSync(pc, 'tok');
+      await runSync(android, 'tok');
+      await runSync(pc, 'tok');
+
+      // PCで解消 → 「今すぐ同期」ではなく自動push(pushToRelay)だけを行う
+      const conflict = (await pc.noteConflictsRepo.getOpen())[0];
+      await pc.notesRepo.applyConflictResolution('term-x', 'PC版の内容', [], 'device-pc', 5000, {
+        body: 'Android版の内容',
+        diagrams: [],
+      });
+      await pc.noteConflictsRepo.setResolution(conflict.id, 'local', null, 5000);
+      await pushToRelay(pc, 'tok');
+
+      const outcome = await runSync(android, 'tok');
+
+      expect(outcome.adoptedDecisions).toBe(1);
+      expect((await android.notesRepo.getByTermId('term-x'))?.body).toBe('PC版の内容');
+    });
+
+    it('B7: 別peerから新鮮なデータが届き競合が再発しなければsupersededで閉じる(termId単位判定)', async () => {
+      const deps = track(makeDeps('device-1'));
+      const relay = makeRelay();
+      vi.stubGlobal('fetch', relay.fetchMock);
+      relay.blobs.push({ seq: 1, deviceId: 'device-2', payload: JSON.stringify(fileOf('device-2', 'term-a', '端末2の内容', 400)), createdAt: 1 });
+      await deps.notesRepo.saveBody('term-a', 'この端末の内容', 'device-1', 300);
+      await runSync(deps, 'tok');
+      expect(await deps.noteConflictsRepo.getOpen()).toHaveLength(1);
+
+      // 別peer(device-3)が、現在この端末が持つ内容と同じものを送ってくる → 競合は再発しない
+      relay.blobs.push({
+        seq: relay.blobs.length + 1,
+        deviceId: 'device-3',
+        payload: JSON.stringify(fileOf('device-3', 'term-a', '端末2の内容', 800)),
+        createdAt: 3,
+      });
+      await runSync(deps, 'tok');
+
+      const all = await deps.noteConflictsRepo.getAllOrdered();
+      expect(all[0].closedReason).toBe('superseded');
+      expect(await deps.noteConflictsRepo.getOpen()).toHaveLength(0);
+    });
+
+    it('B8: Androidでopen競合が無い状態の競合はbaselineが無く、自版を保持して競合として記録し直す', async () => {
+      // 当初「LWWで新しい方が採用される」と想定したが、実際はholdLocalOnConflict時に
+      // baselineが無い競合は必ず自版保持になる(mergeSnapshot:116-123)。これが正しい:
+      // baselineが無い=「PC側の決定と確認できない」ため、勝手に相手版で上書きしない。
+      // 決着は改めて記録された競合をPCが解消して伝えることで付く(#171で挙動を確認・固定)。
+      const deps = track(makeDeps('device-an', true));
+      await deps.notesRepo.saveBody('term-a', 'Android版の内容', 'device-an', 300);
+      const relay = makeRelay();
+      vi.stubGlobal('fetch', relay.fetchMock);
+      relay.blobs.push({
+        seq: 1,
+        deviceId: 'device-pc',
+        payload: JSON.stringify(fileOf('device-pc', 'term-a', 'PC版(解消前)', 400)),
+        createdAt: 1,
+      });
+      await runSync(deps, 'tok'); // 競合を記録(baseline=400)
+
+      // 競合行だけを解決済みにする(open競合=baselineが無い状態を作る)
+      const conflict = (await deps.noteConflictsRepo.getOpen())[0];
+      await deps.noteConflictsRepo.setResolution(conflict.id, 'local', null, 500);
+
+      relay.blobs.push({
+        seq: relay.blobs.length + 1,
+        deviceId: 'device-pc',
+        payload: JSON.stringify(fileOf('device-pc', 'term-a', 'PCの解消結果', 900)),
+        createdAt: 2,
+      });
+      const outcome = await runSync(deps, 'tok');
+
+      expect(outcome.receivedBlobs).toBeGreaterThan(0);
+      // 自版を保持し、決定として採用はしない(勝手な上書きをしない)
+      expect(outcome.adoptedDecisions).toBe(0);
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('Android版の内容');
+      // 新しい競合として記録され直し、次にPCが解消すれば統一できる状態になる
+      const open = await deps.noteConflictsRepo.getOpen();
+      expect(open).toHaveLength(1);
+      expect(open[0].remote.body).toBe('PCの解消結果');
+    });
+
     it('2端末結合: PCで解消→Androidが決定を採用して統一→PC側も競合ゼロ(デッドロック回帰)', async () => {
       const relay = makeRelay();
       vi.stubGlobal('fetch', relay.fetchMock);

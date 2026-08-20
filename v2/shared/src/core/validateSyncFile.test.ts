@@ -86,4 +86,71 @@ describe('parseSyncFile', () => {
     expect(parseSyncFile(null).ok).toBe(false);
     expect(parseSyncFile(42).ok).toBe(false);
   });
+
+  // #171: 検証の残りの分岐(必須メタ情報の欠落・配列でないケース)。
+  // ここが通ってしまうと壊れたblobを取り込んでローカルデータを壊しうるため、
+  // 「1つでも欠けたら必ずreasonつきで落ちる」ことを固定する。
+  describe('必須メタ情報の欠落(#171)', () => {
+    it('deviceIdが無い/空文字なら落ちる', () => {
+      expect(parseSyncFile({ ...validFile(), deviceId: undefined })).toMatchObject({ ok: false, reason: 'deviceId がありません' });
+      expect(parseSyncFile({ ...validFile(), deviceId: '' })).toMatchObject({ ok: false, reason: 'deviceId がありません' });
+    });
+
+    it('writtenAtが数値でなければ落ちる', () => {
+      expect(parseSyncFile({ ...validFile(), writtenAt: '2026-08-20' })).toMatchObject({
+        ok: false,
+        reason: 'writtenAt がありません',
+      });
+    });
+
+    it('notes/asks/aiTermsが配列でなければ落ちる', () => {
+      expect(parseSyncFile({ ...validFile(), notes: null })).toMatchObject({ ok: false, reason: 'notes の形式が不正です' });
+      expect(parseSyncFile({ ...validFile(), asks: 'x' })).toMatchObject({ ok: false, reason: 'asks の形式が不正です' });
+      expect(parseSyncFile({ ...validFile(), aiTerms: {} })).toMatchObject({ ok: false, reason: 'aiTerms の形式が不正です' });
+    });
+
+    it('askの必須項目が欠けていれば落ちる', () => {
+      const file = validFile();
+      expect(parseSyncFile({ ...file, asks: [{ ...file.asks[0], at: 'いつか' }] })).toMatchObject({
+        ok: false,
+        reason: 'asks の形式が不正です',
+      });
+    });
+
+    it('aiTermのsummaryが文字列ならそのまま通る(シード由来の削除語など)', () => {
+      const file = validFile();
+      expect(parseSyncFile({ ...file, aiTerms: [{ ...file.aiTerms[0], summary: '初期説明つき' }] }).ok).toBe(true);
+    });
+
+    it('aiTermのsummaryが文字列でもnullでもなければ落ちる', () => {
+      const file = validFile();
+      expect(parseSyncFile({ ...file, aiTerms: [{ ...file.aiTerms[0], summary: 42 }] })).toMatchObject({
+        ok: false,
+        reason: 'aiTerms の形式が不正です',
+      });
+    });
+
+    it('aiTermのidが文字列でなければ落ちる(先頭の項目チェック)', () => {
+      const file = validFile();
+      expect(parseSyncFile({ ...file, aiTerms: [{ ...file.aiTerms[0], id: 42 }] })).toMatchObject({
+        ok: false,
+        reason: 'aiTerms の形式が不正です',
+      });
+    });
+
+    it('配列の中身がオブジェクトでない(null・文字列・数値)場合も落ちる', () => {
+      const file = validFile();
+      expect(parseSyncFile({ ...file, notes: [null] })).toMatchObject({ ok: false, reason: 'notes の形式が不正です' });
+      expect(parseSyncFile({ ...file, asks: ['文字列'] })).toMatchObject({ ok: false, reason: 'asks の形式が不正です' });
+      expect(parseSyncFile({ ...file, aiTerms: [42] })).toMatchObject({ ok: false, reason: 'aiTerms の形式が不正です' });
+    });
+
+    it('aiTermのfieldが一覧に無ければ落ちる', () => {
+      const file = validFile();
+      expect(parseSyncFile({ ...file, aiTerms: [{ ...file.aiTerms[0], field: '架空の分野' }] })).toMatchObject({
+        ok: false,
+        reason: 'aiTerms の形式が不正です',
+      });
+    });
+  });
 });

@@ -86,6 +86,20 @@ describe('createNoteConflictsRepository', () => {
     expect(updated.merged).toBeNull(); // 内容が変わったのでAI統合キャッシュは破棄
   });
 
+  it('refreshはresetMerged:falseならAI統合キャッシュを保つ(内容が変わらない再発)', async () => {
+    const r = repo();
+    const record = await r.add(makeConflict(), 'device-2', 1000, EVENT);
+    const merged = { body: '統合結果', diagrams: [] };
+    await r.setResolution(record.id, 'merged', merged, 1500);
+
+    const same = makeConflict();
+    await r.refresh(record.id, { local: same.local, remote: same.remote, detectedAt: 2000, syncEventId: 'event-2', resetMerged: false });
+
+    const [updated] = await r.getAllOrdered();
+    expect(updated.merged).toEqual(merged); // 再利用できる状態のまま
+    expect(updated.detectedAt).toBe(2000);
+  });
+
   it('carryOverはsyncEventIdだけ付け替える', async () => {
     const r = repo();
     const record = await r.add(makeConflict(), 'device-2', 1000, EVENT);

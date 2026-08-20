@@ -42,3 +42,6 @@ docs/review/logs/lhci-report/
 
 # 検証用に一時ダウンロードしたバイナリ（コミット対象外）
 .tools/
+
+# カバレッジ計測の出力(#171)。実行のたびに再生成される
+coverage/

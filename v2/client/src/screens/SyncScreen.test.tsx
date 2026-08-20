@@ -77,6 +77,7 @@ function renderSyncScreen(
     aiClient?: AiClient;
     onGoToSettings?: () => void;
     isNativeApp?: boolean;
+    onSyncApplied?: () => void;
   } = {},
 ) {
   render(
@@ -92,6 +93,7 @@ function renderSyncScreen(
       syncStateRepo={deps.syncStateRepo}
       aiClient={options.aiClient ?? fakeAiClient()}
       onGoToSettings={options.onGoToSettings}
+      onSyncApplied={options.onSyncApplied}
     />,
   );
   return deps;
@@ -335,6 +337,61 @@ describe('SyncScreen', () => {
     item = screen.getByText('tcp-ip').closest('li')!;
     fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[0]);
     await waitFor(async () => expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('相手の端末の内容'));
+  });
+
+  // #171: 同期完了時の画面自動反映(onSyncApplied)の呼び出し条件。
+  // 受信も統一も無い同期で無駄に全画面を再読込しないことを固定する。
+  it('F1: 受信ありの同期ではonSyncAppliedが呼ばれる(#171)', async () => {
+    const deps = createSyncDeps();
+    const remoteFile = {
+      syncSchemaVersion: 1,
+      deviceId: 'device-2',
+      writtenAt: 1,
+      notes: [{ termId: 'term-a', body: '相手の本文', diagrams: [], updatedAt: 100, lastEditedBy: 'device-2', noteHistory: [] }],
+      asks: [],
+      aiTerms: [],
+    };
+    const onSyncApplied = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url === '/api/auth/me') return Promise.resolve(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' }));
+        if (url === '/api/sync/push') return Promise.resolve(jsonResponse(201, { seq: 1 }));
+        return Promise.resolve(
+          jsonResponse(200, {
+            blobs: [{ seq: 2, deviceId: 'device-2', payload: JSON.stringify(remoteFile), createdAt: 2 }],
+            latest: 2,
+          }),
+        );
+      }),
+    );
+    localStorage.setItem('it-index-v2:token', 'tok-1');
+
+    renderSyncScreen(deps, { onSyncApplied });
+    await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+
+    await waitFor(() => expect(onSyncApplied).toHaveBeenCalledTimes(1));
+  });
+
+  it('F1b: 受信0件・統一0件の同期ではonSyncAppliedを呼ばない(無駄な再読込をしない)(#171)', async () => {
+    const onSyncApplied = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url === '/api/auth/me') return Promise.resolve(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' }));
+        if (url === '/api/sync/push') return Promise.resolve(jsonResponse(201, { seq: 1 }));
+        return Promise.resolve(jsonResponse(200, { blobs: [], latest: 0 }));
+      }),
+    );
+    localStorage.setItem('it-index-v2:token', 'tok-1');
+
+    renderSyncScreen(createSyncDeps(), { onSyncApplied });
+    await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+
+    await waitFor(() => expect(screen.getByText(/受信0件/)).toBeTruthy());
+    expect(onSyncApplied).not.toHaveBeenCalled();
   });
 
   it('競合を解消するとonResolutionAppliedが呼ばれる(リレーへの自動pushの起点)(#169)', async () => {
