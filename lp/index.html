@@ -7,7 +7,7 @@
 <meta name="description" content="IT用語3,510語をかな・カタカナ・英字のどれでも一発検索。AIに聞いた補足が蓄積して自分だけの辞書に育つ、ローカルファーストのIT用語辞書アプリ。PCはブラウザで今すぐ、AndroidはAPKで。">
 <meta property="og:type" content="website">
 <meta property="og:title" content="IT-Index — 引くたびに育つ、自分だけのIT用語辞書">
-<meta property="og:description" content="IT用語3,510語(IPAシラバス24分類)を収録。かな・カタカナ・英字どれでも検索でき、AIに聞くほど辞書が育つ。無料・インストール不要でブラウザから使えます。">
+<meta property="og:description" content="IT用語3,510語(IPAシラバスをもとにした24分類)を収録。かな・カタカナ・英字どれでも検索でき、AIに聞くほど辞書が育つ。無料・インストール不要でブラウザから使えます。">
 <meta property="og:site_name" content="IT-Index">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b6cb0'/%3E%3Ctext x='16' y='22' font-family='sans-serif' font-size='14' font-weight='bold' fill='%23fff' text-anchor='middle'%3EIT%3C/text%3E%3C/svg%3E">
 <style>
@@ -254,6 +254,8 @@
   .faq summary::after { content: "+"; color: var(--accent); font-size: 1.3rem; font-weight: 400; flex-shrink: 0; }
   .faq details[open] summary::after { content: "−"; }
   .faq details p { color: var(--muted); font-size: 0.93rem; padding-top: 10px; }
+  .faq details ul { color: var(--muted); font-size: 0.93rem; margin: 8px 0 0; padding-left: 1.2em; }
+  .faq details li { margin-bottom: 6px; }
 
   /* ===== final CTA ===== */
   .final-cta { text-align: center; }
@@ -300,12 +302,12 @@
       <p class="hero-lead">
         「DNS」でも「でぃーえぬえす」でも、思いついた読みでそのまま検索。
         わからなければその場でAIに質問して、得られた補足はあなたの辞書に蓄積。
-        IT用語 3,510語(IPAシラバス24分類)を収録した、個人用のIT用語辞書アプリです。
+        IT用語 3,510語(IPAシラバスをもとにした24分類)を収録した、個人用のIT用語辞書アプリです。
       </p>
       <div class="cta-row">
         <a class="btn btn-primary" href="https://it-index.doryu.workers.dev" target="_blank" rel="noopener">ブラウザで今すぐ使う</a>
         <a class="btn btn-secondary" href="#install">Android版を入れる</a>
-        <span class="cta-note">無料・アカウント登録不要。PCはインストール不要でそのまま使えます。</span>
+        <span class="cta-note">辞書機能は無料・アカウント登録不要。PCはインストールも不要です(AIの利用のみ無料のアカウント登録が必要)。</span>
       </div>
     </div>
     <figure class="phone">
@@ -317,8 +319,8 @@
 <div class="stats">
   <div class="wrap">
     <div><div class="stat-num">3,510語</div><div class="stat-label">収録IT用語</div></div>
-    <div><div class="stat-num">24分類</div><div class="stat-label">IPAシラバス準拠</div></div>
-    <div><div class="stat-num">¥0</div><div class="stat-label">登録不要ですぐ使える</div></div>
+    <div><div class="stat-num">24分類</div><div class="stat-label">IPAシラバスをもとに整理</div></div>
+    <div><div class="stat-num">¥0</div><div class="stat-label">辞書機能は登録不要</div></div>
     <div><div class="stat-num">端末内</div><div class="stat-label">データはローカル保存</div></div>
   </div>
 </div>
@@ -346,7 +348,7 @@
       <div class="feature-card">
         <div class="feature-icon">🔒</div>
         <h3>データは、自分の端末に</h3>
-        <p>用語・ノート・履歴はすべて端末内に保存されるローカルファースト設計。アカウント登録なしで全機能を使い始められます。AIは自分のAPIキーを設定して利用します。</p>
+        <p>用語・ノート・履歴はすべて端末内に保存されるローカルファースト設計。検索・索引・履歴・ノートはアカウント登録なしで使い始められます。AIチャットだけは無料のアカウント登録が必要で、質問は公式サーバー経由でAI事業者へ送られます(サーバーには保存しません)。</p>
       </div>
     </div>
   </div>
@@ -359,7 +361,7 @@
     <div class="audience-grid">
       <div class="audience-card">
         <h3>🎯 IPA試験の受験者</h3>
-        <p>基本情報・応用情報などの学習に。シラバスの24分類に沿った3,510語を収録しているので、過去問で出会った用語をその場で引き、重み付けで苦手分野を重点復習できます。</p>
+        <p>基本情報・応用情報などの学習に。IPAシラバスをもとにした24分類で整理した3,510語を収録しているので、過去問で出会った用語をその場で引き、重み付けで苦手分野を重点復習できます。</p>
       </div>
       <div class="audience-card">
         <h3>🌱 新人ITエンジニア</h3>
@@ -397,7 +399,7 @@
 <section class="section-soft" id="screens">
   <div class="wrap">
     <h2>画面を見てみる</h2>
-    <p class="section-lead">実際のアプリ画面です。スマホは下部タブで片手操作、PCでも同じデータをそのまま使えます。</p>
+    <p class="section-lead">実際のアプリ画面です。スマホは下部タブで片手操作、PCでも同じ画面をそのまま使えます。</p>
     <div class="gallery">
       <figure>
         <div class="phone"><img src="assets/search.png" alt="検索画面。読み仮名と分類つきの候補一覧" width="500" height="844" loading="lazy"></div>
@@ -456,15 +458,29 @@
     <div class="faq">
       <details>
         <summary>料金はかかりますか?</summary>
-        <p>無料で始められます。検索・索引・履歴・ノートなどのローカル機能はすべて無料です。AI機能は自分のAPIキー(BYOK)を設定して利用するため、AIの利用料は各AI事業者への従量課金になります。端末間同期などのサーバー機能は、今後の有償ライセンス向けに準備中です。</p>
+        <p>無料で始められます。検索・索引・履歴・ノートなどの辞書機能はすべて無料です。AIチャットも、無料のアカウント登録と自分のAPIキー(BYOK)の設定だけで使えます(AIの利用料は各AI事業者への従量課金になります)。</p>
+        <p><strong>IT-Index プレミアム(月額 ¥300・毎月自動更新)</strong>にすると、次の2つが使えるようになります。</p>
+        <ul>
+          <li><strong>端末間同期</strong> — 単語帳・ノート・履歴を複数の端末で揃えられます(Android含む。同じネットワークにいなくても同期できます)</li>
+          <li><strong>APIキーなしでのAI利用</strong> — 自分のAPIキーを登録しなくてもAIに質問できます(1日の回数上限あり)</li>
+        </ul>
+        <p>解約はいつでもアプリの設定画面から行え、即時に反映されます。</p>
       </details>
       <details>
         <summary>データはどこに保存されますか?</summary>
-        <p>用語・ノート・履歴はすべてお使いの端末内(ブラウザのIndexedDB)に保存されます。同期機能を自分で有効にしない限り、学習データが外部サーバーに送られることはありません。</p>
+        <p>用語・ノート・履歴はすべてお使いの端末内(ブラウザのIndexedDB)に保存されます。端末間同期を自分で有効にしない限り、これらが外部サーバーへ預けられることはありません。ただしAIチャットは公式サーバーを経由してAI事業者へ問い合わせる仕組みのため、送信した質問文と対象の用語はサーバーを通ります(サーバー側に保存するのは利用回数のみで、質問文は保存しません)。</p>
       </details>
       <details>
         <summary>AI機能を使うには何が必要ですか?</summary>
-        <p>設定画面でAI事業者のAPIキーを登録すると使えるようになります。プロバイダとモデルを選択でき、登録時に接続テストで動作を確認できます。APIキーなしでも、検索・索引・ノートなど辞書としての機能はすべて使えます。</p>
+        <p>無料のアカウント登録(メールアドレスとパスワード)とログインが必要です。その上で設定画面に自分のAPIキーを登録すると使えるようになります。プロバイダ(OpenAI / Anthropic)とモデルを選択でき、登録時の接続テストに通ったキーだけが保存されます(実動作を確認できているのはOpenAIのみです)。APIキーなしでAIを使いたい場合は、プレミアム(月額 ¥300)をご利用ください。ログインやAPIキーがなくても、検索・索引・履歴・ノートなど辞書としての機能はすべて使えます。</p>
+      </details>
+      <details>
+        <summary>Web版やサーバーはどこで動いていますか?</summary>
+        <p>公式サーバーはCloudflare Workers + D1で運用しています(このページも同じサーバーの https://it-index.doryu.workers.dev/lp/ から配信しています)。アカウント・端末間同期の中継・AIの中継・ライセンス管理を、このサーバーが担います。Cloudflareの無料枠の範囲で運用しているため稼働保証(SLA)はなく、枠を超えた場合や障害時は一時的に利用できないことがあります。辞書機能は端末内で完結するため、サーバーが止まっていても検索・索引・履歴・ノートはそのまま使えます。</p>
+      </details>
+      <details>
+        <summary>自分のサーバーで動かせますか?</summary>
+        <p>できます。サーバーの実装はGitHubで公開しており、<a href="https://github.com/doryu0-04092/IT-Index/blob/master/docs/v2/deploy.md" target="_blank" rel="noopener">セルフホストの手順</a>に従って自分のCloudflareアカウントに同じサーバーを立てられます。アプリの設定「接続先サーバー」にそのURLを入れると接続先が切り替わり、端末間同期とAIの中継がライセンス不要で使えます(運用と費用はご自身の負担になります)。</p>
       </details>
       <details>
         <summary>iPhoneでは使えますか?</summary>
