@@ -16,6 +16,12 @@ export interface TermDetailScreenProps {
   onDeleted: (termId: string) => void;
   /** 「AIに聞く」ボタン。この語にひも付くチャットを開く(要件定義書§5.3) */
   onOpenChat: (termId: string) => void;
+  /**
+   * 取り込み(確定)完了の通知(#167)。この画面を開いたまま裏で取り込みが完了した場合に、
+   * ノート・語の表示を追従させる再読込トリガー。編集中(未保存の下書きがある間)は
+   * 下書きを上書きしない——操作を阻害しないための必須条件。
+   */
+  commitRefreshTick?: number;
 }
 
 /**
@@ -33,6 +39,7 @@ export default function TermDetailScreen({
   onBack,
   onDeleted,
   onOpenChat,
+  commitRefreshTick = 0,
 }: TermDetailScreenProps) {
   const [term, setTerm] = useState<TermRecord | null | undefined>(undefined); // undefined = 読み込み中
   const [note, setNote] = useState<NoteRecord | undefined>(undefined);
@@ -41,16 +48,28 @@ export default function TermDetailScreen({
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const noteEditorRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // 編集中(下書きが保存済み本文と異なる)かどうか。背景の自動反映(#167)が下書きを
+  // 上書きしないための判定に使う。render中のref書き込みはreact-hooks/purityに
+  // 触れるため、毎render後のeffectで更新する(依存配列なし=常に最新)
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    dirtyRef.current = draftBody !== (note?.body ?? '');
+  });
+
   // termId変更時の状態リセットは呼び出し元(App.tsx)が<main key={screenKey(screen)}>で
   // termIdを含むkeyを持たせているため、この画面自体が丸ごと再マウントされて不要
   // (初期値のundefined/false/'idle'に自然に戻る)。ここでは取得結果の反映だけを行う。
+  // commitRefreshTick: この画面を開いたまま取り込みが完了した場合の追従(#167)。
+  // 語・ノート表示は差し替えるが、編集中の下書きだけは上書きしない(操作を阻害しない)。
   useEffect(() => {
     void Promise.all([termsRepo.getById(termId), notesRepo.getByTermId(termId)]).then(([t, n]) => {
       setTerm(t ?? null);
       setNote(n);
-      setDraftBody(n?.body ?? '');
+      if (!dirtyRef.current) {
+        setDraftBody(n?.body ?? '');
+      }
     });
-  }, [termId, termsRepo, notesRepo]);
+  }, [termId, termsRepo, notesRepo, commitRefreshTick]);
 
   // ノート欄は内側スクロール(スライドバー)をやめ、本文の長さに合わせて縦に伸びる
   // テキストボックスにする(本人指定)。rows固定のままだとブラウザ既定でtextarea内部だけが

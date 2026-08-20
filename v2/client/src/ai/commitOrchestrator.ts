@@ -19,6 +19,12 @@ export interface CommitOrchestratorDeps {
   autoUpdateExistingTerms: AutoUpdateExistingTermsMode;
   /** AI呼び出し失敗時。状態遷移図どおりセッションはopenのまま残り、次回再試行される */
   onError?: (sessionId: string, error: unknown) => void;
+  /**
+   * 取り込み完了時(#167)。チャット経由・取り込み待ち一覧経由のどちらの確定でも
+   * ここから1箇所で通知が飛ぶ——各画面はこれを起点に裏側でデータを差し替える
+   * (再マウントせず、文字列の書き換え・行の追加のみで反映する。本人指定)。
+   */
+  onCommitted?: (sessionId: string) => void;
 }
 
 export interface CommitOrchestrator {
@@ -45,6 +51,8 @@ export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOr
       const messages = await deps.chatRepo.getMessages(sessionId);
       if (messages.length === 0) {
         await deps.chatRepo.commitSession(sessionId);
+        // 語の追加は無いが、セッションの状態(取り込み待ち一覧・取り込み履歴)は変わるため通知する
+        deps.onCommitted?.(sessionId);
         return;
       }
 
@@ -67,6 +75,9 @@ export function createCommitOrchestrator(deps: CommitOrchestratorDeps): CommitOr
           deviceId: deps.deviceId,
         });
       });
+      // トランザクション成功後にのみ通知する(部分的な書き込みは残らないため、
+      // 通知が飛んだ時点で読み直せば必ず完全な結果が見える)
+      deps.onCommitted?.(sessionId);
     } catch (error) {
       // committing --> open(API呼び出し失敗)。取り込み待ち一覧に戻し、再試行できるようにする。
       await deps.chatRepo.abortCommit(sessionId);

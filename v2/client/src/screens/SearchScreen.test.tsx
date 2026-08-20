@@ -32,7 +32,7 @@ const pendingDefaults = {
   onCommitPending: () => {},
   onDeclineSession: () => {},
   failedCommitSessionIds: new Set<string>(),
-  pendingRefreshTick: 0,
+  commitRefreshTick: 0,
 };
 
 /**

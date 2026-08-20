@@ -165,6 +165,43 @@ describe('TermDetailScreen', () => {
     expect(screen.getAllByTestId('mermaid-stub')[1].textContent).toBe('sequenceDiagram;A->>B: hi');
   });
 
+  it('取り込み完了の通知(commitRefreshTick)で再読込するが、編集中の下書きは上書きしない(#167)', async () => {
+    const initial: NoteRecord = {
+      termId: term.id,
+      body: '元のノート',
+      diagrams: [],
+      updatedAt: 1,
+      lastEditedBy: 'device-1',
+      noteHistory: [],
+    };
+    const notesRepo = fakeNotesRepo(initial);
+    const props = {
+      termId: term.id,
+      termsRepo: fakeTermsRepo(),
+      notesRepo,
+      deviceId: 'device-1',
+      onBack: () => {},
+      onDeleted: () => {},
+      onOpenChat: () => {},
+    };
+    const { rerender } = render(<TermDetailScreen {...props} commitRefreshTick={0} />);
+    await waitFor(() => expect((screen.getByLabelText('ノート本文') as HTMLTextAreaElement).value).toBe('元のノート'));
+
+    // 背景で取り込みが完了しノートが更新された(編集していない) → 表示・下書きとも追従する
+    await notesRepo.upsertFromSync({ ...initial, body: 'AIが追記したノート', updatedAt: 2 });
+    rerender(<TermDetailScreen {...props} commitRefreshTick={1} />);
+    await waitFor(() => expect((screen.getByLabelText('ノート本文') as HTMLTextAreaElement).value).toBe('AIが追記したノート'));
+
+    // 編集中(未保存の下書きあり)に再度更新が来た → 下書きは上書きしない(操作を阻害しない)
+    fireEvent.change(screen.getByLabelText('ノート本文'), { target: { value: '書きかけの下書き' } });
+    await notesRepo.upsertFromSync({ ...initial, body: 'さらに新しいノート', updatedAt: 3 });
+    const reloadSpy = vi.spyOn(notesRepo, 'getByTermId');
+    rerender(<TermDetailScreen {...props} commitRefreshTick={2} />);
+    // 再読込effectが実際に走り終えたことをspyで確認してから、下書きが保たれていることを見る
+    await waitFor(() => expect(reloadSpy).toHaveBeenCalled());
+    expect((screen.getByLabelText('ノート本文') as HTMLTextAreaElement).value).toBe('書きかけの下書き');
+  });
+
   it('削除確認→削除するとonDeletedが呼ばれる', async () => {
     const onDeleted = vi.fn();
     render(
