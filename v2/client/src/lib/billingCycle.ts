@@ -23,6 +23,37 @@ export function nextBillingDate(activatedAt: number, now: number): Date {
   }
 }
 
+/**
+ * 異常な `activatedAt`(過去に振り切れた値・壊れた保存値)で無限に近いループを回さないための上限。
+ * 50年分あれば実用上足り、超えた場合は古い側が切れるだけで表示は壊れない。
+ */
+const MAX_HISTORY_MONTHS = 600;
+
+/**
+ * 課金開始日から `now` までに**到来済み**の請求日を、新しい順で返す(設定タブ「支払い履歴」用)。
+ * 先頭の1件は課金開始日そのもの(初回の支払い)。
+ *
+ * `nextBillingDate` と同じ基準日・同じ月末繰り上げ規則で数える——「次回請求日」と
+ * 「支払い履歴」が別々の数え方をすると、境界日にどちらか一方だけがずれて見えるため、
+ * 日付の生成は `addMonthsClamped` の1箇所に集約している。
+ *
+ * **実際の課金は行っていないモック段階のため、ここで返るのは「請求が起きたことになっている日」**
+ * であり、決済基盤の入金記録ではない(この但し書きは画面側にも出す)。
+ */
+export function listBilledDates(activatedAt: number, now: number): Date[] {
+  const start = new Date(activatedAt);
+  if (start.getTime() > now) return [];
+
+  const dayOfMonth = start.getDate();
+  const dates: Date[] = [start];
+  for (let monthsAhead = 1; monthsAhead <= MAX_HISTORY_MONTHS; monthsAhead++) {
+    const candidate = addMonthsClamped(start, dayOfMonth, monthsAhead);
+    if (candidate.getTime() > now) break;
+    dates.push(candidate);
+  }
+  return dates.reverse();
+}
+
 function addMonthsClamped(start: Date, dayOfMonth: number, monthsAhead: number): Date {
   const candidate = new Date(start);
   candidate.setDate(1); // 溢れを避けるため、月を進める前に安全な日へ寄せる
