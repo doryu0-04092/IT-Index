@@ -368,6 +368,25 @@ describe('SettingsScreen', () => {
   });
 
   describe('接続先サーバー', () => {
+    it('ヘルプで「接続先サーバーとは」の説明モーダルを開閉できる(#163)', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(401, { error: { code: 'unauthorized', message: '認証が必要です' } })));
+      renderSettingsScreen();
+      await screen.findByText('接続先サーバー');
+
+      expect(screen.queryByText('接続先サーバーとは')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'この設定について' }));
+
+      expect(screen.getByText('接続先サーバーとは')).toBeTruthy();
+      // 何のためのサーバーか・通常は変更不要・辞書機能はサーバー無しでも動くことを明示する
+      expect(screen.getByText(/端末間同期の中継/)).toBeTruthy();
+      expect(screen.getByText('通常は変更不要です。')).toBeTruthy();
+      expect(screen.getByText(/サーバーに接続しなくても動きます/)).toBeTruthy();
+
+      // ✕(aria-label)とフッターの「閉じる」の2つがあるため、後者で閉じる
+      fireEvent.click(screen.getAllByRole('button', { name: '閉じる' })[1]);
+      expect(screen.queryByText('接続先サーバーとは')).toBeNull();
+    });
+
     it('接続テストに成功したURLだけ保存され、基底URLに反映される', async () => {
       const fetchMock = vi.fn().mockImplementation((url: string) => {
         if (url === 'https://self-hosted.example.workers.dev/api/health') {

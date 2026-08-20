@@ -1234,9 +1234,10 @@ a,
   font-size: 0.95rem;
 }
 
-/* ライセンス見出しとヘルプボタン(#151)を1行に並べる。h2のマージンはそのまま生かし、
+/* 設定セクションの見出しとヘルプボタンを1行に並べる(#151ライセンス・#163接続先サーバーで共用)。
+   h2のマージンはそのまま生かし、
    他セクションの見出しと上下間隔を揃える */
-.license-heading-row {
+.settings-heading-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
