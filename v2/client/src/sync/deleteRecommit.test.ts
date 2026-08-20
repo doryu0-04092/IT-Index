@@ -23,6 +23,7 @@ function makeDeps(deviceId: string, holdLocalOnConflict: boolean): SyncEngineDep
     noteConflictsRepo: createNoteConflictsRepository(db),
     syncEventsRepo: createSyncEventsRepository(db),
     syncStateRepo: createSyncStateRepository(db),
+    accountId: 'test-account',
     deviceId,
     holdLocalOnConflict,
   };

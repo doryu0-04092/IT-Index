@@ -16,6 +16,8 @@ import type { SyncStateRepository } from '../repositories/syncState';
 import type { TermsRepository } from '../repositories/terms';
 import { pullSyncBlobs, pushSyncBlob } from './apiClient';
 import { buildLocalSnapshot } from './localSnapshot';
+import { decryptSyncPayload, encryptSyncPayload, importDataKey, isSyncEnvelope } from './syncCrypto';
+import { getOrCreateDataKey } from './syncKeyStore';
 
 export interface SyncEngineDeps {
   db: ItIndexDB;
@@ -32,6 +34,11 @@ export interface SyncEngineDeps {
    * newest-wins+競合記録(PC=解消する側)。
    */
   holdLocalOnConflict: boolean;
+  /**
+   * 同期データの暗号化に使うアカウントID(#182)。鍵はアカウント単位で保管する
+   * (sync/syncKeyStore.ts)。
+   */
+  accountId: string;
 }
 
 /**
@@ -61,8 +68,23 @@ export async function buildOutboundPayload(deps: SyncEngineDeps): Promise<string
   return JSON.stringify(file);
 }
 
+/**
+ * この端末の鍵を用意する(#182)。鍵が無ければその場で作る——最初にpushする端末がここで
+ * 鍵の持ち主になり、2台目は「復号できない差分が届く」ことで鍵の受け渡しが必要だと分かる。
+ *
+ * 鍵として読み込めない値が保存されていた場合(壊れた保存値)は例外にする。黙って新しい鍵を
+ * 作ると、他端末が読めない暗号文を延々と送り続ける状態になるため。
+ */
+async function requireEncryptionKey(deps: SyncEngineDeps): Promise<CryptoKey> {
+  const key = await importDataKey(getOrCreateDataKey(deps.accountId));
+  if (key === null) {
+    throw new Error('同期の暗号鍵が壊れています。設定から鍵を作り直してください');
+  }
+  return key;
+}
+
 export async function pushToRelay(deps: SyncEngineDeps, token: string): Promise<{ seq: number }> {
-  const payload = await buildOutboundPayload(deps);
+  const payload = await encryptSyncPayload(await requireEncryptionKey(deps), await buildOutboundPayload(deps));
   return pushSyncBlob(token, deps.deviceId, payload);
 }
 
@@ -138,6 +160,12 @@ export interface PullOutcome {
   receivedBlobs: number;
   /** 検証に通らずスキップしたblob件数(既存データは保持) */
   skippedBlobs: number;
+  /**
+   * この端末の鍵では復号できなかったblob件数(#182)。**skippedBlobsとは別に数える**——
+   * あちらは「壊れていて読めない」で読み飛ばして良いものだが、こちらは
+   * 「鍵さえ揃えば読めるもの」で、後から読み直す必要がある。
+   */
+  undecryptableBlobs: number;
   /** 今回の同期で検出(新規+再発)された競合件数 */
   conflicts: number;
   /** 相手側(PC)の決定を採用して統一した件数(Androidネイティブのみ非0) */
@@ -159,6 +187,14 @@ export interface PullOutcome {
  * 検証に通らないblobのスキップは「書き込み失敗」ではなく意図した読み飛ばしのため、
  * ロールバック対象ではない。読み飛ばした分もバッチのcursorには含めて進める
  * (同じ壊れたblobを毎回取得し続けないため。architecture.md §4「壊れたデータ」)。
+ *
+ * **復号できなかったblobは別扱いにする(#182)。** 「壊れている」のではなく
+ * 「鍵がまだ揃っていない」だけなので、そのバッチではcursorを進めない——進めてしまうと、
+ * 後で鍵を受け取っても、その間に届いていた差分を二度と取りに行かなくなる。
+ *
+ * **cursorの自己修復(#182)。** 暗号化への切り替えや鍵の作り直しでサーバー上の差分を
+ * 全消しすると、seqは1から振り直しになる。手元のcursorがそれより大きいままだと
+ * 永久に何もpullしなくなるため、`latest < cursor` を検出したらcursorを0へ戻して読み直す。
  */
 export async function pullFromRelay(
   deps: SyncEngineDeps,
@@ -168,16 +204,31 @@ export async function pullFromRelay(
   let cursor = await deps.syncStateRepo.getCursor();
   let receivedBlobs = 0;
   let skippedBlobs = 0;
+  let undecryptableBlobs = 0;
   let conflicts = 0;
   let adoptedDecisions = 0;
   const receivedTermIds = new Set<string>();
   const peerDeviceIds = new Set<string>();
 
+  // 自分の鍵。持っていなければここで作られる(最初にpushする端末が鍵の持ち主になる)
+  const key = await requireEncryptionKey(deps);
+
   for (;;) {
     const { blobs, latest } = await pullSyncBlobs(token, cursor);
+
+    // サーバー側の差分が消された(seqが振り直された)場合。cursorを0へ戻して読み直す
+    if (latest < cursor) {
+      cursor = 0;
+      await deps.syncStateRepo.setCursor(0);
+      continue;
+    }
+
     if (blobs.length === 0) break;
 
     const remoteFiles: SyncFile[] = [];
+    // 復号できないblobがこのバッチにあったか。あればcursorを進めない
+    let batchHasUndecryptable = false;
+
     for (const blob of blobs) {
       if (blob.deviceId === deps.deviceId) continue; // 自端末が送った分は自分の最新状態そのもの
 
@@ -188,6 +239,23 @@ export async function pullFromRelay(
         skippedBlobs++;
         continue;
       }
+
+      // 暗号化されたblobは復号してから検証へ回す。復号できない=鍵が揃っていない
+      if (isSyncEnvelope(raw)) {
+        const decrypted = await decryptSyncPayload(key, raw);
+        if (decrypted === null) {
+          undecryptableBlobs++;
+          batchHasUndecryptable = true;
+          continue;
+        }
+        try {
+          raw = JSON.parse(decrypted);
+        } catch {
+          skippedBlobs++;
+          continue;
+        }
+      }
+
       const parsed = parseSyncFile(raw);
       if (!parsed.ok) {
         skippedBlobs++;
@@ -202,8 +270,13 @@ export async function pullFromRelay(
     const maxSeqInBatch = blobs.reduce((max, b) => Math.max(max, b.seq), cursor);
     const now = Date.now();
 
+    // 復号できない差分が混ざったバッチではcursorを進めない(#182)。鍵を受け取った後に
+    // 読み直せるようにするため。読める分の取り込みは行う——マージは冪等なので、
+    // 次回同じ差分を再度取り込んでも結果は変わらない。
+    const advanceCursor = !batchHasUndecryptable;
+
     if (remoteFiles.length === 0) {
-      await deps.syncStateRepo.setCursor(maxSeqInBatch);
+      if (advanceCursor) await deps.syncStateRepo.setCursor(maxSeqInBatch);
     } else {
       const local = await buildLocalSnapshot(deps);
       // holdLocal時のbaseline: 未クローズ競合が検出された時点のremote.updatedAt。
@@ -225,22 +298,39 @@ export async function pullFromRelay(
         [deps.db.terms, deps.db.notes, deps.db.asks, deps.db.noteConflicts, deps.db.syncState],
         async () => {
           conflicts += await applyMergeResult(deps, merged, now, syncEventId);
-          await deps.syncStateRepo.setCursor(maxSeqInBatch);
+          if (advanceCursor) await deps.syncStateRepo.setCursor(maxSeqInBatch);
         },
       );
     }
+
+    // cursorを進めていない以上、次の周回でも同じバッチが返る。ここで打ち切る
+    if (!advanceCursor) break;
 
     cursor = maxSeqInBatch;
     if (cursor >= latest) break;
   }
 
-  return { receivedBlobs, skippedBlobs, conflicts, adoptedDecisions, receivedTermIds, peerDeviceIds };
+  return {
+    receivedBlobs,
+    skippedBlobs,
+    undecryptableBlobs,
+    conflicts,
+    adoptedDecisions,
+    receivedTermIds,
+    peerDeviceIds,
+  };
 }
 
 export interface SyncRunResult {
   syncEventId: string;
   receivedBlobs: number;
   skippedBlobs: number;
+  /**
+   * この端末の鍵では読めなかったblob件数(#182)。0より大きければ鍵が揃っていないため、
+   * 画面側で鍵の受け渡しへ誘導する。この分の差分は失われておらず、鍵を受け取った後の
+   * 同期で取り込まれる(cursorを進めていないため)。
+   */
+  undecryptableBlobs: number;
   /** この同期イベントに紐づく競合件数(新規+再発+持ち越し) */
   conflictCount: number;
   /** 相手側(PC)の決定を採用して統一した件数 */
@@ -305,6 +395,7 @@ export async function runSync(deps: SyncEngineDeps, token: string): Promise<Sync
     syncEventId,
     receivedBlobs: pulled.receivedBlobs,
     skippedBlobs: pulled.skippedBlobs,
+    undecryptableBlobs: pulled.undecryptableBlobs,
     conflictCount: linkedCount,
     adoptedDecisions: pulled.adoptedDecisions,
   };

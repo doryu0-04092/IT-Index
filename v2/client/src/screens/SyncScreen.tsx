@@ -4,6 +4,7 @@ import type { ItIndexDB } from '../db';
 import { ApiRequestError } from '../sync/apiClient';
 import AuthForms from '../sync/AuthForms';
 import { runSync, type SyncEngineDeps, type SyncRunResult } from '../sync/syncEngine';
+import { getAccountId } from '../sync/tokenStore';
 import { useAuthState } from '../sync/useAuthState';
 import { useConflictResolution } from '../sync/useConflictResolution';
 import type { AsksRepository } from '../repositories/asks';
@@ -126,6 +127,10 @@ export default function SyncScreen({
 
   async function handleSyncNow() {
     if (auth.status !== 'authed' || !deviceId) return;
+    // 同期の暗号鍵はアカウント単位で保管する(#182)。ログイン時にトークンと一緒に
+    // 保存してある(sync/tokenStore.ts)
+    const accountId = getAccountId();
+    if (!accountId) return;
     const deps: SyncEngineDeps = {
       db,
       termsRepo,
@@ -135,6 +140,7 @@ export default function SyncScreen({
       syncEventsRepo,
       syncStateRepo,
       deviceId,
+      accountId,
       holdLocalOnConflict: isNativeApp,
     };
 

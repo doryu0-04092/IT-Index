@@ -155,6 +155,40 @@ export async function pullSyncBlobs(
 }
 
 /**
+ * 鍵の受け渡し(#182)。サーバーへ渡すのは**8桁コードで包んだ暗号文とsaltだけ**で、
+ * データ鍵も受け渡しコードも渡らない(包む・開くはsync/syncCrypto.tsで完結する)。
+ * 預かりは5分で失効し、取り出しは5回まで(サーバー側で数える)。
+ */
+export async function putKeyShare(
+  token: string,
+  share: { salt: string; wrappedDk: string },
+): Promise<{ expiresAt: number }> {
+  return apiFetch('/sync/keyshare', {
+    method: 'PUT',
+    headers: authHeader(token),
+    body: JSON.stringify(share),
+  });
+}
+
+/** 預かっている鍵を取り出す。期限切れ・使い切り・未準備はいずれも404(区別しない) */
+export async function fetchKeyShare(token: string): Promise<{ salt: string; wrappedDk: string }> {
+  return apiFetch('/sync/keyshare', { method: 'GET', headers: authHeader(token) });
+}
+
+/** 受け取りに成功したら消す(取り残しはサーバー側の期限切れで失効する) */
+export async function deleteKeyShare(token: string): Promise<{ deleted: true }> {
+  return apiFetch('/sync/keyshare', { method: 'DELETE', headers: authHeader(token) });
+}
+
+/**
+ * 自アカウントの同期差分をすべて消す(#182の暗号化切り替え・鍵の作り直し)。
+ * 各行は端末の全量スナップショットなので、消しても情報は失われない(次のpushで作り直される)。
+ */
+export async function deleteSyncBlobs(token: string): Promise<{ deleted: number }> {
+  return apiFetch('/sync/blobs', { method: 'DELETE', headers: authHeader(token) });
+}
+
+/**
  * v2\server\src\ai.ts / index.ts が正本のAIプロキシ契約。
  * v1と異なり端末からAnthropicを直接呼ばず、必ずこのプロキシ経由で呼ぶ(docs/v2/requirements.md §4.1)。
  */

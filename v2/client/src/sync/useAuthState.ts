@@ -13,7 +13,7 @@ import {
   hasLegacyPaymentKeys,
   readLegacyPaymentMethod,
 } from '../lib/legacyPaymentMigration';
-import { clearToken, getToken, setToken } from './tokenStore';
+import { clearToken, getToken, setAccountId, setToken } from './tokenStore';
 
 /**
  * ログイン状態(SyncScreen.tsxから抽出。設定タブ(ライセンスのログイン誘導)と共有するため。
@@ -106,6 +106,9 @@ export function useAuthState(): UseAuthStateResult {
     }
     try {
       const me = await migrateLegacyPaymentMethod(token, await fetchMe(token));
+      // 同期の暗号鍵はアカウント単位で保管する(#182)。画面の外から動く自動push(App.tsx)も
+      // 引けるよう、トークンと同じくlocalStorageへ書く
+      setAccountId(me.accountId);
       setAuth({ status: 'authed', token, ...meFields(me) });
     } catch (err) {
       // トークンを破棄するのは401(失効・不正)のときだけ。ネットワーク断・サーバー停止でも
@@ -139,6 +142,7 @@ export function useAuthState(): UseAuthStateResult {
       const result = mode === 'signup' ? await signup(email, password) : await login(email, password);
       setToken(result.token);
       const me = await migrateLegacyPaymentMethod(result.token, await fetchMe(result.token));
+      setAccountId(me.accountId);
       setAuth({ status: 'authed', token: result.token, ...meFields(me) });
     } catch (err) {
       setAuthError(err instanceof ApiRequestError ? err.message : 'サーバーに接続できませんでした');

@@ -9,6 +9,8 @@ import { createSyncEventsRepository } from '../repositories/syncEvents';
 import { createSyncStateRepository } from '../repositories/syncState';
 import { createTermsRepository } from '../repositories/terms';
 import { buildOutboundPayload, pullFromRelay, pushToRelay, runSync, type SyncEngineDeps } from './syncEngine';
+import { decryptSyncPayload, importDataKey, isSyncEnvelope } from './syncCrypto';
+import { getOrCreateDataKey } from './syncKeyStore';
 
 function makeDeps(deviceId = 'device-1', holdLocalOnConflict = false): SyncEngineDeps {
   const db = new ItIndexDB(`test-syncEngine-${Math.random()}`);
@@ -20,6 +22,7 @@ function makeDeps(deviceId = 'device-1', holdLocalOnConflict = false): SyncEngin
     noteConflictsRepo: createNoteConflictsRepository(db),
     syncEventsRepo: createSyncEventsRepository(db),
     syncStateRepo: createSyncStateRepository(db),
+    accountId: 'test-account',
     deviceId,
     holdLocalOnConflict,
   };
@@ -74,7 +77,7 @@ describe('syncEngine', () => {
       expect(payload.aiTerms[0].origin).toBe('ai');
     });
 
-    it('pushToRelayはPOST /api/sync/pushへ自端末deviceIdとpayloadを送る', async () => {
+    it('pushToRelayはPOST /api/sync/pushへ自端末deviceIdと暗号化済みpayloadを送る(#182)', async () => {
       const deps = track(makeDeps('device-1'));
       const fetchMock = vi.fn().mockResolvedValue(jsonResponse(201, { seq: 5 }));
       vi.stubGlobal('fetch', fetchMock);
@@ -85,8 +88,20 @@ describe('syncEngine', () => {
       const [url, init] = fetchMock.mock.calls[0];
       expect(url).toBe('/api/sync/push');
       const body = JSON.parse(init.body);
+      // deviceIdは中継の宛先判定に使うため平文のまま(サーバーが自端末ぶんを見分ける必要は
+      // 無いが、クライアントが自分の送った分を読み飛ばすのに使う)
       expect(body.deviceId).toBe('device-1');
-      expect(JSON.parse(body.payload).deviceId).toBe('device-1');
+
+      // payloadは暗号化されたエンベロープで、平文が現れない
+      const envelope = JSON.parse(body.payload);
+      expect(isSyncEnvelope(envelope)).toBe(true);
+      expect(body.payload).not.toContain('device-1');
+      expect(body.payload).not.toContain('syncSchemaVersion');
+
+      // 自分の鍵で復号すると元のスナップショットに戻る
+      const key = await importDataKey(getOrCreateDataKey(deps.accountId));
+      const decrypted = await decryptSyncPayload(key!, envelope);
+      expect(JSON.parse(decrypted!).deviceId).toBe('device-1');
     });
   });
 

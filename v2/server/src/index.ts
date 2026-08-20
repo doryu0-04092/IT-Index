@@ -6,11 +6,15 @@ import { issueToken, requireAuth, type AuthedVariables } from './auth';
 import {
   AI_GLOBAL_USAGE_ACCOUNT_ID,
   aiTestUsageAccountId,
+  deleteKeyShare,
+  deleteSyncBlobs,
   getAiUsageCount,
   incrementAiUsage,
   insertSyncBlob,
   isUniqueConstraintError,
   pullSyncBlobs,
+  putKeyShare,
+  takeKeyShare,
   todayUtc,
 } from './db';
 import { callAi, runConnectionTest, validateChatRequest, validateTestRequest } from './ai';
@@ -453,6 +457,87 @@ app.get('/api/sync/pull', requireAuth, async (c) => {
     })),
     latest,
   });
+});
+
+/**
+ * 鍵の受け渡し(#182)。端末が持つデータ鍵(DK)を、8桁の受け渡しコードで包んだ状態で
+ * 5分だけ預かる。**サーバーが受け取るのは暗号文とsaltだけ**で、DKもコードも渡らない
+ * (包む・開くはクライアント側のshared/core/syncCrypto.tsで完結する)。
+ *
+ * ゲート順は同期と同じ 認証→ライセンス→本文。鍵の受け渡しは同期のための機能なので、
+ * 同期が使えないアカウントに預け先を提供しない。
+ */
+app.put('/api/sync/keyshare', requireAuth, async (c) => {
+  const licenseDenied = await licenseDenial(c);
+  if (licenseDenied) return licenseDenied;
+
+  const body = await c.req.json<{ salt?: string; wrappedDk?: string }>().catch(() => null);
+  const salt = body?.salt;
+  const wrappedDk = body?.wrappedDk;
+  if (typeof salt !== 'string' || typeof wrappedDk !== 'string' || salt === '' || wrappedDk === '') {
+    return c.json(
+      { error: { code: 'invalid_request', message: 'saltとwrappedDkが必要です' } },
+      400
+    );
+  }
+  // 包んだ鍵は数百バイト程度にしかならない。想定外に大きな値を預けさせない
+  if (salt.length > 256 || wrappedDk.length > 4096) {
+    return c.json({ error: { code: 'invalid_request', message: '値が大きすぎます' } }, 400);
+  }
+
+  const accountId = c.get('accountId');
+  const { expiresAt } = await putKeyShare(c.env.DB, accountId, salt, wrappedDk, Date.now());
+  return c.json({ expiresAt }, 201);
+});
+
+/**
+ * 預かっている鍵を取り出す。取り出すたびに回数を数え、上限(5回)超過・期限切れでは
+ * 行ごと破棄して404を返す。**「無い」と「使い切った」を区別しない**——当てずっぽうの
+ * 試行に手がかりを与えないため。
+ */
+app.get('/api/sync/keyshare', requireAuth, async (c) => {
+  const licenseDenied = await licenseDenial(c);
+  if (licenseDenied) return licenseDenied;
+
+  const accountId = c.get('accountId');
+  const row = await takeKeyShare(c.env.DB, accountId, Date.now());
+  if (!row) {
+    return c.json(
+      {
+        error: {
+          code: 'keyshare_not_found',
+          message: '受け渡しの有効期限が切れているか、まだ準備されていません',
+        },
+      },
+      404
+    );
+  }
+  return c.json({ salt: row.salt, wrappedDk: row.wrapped_dk });
+});
+
+/** 受け取りに成功した側が消す。取り残しは期限切れで失効する(二段で残さない) */
+app.delete('/api/sync/keyshare', requireAuth, async (c) => {
+  const licenseDenied = await licenseDenial(c);
+  if (licenseDenied) return licenseDenied;
+
+  await deleteKeyShare(c.env.DB, c.get('accountId'));
+  return c.json({ deleted: true });
+});
+
+/**
+ * 自アカウントの同期差分をすべて消す(#182)。暗号化への切り替え・鍵の作り直しで使う。
+ * 各行は端末の全量スナップショットなので、消しても情報は失われない(次のpushで作り直される)。
+ *
+ * 消した後はseqが1から振り直しになるため、cursorが残った端末は何もpullしなくなる。
+ * これはクライアント側の自己修復(latest < cursor でcursorを0へ戻す)で解消する
+ * (client/src/sync/syncEngine.ts)。
+ */
+app.delete('/api/sync/blobs', requireAuth, async (c) => {
+  const licenseDenied = await licenseDenial(c);
+  if (licenseDenied) return licenseDenied;
+
+  const deleted = await deleteSyncBlobs(c.env.DB, c.get('accountId'));
+  return c.json({ deleted });
 });
 
 app.post('/api/ai/chat', requireAuth, async (c) => {
