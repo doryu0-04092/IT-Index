@@ -450,19 +450,25 @@ describe('HistoryScreen', () => {
       expect(screen.getAllByRole('button', { name: 'こちらを採用' })).toHaveLength(1);
     });
 
-    it('競合タブはAndroidネイティブでは表示のみ(選び直し不可)', async () => {
+    it('Androidネイティブでは競合タブ自体を出さない(#165)', async () => {
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'timeline', fakeChatRepo(), { isNativeApp: true });
+
+      await waitFor(() => expect(screen.getAllByRole('button').length).toBeGreaterThan(0));
+      const tabs = screen.getAllByRole('button').filter((b) => b.className.includes('app-nav-link'));
+      expect(tabs.map((b) => b.textContent)).toEqual(['時系列', '重み付け', '取り込み履歴', '連携履歴']);
+    });
+
+    it('Androidネイティブの連携履歴は競合件数を表示するが「競合を見る」は出さない(#165)', async () => {
       const events = [makeSyncEvent('event-1', 1000, 1)];
       const conflicts = [makeConflictRecord({ syncEventId: 'event-1' })];
-      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'conflicts', fakeChatRepo(), {
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'sync', fakeChatRepo(), {
         syncEvents: events,
         conflicts,
         isNativeApp: true,
       });
 
-      await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
-      expect(screen.getByText(/選び直し\)はパソコン側で行ってください/)).toBeTruthy();
-      expect(screen.queryByRole('button', { name: 'こちらを採用' })).toBeNull();
-      expect(screen.queryByRole('button', { name: 'AIで統合する' })).toBeNull();
+      await waitFor(() => expect(screen.getByText(/競合1件/)).toBeTruthy());
+      expect(screen.queryByRole('button', { name: '競合を見る' })).toBeNull();
     });
 
     it('自動クローズ済みの競合は理由を表示し、選び直しの対象にしない', async () => {

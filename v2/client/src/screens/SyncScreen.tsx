@@ -177,59 +177,71 @@ export default function SyncScreen({
         {syncError && <p className="sync-error">{syncError}</p>}
       </div>
 
-      {conflicts.length > 0 && (
-        <div className="sync-conflicts">
-          <h3>未解決の競合({conflicts.length}件)</h3>
-          {isNativeApp ? (
-            <p className="status-text">
-              競合が見つかりました。競合の解消はパソコン側で行ってください。
+      {/* Androidネイティブ(#165): 競合カード(両側の内容表示)は出さず、件数つきの案内文だけを
+          差し込む。操作できないのに情報量が多い表示をやめ、「パソコン側で解消されるまで
+          自分の内容を保持し、届いたら統一する」という役割どおりの見せ方にする(本人指定)。
+          解消はPC側のみのため「解決済みの競合(選び直し)」一覧もAndroidでは出さない */}
+      {isNativeApp ? (
+        conflicts.length > 0 && (
+          <div className="sync-conflicts">
+            <p className="status-text conflict-pc-only-notice">
+              競合が{conflicts.length}件あります。解消はパソコン側で行ってください。
+              それまでこの端末では、この端末で保存した内容を表示します。
+              パソコン側で解消すると、次の同期で同じ内容に統一されます。
             </p>
-          ) : (
-            <p className="status-text">
-              どちらかを採用するか、2つをAIで統合できます。何もしなければこの端末では新しい方(自動採用)のままです。
-              解消するとスマートフォン側も次の同期で同じ内容に統一されます。
-            </p>
+          </div>
+        )
+      ) : (
+        <>
+          {conflicts.length > 0 && (
+            <div className="sync-conflicts">
+              <h3>未解決の競合({conflicts.length}件)</h3>
+              <p className="status-text">
+                どちらかを採用するか、2つをAIで統合できます。何もしなければこの端末では新しい方(自動採用)のままです。
+                解消するとスマートフォン側も次の同期で同じ内容に統一されます。
+              </p>
+              <ul className="sync-conflict-list">
+                {conflicts.map((c) => (
+                  <ConflictItem
+                    key={c.id}
+                    conflict={c}
+                    canResolve
+                    merging={mergingId === c.id}
+                    mergeError={mergeErrors[c.id] ?? null}
+                    mergeErrorCode={mergeErrorCodes[c.id] ?? null}
+                    onChooseLocal={() => chooseLocal(c)}
+                    onChooseRemote={() => chooseRemote(c)}
+                    onMerge={() => void merge(c)}
+                    onGoToSettings={onGoToSettings}
+                  />
+                ))}
+              </ul>
+            </div>
           )}
-          <ul className="sync-conflict-list">
-            {conflicts.map((c) => (
-              <ConflictItem
-                key={c.id}
-                conflict={c}
-                canResolve={!isNativeApp}
-                merging={mergingId === c.id}
-                mergeError={mergeErrors[c.id] ?? null}
-                mergeErrorCode={mergeErrorCodes[c.id] ?? null}
-                onChooseLocal={() => chooseLocal(c)}
-                onChooseRemote={() => chooseRemote(c)}
-                onMerge={() => void merge(c)}
-                onGoToSettings={onGoToSettings}
-              />
-            ))}
-          </ul>
-        </div>
-      )}
 
-      {resolvedConflicts.length > 0 && (
-        <div className="sync-conflicts sync-resolved-conflicts">
-          <h3>解決済みの競合({resolvedConflicts.length}件)</h3>
-          <p className="status-text">選び直しはいつでもできます。選び直すとこの端末のnotesが置き換わります。</p>
-          <ul className="sync-conflict-list">
-            {resolvedConflicts.map((c) => (
-              <ConflictItem
-                key={c.id}
-                conflict={c}
-                canResolve={!isNativeApp}
-                merging={mergingId === c.id}
-                mergeError={mergeErrors[c.id] ?? null}
-                mergeErrorCode={mergeErrorCodes[c.id] ?? null}
-                onChooseLocal={() => chooseLocal(c)}
-                onChooseRemote={() => chooseRemote(c)}
-                onMerge={() => void merge(c)}
-                onGoToSettings={onGoToSettings}
-              />
-            ))}
-          </ul>
-        </div>
+          {resolvedConflicts.length > 0 && (
+            <div className="sync-conflicts sync-resolved-conflicts">
+              <h3>解決済みの競合({resolvedConflicts.length}件)</h3>
+              <p className="status-text">選び直しはいつでもできます。選び直すとこの端末のnotesが置き換わります。</p>
+              <ul className="sync-conflict-list">
+                {resolvedConflicts.map((c) => (
+                  <ConflictItem
+                    key={c.id}
+                    conflict={c}
+                    canResolve
+                    merging={mergingId === c.id}
+                    mergeError={mergeErrors[c.id] ?? null}
+                    mergeErrorCode={mergeErrorCodes[c.id] ?? null}
+                    onChooseLocal={() => chooseLocal(c)}
+                    onChooseRemote={() => chooseRemote(c)}
+                    onMerge={() => void merge(c)}
+                    onGoToSettings={onGoToSettings}
+                  />
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
       )}
     </section>
   );
