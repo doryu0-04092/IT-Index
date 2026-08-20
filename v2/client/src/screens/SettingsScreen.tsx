@@ -3,11 +3,16 @@ import type { ItIndexDB } from '../db';
 import { resetAllData } from '../lib/factoryReset';
 import ThemeSwitcher from '../lib/ThemeSwitcher';
 import type { ThemeChoice } from '../lib/theme';
-import { brandLabel } from '../lib/cardValidation';
+import { brandLabel, isCardExpired } from '../lib/cardValidation';
 import { formatBillingDate, nextBillingDate } from '../lib/billingCycle';
 import LicenseHelpModal from '../lib/LicenseHelpModal';
 import ServerHelpModal from '../lib/ServerHelpModal';
-import { activateLicense, ApiRequestError, cancelLicense } from '../sync/apiClient';
+import {
+  activateLicense,
+  ApiRequestError,
+  cancelLicense,
+  type PaymentMethod,
+} from '../sync/apiClient';
 import {
   clearServerBaseUrl,
   getServerBaseUrl,
@@ -186,18 +191,7 @@ function LicenseSection({
             <>
               <h3>お支払い方法</h3>
               {paymentMethod !== null ? (
-                <>
-                  <p className="license-payment-method">
-                    {brandLabel(paymentMethod.brand) !== null && (
-                      <span className="payment-brand-pill">{brandLabel(paymentMethod.brand)}</span>
-                    )}
-                    <span>•••• {paymentMethod.last4}</span>
-                    <span className="status-text-small">有効期限 {paymentMethod.expiry}</span>
-                  </p>
-                  <p className="status-text-small">
-                    このカードから毎月引き落とされます(モック決済のため実際の課金はありません)
-                  </p>
-                </>
+                <PaymentMethodRow paymentMethod={paymentMethod} />
               ) : (
                 <p className="status-text-small">
                   お支払い方法を確認できませんでした。カードを登録してください。
@@ -247,6 +241,46 @@ function LicenseSection({
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * 登録済みのお支払い方法の表示と、有効期限切れの警告(#147)。
+ *
+ * 期限が切れている間は「このカードから毎月引き落とされます」を**出さない**。
+ * 使えないカードに対して引き落としを言い切ると、表示そのものが矛盾するため、
+ * 安心させる文言と警告を差し替える形にしている。
+ *
+ * 判定は `lib/cardValidation.ts` の `isCardExpired`。入力時の検証(`validateExpiry`)は
+ * #139で「過去の年月も受け付ける」ままにしてあり、**入力を弾かないことと、
+ * 登録後に切れていると知らせることは別**という整理でこの2つを分けている。
+ */
+function PaymentMethodRow({ paymentMethod }: { paymentMethod: PaymentMethod }) {
+  // BillingScheduleと同じ理由で「今」はマウント時に一度だけ確定させる(react-hooks/purity)
+  const [now] = useState(() => new Date());
+  const expired = isCardExpired(paymentMethod.expiry, now);
+
+  return (
+    <>
+      <p className="license-payment-method">
+        {brandLabel(paymentMethod.brand) !== null && (
+          <span className="payment-brand-pill">{brandLabel(paymentMethod.brand)}</span>
+        )}
+        <span>•••• {paymentMethod.last4}</span>
+        <span className={expired ? 'payment-expiry-expired' : 'status-text-small'}>
+          有効期限 {paymentMethod.expiry}
+        </span>
+      </p>
+      {expired ? (
+        <p className="payment-expired-warning" data-testid="card-expired-warning" role="alert">
+          このカードは有効期限が切れています。引き落としができないため、カードを変更してください。
+        </p>
+      ) : (
+        <p className="status-text-small">
+          このカードから毎月引き落とされます(モック決済のため実際の課金はありません)
+        </p>
+      )}
+    </>
   );
 }
 

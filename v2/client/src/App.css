@@ -1388,6 +1388,21 @@ a,
   font-size: 0.9rem;
 }
 
+/* 有効期限切れの警告(#147。SettingsScreen.tsxのPaymentMethodRow)。
+   通常時の「毎月引き落とされます」と同じ位置に出て入れ替わるため、行の高さを揃える */
+.payment-expired-warning {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 4px 0 0;
+}
+
+/* 期限切れの時だけ「有効期限 MM/YY」自体も危険色にする。警告文を読む前に
+   どの値が問題なのかが分かるようにするため */
+.payment-expiry-expired {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
 /* 解約の確認パネル内の「何が起きるか」一覧(SettingsScreen.tsxのCancelLicenseSection) */
 .cancel-effects {
   margin: 4px 0 12px;

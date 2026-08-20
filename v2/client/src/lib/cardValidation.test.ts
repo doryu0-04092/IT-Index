@@ -3,6 +3,7 @@ import {
   detectBrand,
   formatCardNumber,
   formatExpiry,
+  isCardExpired,
   normalizeCardNumber,
   validateCardNumber,
   validateCvc,
@@ -73,6 +74,42 @@ describe('formatExpiry / validateExpiry', () => {
     expect(validateExpiry('13/27')).toBe(false);
     expect(validateExpiry('00/27')).toBe(false);
     expect(validateExpiry('1225')).toBe(false); // 形式不一致
+  });
+});
+
+describe('isCardExpired', () => {
+  it('有効期限の月は末日まで切れていない', () => {
+    // 12/29 = 2029年12月末日まで有効
+    expect(isCardExpired('12/29', new Date(2029, 11, 1))).toBe(false);
+    expect(isCardExpired('12/29', new Date(2029, 11, 31, 23, 59, 59))).toBe(false);
+  });
+
+  it('翌月1日の0時を過ぎたら切れている', () => {
+    expect(isCardExpired('12/29', new Date(2030, 0, 1))).toBe(true);
+    expect(isCardExpired('12/29', new Date(2030, 0, 1, 0, 0, 1))).toBe(true);
+  });
+
+  it('年をまたがない月でも同じ境界で切り替わる', () => {
+    expect(isCardExpired('03/26', new Date(2026, 2, 31, 23))).toBe(false);
+    expect(isCardExpired('03/26', new Date(2026, 3, 1))).toBe(true);
+  });
+
+  it('十分に過去の年月は切れている', () => {
+    expect(isCardExpired('01/20', new Date(2026, 7, 20))).toBe(true);
+  });
+
+  it('形式が不正な値は「切れていない」扱いにする(誤った警告を出さない)', () => {
+    const now = new Date(2026, 7, 20);
+    expect(isCardExpired('', now)).toBe(false);
+    expect(isCardExpired('1229', now)).toBe(false);
+    expect(isCardExpired('13/29', now)).toBe(false); // 月が範囲外
+    expect(isCardExpired('00/29', now)).toBe(false);
+  });
+
+  it('入力時の検証(validateExpiry)は緩いまま(#139)で、判定を分けている', () => {
+    // 過去の年月でも入力は通る(デモ用)が、登録後は切れていると表示される
+    expect(validateExpiry('01/20')).toBe(true);
+    expect(isCardExpired('01/20', new Date(2026, 7, 20))).toBe(true);
   });
 });
 

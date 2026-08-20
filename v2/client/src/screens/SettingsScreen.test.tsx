@@ -168,6 +168,54 @@ describe('SettingsScreen', () => {
       expect(onGoToCheckout).toHaveBeenCalledWith('change-card');
     });
 
+    it('有効期限が切れたカードは警告し、引き落としの案内を出さない(#147)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      vi.setSystemTime(new Date(2026, 7, 20));
+      stubAuthAndLicenseFetch({
+        licensed: true,
+        licenseSource: 'purchase',
+        // 2020年1月末で切れているカード
+        paymentMethod: { ...VISA_CARD, expiry: '01/20' },
+      });
+
+      renderSettingsScreen();
+
+      expect(await screen.findByTestId('card-expired-warning')).toBeTruthy();
+      expect(
+        screen.getByText(
+          'このカードは有効期限が切れています。引き落としができないため、カードを変更してください。',
+        ),
+      ).toBeTruthy();
+      // 使えないカードに「毎月引き落とされます」と言い切らない(表示の矛盾を作らない)
+      expect(
+        screen.queryByText(
+          'このカードから毎月引き落とされます(モック決済のため実際の課金はありません)',
+        ),
+      ).toBeNull();
+      vi.useRealTimers();
+    });
+
+    it('有効期限内のカードでは警告を出さない(#147)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      vi.setSystemTime(new Date(2026, 7, 20));
+      stubAuthAndLicenseFetch({
+        licensed: true,
+        licenseSource: 'purchase',
+        paymentMethod: VISA_CARD, // 12/29
+      });
+
+      renderSettingsScreen();
+
+      expect(await screen.findByText('ライセンス有効')).toBeTruthy();
+      expect(screen.queryByTestId('card-expired-warning')).toBeNull();
+      expect(
+        screen.getByText(
+          'このカードから毎月引き落とされます(モック決済のため実際の課金はありません)',
+        ),
+      ).toBeTruthy();
+      vi.useRealTimers();
+    });
+
     it('購入経路なのにカードが無い場合は異常として案内し、登録導線を出す', async () => {
       localStorage.setItem('it-index-v2:token', 'tok-1');
       stubAuthAndLicenseFetch({ licensed: true, licenseSource: 'purchase', paymentMethod: null });
