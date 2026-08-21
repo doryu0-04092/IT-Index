@@ -138,7 +138,9 @@ app.get('/api/health', (c) => c.json({ status: 'ok' }));
 
 app.post('/api/auth/signup', async (c) => {
   const body = await c.req.json<{ email?: string; password?: string }>().catch(() => null);
-  const email = body?.email?.trim();
+  // 保存は小文字に正規化する(#213)。引く側はCOLLATE NOCASEで吸収するので必須ではないが、
+  // 表記を1つに寄せておくと「保存された形」を意識せずに済む。パスワードは正規化しない。
+  const email = body?.email?.trim().toLowerCase();
   const password = body?.password;
 
   if (!email || !password) {
@@ -155,7 +157,9 @@ app.post('/api/auth/signup', async (c) => {
     return c.json({ error: { code: 'weak_password', message: policy.message } }, 400);
   }
 
-  const existing = await c.env.DB.prepare('SELECT id FROM accounts WHERE email = ?1')
+  // 重複判定もログインと同じ基準にする(#213)。ここを区別すると大文字違いの二重登録ができてしまい、
+  // その後どちらでログインしても引けるのは片方だけ、という状態になる。
+  const existing = await c.env.DB.prepare('SELECT id FROM accounts WHERE email = ?1 COLLATE NOCASE')
     .bind(email)
     .first();
   if (existing) {
@@ -209,7 +213,10 @@ app.post('/api/auth/login', async (c) => {
 
   if (!email || !password) return invalidCredentials();
 
-  const account = await c.env.DB.prepare('SELECT id, password_hash FROM accounts WHERE email = ?1')
+  // メールの大文字小文字は区別しない(#213)。スマートフォンのキーボードは先頭を大文字にすることがあり、
+  // 区別すると「PCでは入れるのに端末では弾かれる」状態になる。既存の行の保存形に関わらず引けるよう
+  // 照合順序で吸収する(lower()で包むとUNIQUE索引が使えなくなるため COLLATE NOCASE を使う)。
+  const account = await c.env.DB.prepare('SELECT id, password_hash FROM accounts WHERE email = ?1 COLLATE NOCASE')
     .bind(email)
     .first<{ id: string; password_hash: string }>();
   if (!account) return invalidCredentials();

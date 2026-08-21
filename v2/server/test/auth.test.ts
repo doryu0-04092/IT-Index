@@ -29,6 +29,32 @@ describe('health', () => {
 });
 
 describe('auth', () => {
+  // #213: スマートフォンのキーボードが先頭を大文字にすると弾かれ、
+  // 「PCでは入れるのに端末では弾かれる」状態になっていた。
+  it('メールの大文字小文字が違ってもログインできる(#213)', async () => {
+    const email = `user-${crypto.randomUUID()}@example.com`;
+    expect((await signup(email, 'TestPass2026')).status).toBe(201);
+
+    // 先頭だけ大文字にした形(Androidのキーボードがしがちな形)
+    const capitalized = email.charAt(0).toUpperCase() + email.slice(1);
+    expect(capitalized).not.toBe(email);
+    expect((await login(capitalized, 'TestPass2026')).status).toBe(200);
+
+    // 全部大文字でも引ける
+    expect((await login(email.toUpperCase(), 'TestPass2026')).status).toBe(200);
+
+    // パスワードの側は区別したまま(こちらを吸収してはいけない)
+    expect((await login(email, 'testpass2026')).status).toBe(401);
+  });
+
+  it('大文字違いの二重登録はできない(#213)', async () => {
+    const email = `user-${crypto.randomUUID()}@example.com`;
+    expect((await signup(email, 'TestPass2026')).status).toBe(201);
+
+    const res = await signup(email.toUpperCase(), 'TestPass2026');
+    expect(res.status).toBe(409);
+  });
+
   it('signup -> login -> me', async () => {
     const email = `user-${crypto.randomUUID()}@example.com`;
     const signupRes = await signup(email, 'TestPass2026');
