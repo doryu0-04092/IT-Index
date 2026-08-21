@@ -21,7 +21,7 @@ import TermIndexScreen from './screens/TermIndexScreen';
 import { purchaseLicense, savePaymentMethod } from './sync/apiClient';
 import { retryPendingPush, runAutoPush } from './sync/pendingPush';
 import { pushToRelay, type SyncEngineDeps } from './sync/syncEngine';
-import { getToken } from './sync/tokenStore';
+import { getAccountId, getToken } from './sync/tokenStore';
 import { useAppInit } from './useAppInit';
 
 type NavTarget = 'search' | 'index' | 'history' | 'settings' | 'sync';
@@ -180,8 +180,10 @@ export function App() {
   const pushSnapshotToRelay = useCallback(() => {
     void runAutoPush(settingsRepo, () => {
       const token = getToken();
-      if (!token || !deviceId) {
-        // 未ログイン等でpush不能: rejectして印を残す(ログイン後の起動時リトライで拾う)
+      const accountId = getAccountId();
+      if (!token || !accountId || !deviceId) {
+        // 未ログイン等でpush不能: rejectして印を残す(ログイン後の起動時リトライで拾う)。
+        // accountIdは同期の暗号鍵を引くために要る(#182。sync/syncKeyStore.ts)
         return Promise.reject(new Error('push不能(未ログインまたはdeviceId未確定)'));
       }
       const deps: SyncEngineDeps = {
@@ -193,6 +195,7 @@ export function App() {
         syncEventsRepo,
         syncStateRepo,
         deviceId,
+        accountId,
         holdLocalOnConflict: isNativeApp,
       };
       return pushToRelay(deps, token);

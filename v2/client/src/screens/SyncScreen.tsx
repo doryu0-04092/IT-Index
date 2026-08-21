@@ -3,7 +3,9 @@ import type { AiClient } from '../ai/aiClient';
 import type { ItIndexDB } from '../db';
 import { ApiRequestError } from '../sync/apiClient';
 import AuthForms from '../sync/AuthForms';
+import KeyTransferSection from '../sync/KeyTransferSection';
 import { runSync, type SyncEngineDeps, type SyncRunResult } from '../sync/syncEngine';
+import { getAccountId } from '../sync/tokenStore';
 import { useAuthState } from '../sync/useAuthState';
 import { useConflictResolution } from '../sync/useConflictResolution';
 import type { AsksRepository } from '../repositories/asks';
@@ -77,6 +79,10 @@ export default function SyncScreen({
 }: SyncScreenProps) {
   const { auth, authError, authBusy, handleAuthSubmit, handleLogout } = useAuthState();
 
+  // 同期の暗号鍵はアカウント単位で保管する(#182)。ログイン時にトークンと一緒に
+  // localStorageへ書いてある(sync/tokenStore.ts)ため、認証状態が確定していれば読める
+  const accountId = auth.status === 'authed' ? getAccountId() : null;
+
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
@@ -125,7 +131,7 @@ export default function SyncScreen({
   }
 
   async function handleSyncNow() {
-    if (auth.status !== 'authed' || !deviceId) return;
+    if (auth.status !== 'authed' || !deviceId || !accountId) return;
     const deps: SyncEngineDeps = {
       db,
       termsRepo,
@@ -135,6 +141,7 @@ export default function SyncScreen({
       syncEventsRepo,
       syncStateRepo,
       deviceId,
+      accountId,
       holdLocalOnConflict: isNativeApp,
     };
 
@@ -191,10 +198,20 @@ export default function SyncScreen({
         {lastResult && (
           <p className="status-text">
             受信{lastResult.receivedBlobs}件(検証失敗{lastResult.skippedBlobs}件をスキップ)・競合{lastResult.conflictCount}件
+            {lastResult.undecryptableBlobs > 0 && `・鍵が合わず読めなかった分${lastResult.undecryptableBlobs}件`}
           </p>
         )}
         {syncError && <p className="sync-error">{syncError}</p>}
       </div>
+
+      {/* 同期の鍵の受け渡し(#182)。暗号化した状態で預けるため、別端末で読むには同じ鍵が要る */}
+      {accountId !== null && (
+        <KeyTransferSection
+          token={auth.token}
+          accountId={accountId}
+          undecryptableBlobs={lastResult?.undecryptableBlobs ?? 0}
+        />
+      )}
 
       {/* Androidネイティブ(#165): 競合カード(両側の内容表示)は出さず、件数つきの案内文だけを
           差し込む。操作できないのに情報量が多い表示をやめ、「パソコン側で解消されるまで

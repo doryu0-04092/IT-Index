@@ -1112,6 +1112,116 @@ a,
   flex-wrap: wrap;
 }
 
+/* 同期の鍵の受け渡し(#182。sync/KeyTransferSection.tsx) */
+.key-transfer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.key-transfer h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.key-transfer-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+/* 「QRが使えない場合」の折りたたみ(#182の2段階)。数字コードを横並びの対等な選択肢に
+   せず一段奥へ置くことで、QRで渡せる利用者が理由なく弱い方を選ばないようにする */
+.key-transfer-fallback {
+  margin-top: 10px;
+}
+
+.key-transfer-fallback-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+/* 弱い方を選ぶ理由が要ることを示す注記。危険色までは使わず、muted より一段強く出す */
+.key-transfer-fallback-note {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.7;
+  color: var(--fg);
+}
+
+.key-transfer-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* 鍵そのものが画面に出ている状態の注意書き。QRを他人に見せないことが唯一の防御なので、
+   モック注記(status-text-small)より一段強く危険色で出す */
+.key-transfer-warning {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* qrcodeライブラリのSVGは幅100%で出てくるため、器側で上限を決める */
+.key-transfer-qr {
+  width: min(240px, 60vw);
+  background: #fff; /* 読み取り精度のため、ダークテーマでも白地のまま出す */
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.key-transfer-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.key-transfer-video {
+  width: min(320px, 80vw);
+  border-radius: 8px;
+  background: #000;
+}
+
+/* 8桁コード。読み上げ・書き写しのため大きく、等幅・字間広めで出す */
+.key-transfer-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.8rem;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+.key-transfer-done {
+  color: var(--accent);
+}
+
+.key-transfer-reset {
+  margin-top: 16px;
+}
+
+.key-transfer-reset-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+}
+
 /*
  * チャット画面のボタン列(クイック質問・取り込み系)。ボタン同士がくっついて見える不具合
  * (依頼者指摘・UIレビュー反映)。上の.sync-api-key-actions等と同じリズム(gap:8px)に揃える。

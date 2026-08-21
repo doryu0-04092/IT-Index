@@ -52,9 +52,13 @@ npm run deploy:migrations
 ```
 
 内部では `wrangler d1 migrations apply it-index-v2 --remote -c wrangler.jsonc` が
-`v2/server` 上で実行され、`v2/server/migrations/0001_init.sql` と
-`0002_add_ai_usage.sql` がリモートに適用される。実行前に適用予定のマイグレーション一覧が
-表示され、確認を求められる(CI等の非対話環境では確認をスキップしてバックアップのみ取得される)。
+`v2/server` 上で実行され、`v2/server/migrations/` 配下の未適用ぶんがすべてリモートに適用される
+(`0001_init.sql` から、同期の鍵受け渡し用の `0005_add_key_shares.sql` まで)。実行前に適用予定の
+マイグレーション一覧が表示され、確認を求められる(CI等の非対話環境では確認をスキップして
+バックアップのみ取得される)。
+
+**公式ホストではこの適用も自動で行われる**(master へのマージ時。§4.1)。手で流すのは
+セルフホストと、自動デプロイが動かない時だけでよい。
 
 ---
 
