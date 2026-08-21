@@ -1131,6 +1131,28 @@ a,
   flex-wrap: wrap;
 }
 
+/* 鍵は受け取れたが古い差分を消せていない状態の警告(#182実機確認)。
+   放置すると相手端末の同期が止まるため、危険色で出して再試行へ導く */
+.key-transfer-cleanup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+}
+
+.key-transfer-cleanup p {
+  margin: 0;
+  color: var(--danger);
+}
+
+.key-transfer-cleanup .status-text-small {
+  color: var(--fg);
+}
+
 /* 「QRが使えない場合」の折りたたみ(#182の2段階)。数字コードを横並びの対等な選択肢に
    せず一段奥へ置くことで、QRで渡せる利用者が理由なく弱い方を選ばないようにする */
 .key-transfer-fallback {

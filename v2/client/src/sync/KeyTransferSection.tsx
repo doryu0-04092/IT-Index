@@ -19,6 +19,7 @@ import {
   wrapDataKey,
 } from './syncCrypto';
 import { getOrCreateDataKey, regenerateDataKey, setDataKey } from './syncKeyStore';
+import { isBlobCleanupPending, markBlobCleanupPending, runPendingBlobCleanup } from './syncKeyCleanup';
 
 /**
  * 同期の暗号鍵をもう一方の端末へ渡すUI(#182)。
@@ -77,6 +78,9 @@ export default function KeyTransferSection({
   const [mode, setMode] = useState<Mode>('idle');
   // 数字コードの経路は「QRが使えない場合」を開いた時だけ出す(2段階。上の説明を参照)
   const [fallbackOpen, setFallbackOpen] = useState(false);
+  // 鍵は受け取れたが、サーバー上の古い差分を消せていない状態(sync/syncKeyCleanup.ts)。
+  // 放置すると孤児blobで**相手端末の同期が止まる**ため、黙って進ませない
+  const [cleanupPending, setCleanupPending] = useState(() => isBlobCleanupPending(accountId));
   const [cameraAvailable, setCameraAvailable] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -131,20 +135,32 @@ export default function KeyTransferSection({
     setBusy(true);
     setError(null);
     try {
+      // write-ahead(#179 pendingPush.tsと同じ形): 削除を試みる**前**に印を永続化する。
+      // 失敗・クラッシュでは印が残り、起動時・オンライン復帰時・同期の直前に再試行される
+      markBlobCleanupPending(accountId);
       setDataKey(accountId, dataKey);
-      await deleteSyncBlobs(token);
       await onKeyAdopted();
+
+      const cleaned = await runPendingBlobCleanup(accountId, token);
       setMode('idle');
       setMessage('鍵を受け取りました。');
-    } catch (err) {
-      // 鍵自体は保存済み。差分の消去に失敗しただけなので、その旨を分けて伝える
-      setMode('idle');
-      setMessage(null);
-      setError(
-        err instanceof ApiRequestError
-          ? `鍵は受け取りましたが、サーバー上の古い差分を消せませんでした(${err.message})。もう一度お試しください。`
-          : '鍵は受け取りましたが、サーバーに接続できませんでした。もう一度お試しください。',
-      );
+      setCleanupPending(!cleaned);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** 後始末の手動やり直し(自動再試行が届かない場合の逃げ道) */
+  async function handleRetryCleanup(): Promise<void> {
+    setBusy(true);
+    try {
+      const cleaned = await runPendingBlobCleanup(accountId, token);
+      setCleanupPending(!cleaned);
+      if (!cleaned) {
+        setError('サーバーに接続できませんでした。通信できる状態でもう一度お試しください。');
+      } else {
+        setError(null);
+      }
     } finally {
       setBusy(false);
     }
@@ -268,6 +284,30 @@ export default function KeyTransferSection({
   return (
     <section className="key-transfer" data-testid="key-transfer">
       <h3>同期の鍵</h3>
+
+      {/* 後始末が終わっていない状態(#182実機確認)。止まるのは**相手の端末**なので、
+          こちらの同期を止めても直らない——「やり直す」で実際に消すことが対処になる。
+          自動でも再試行されるが、その場で直せる導線も出す */}
+      {cleanupPending && (
+        <div className="key-transfer-cleanup" data-testid="cleanup-pending" role="alert">
+          <p>
+            <strong>鍵は受け取りましたが、サーバー上の古いデータを消せていません。</strong>
+          </p>
+          <p className="status-text-small">
+            このままだと、<strong>相手の端末がこちらのデータを受け取れなくなります</strong>
+            （こちらの端末のデータは失われていません）。通信できる状態でやり直してください。
+            アプリの起動時と同期の直前にも自動でやり直します。
+          </p>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => void handleRetryCleanup()}
+            disabled={busy}
+          >
+            {busy ? 'やり直しています…' : '後始末をやり直す'}
+          </button>
+        </div>
+      )}
 
       {undecryptableBlobs > 0 && (
         <p className="sync-error" data-testid="undecryptable-notice" role="alert">
