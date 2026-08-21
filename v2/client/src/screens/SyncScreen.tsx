@@ -7,6 +7,7 @@ import KeyTransferSection from '../sync/KeyTransferSection';
 import { runSync, type SyncEngineDeps, type SyncRunResult } from '../sync/syncEngine';
 import { groupConflictsByTerm } from '../sync/groupConflicts';
 import { runPendingBlobCleanup } from '../sync/syncKeyCleanup';
+import { formatSyncSummary, formatSyncToast } from '../sync/syncResultMessage';
 import { getAccountId } from '../sync/tokenStore';
 import { useAuthState } from '../sync/useAuthState';
 import { useConflictResolution } from '../sync/useConflictResolution';
@@ -167,13 +168,10 @@ export default function SyncScreen({
       if (outcome.receivedBlobs > 0 || outcome.adoptedDecisions > 0) {
         onSyncApplied?.();
       }
-      // 完了/失敗をトースト通知する(依頼者指定)。統一(パソコン側の決定の取り込み)が
-      // あった場合はその旨も知らせる——利用者から見て内容が変わる操作のため
-      const unified = outcome.adoptedDecisions > 0 ? `・パソコン側の解消結果に${outcome.adoptedDecisions}件統一` : '';
-      onSyncNotify?.(
-        `同期しました(受信${outcome.receivedBlobs}件・競合${outcome.conflictCount}件${unified})。`,
-        'info',
-      );
+      // 完了/失敗をトースト通知する(依頼者指定)。文言の組み立ては sync/syncResultMessage.ts の
+      // 1箇所に寄せてある(#216)——ここと結果表示(パネル)が別々に組んでいたため、#202では
+      // パネルだけが直り、トーストには意味を持たない「受信N件」が残っていた
+      onSyncNotify?.(formatSyncToast(outcome), 'info');
     } catch (err) {
       // 公式ホストでライセンスが無い場合、サーバーは403 license_requiredを返す
       // (docs/v2/architecture.md §4)。新設計は不要で、既存のエラー表示経路に乗せる
@@ -206,16 +204,9 @@ export default function SyncScreen({
         </button>
         {lastSyncedAt && <p className="status-text">最終同期: {new Date(lastSyncedAt).toLocaleString('ja-JP')}</p>}
         {lastResult && (
-          /* 利用者に出すのは「実際に何語変わったか」(#202)。blobの件数は端末が送る
-             全量スナップショットの数で、中身が同じでも1件と数えるため意味を持たない */
-          <p className="status-text" data-testid="sync-result">
-            {lastResult.changedTerms > 0
-              ? `${lastResult.changedTerms}語 変わりました`
-              : '変わった内容はありませんでした'}
-            {lastResult.conflictCount > 0 && `・競合${lastResult.conflictCount}件`}
-            {lastResult.undecryptableBlobs > 0 && `・鍵が合わず読めなかった分${lastResult.undecryptableBlobs}件`}
-            {lastResult.skippedBlobs > 0 && `・読めなかったデータ${lastResult.skippedBlobs}件`}
-          </p>
+          /* 文言はトーストと同じ sync/syncResultMessage.ts が組む(#216)。
+             何をどう数えるかの理由はそちらに書いてある */
+          <p className="status-text" data-testid="sync-result">{formatSyncSummary(lastResult)}</p>
         )}
         {syncError && <p className="sync-error">{syncError}</p>}
       </div>

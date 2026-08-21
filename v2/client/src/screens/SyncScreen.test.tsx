@@ -78,6 +78,7 @@ function renderSyncScreen(
     onGoToSettings?: () => void;
     isNativeApp?: boolean;
     onSyncApplied?: () => void;
+    onSyncNotify?: (message: string, variant: 'error' | 'info') => void;
   } = {},
 ) {
   render(
@@ -94,6 +95,7 @@ function renderSyncScreen(
       aiClient={options.aiClient ?? fakeAiClient()}
       onGoToSettings={options.onGoToSettings}
       onSyncApplied={options.onSyncApplied}
+      onSyncNotify={options.onSyncNotify}
     />,
   );
   return deps;
@@ -196,8 +198,45 @@ describe('SyncScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
 
     // 表示は「実際に変わった語数」(#202)。受信blobの件数ではない
-    await waitFor(() => expect(screen.getByText(/変わった内容はありませんでした/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/変わった内容はありません/)).toBeTruthy());
     expect(fetchMock.mock.calls.some(([url]) => url === '/api/sync/push')).toBe(true);
+  });
+
+  /**
+   * パネル(結果表示)とトースト通知が同じ文言を述べることを固定する(#216)。
+   *
+   * 元は同じ handleSyncNow の中で2箇所が別々に文字列を組んでいたため、#202 で
+   * パネルだけが「実際に変わった語数」へ直り、トーストには意味を持たない「受信N件」が
+   * 残った——1回の同期で「変わった内容はありません」と「受信1件」が同時に出ていた。
+   * 文言そのものは sync/syncResultMessage.test.ts が押さえるので、ここでは
+   * **両者が食い違わないこと**だけを見る(片方だけ直す事故を機械的に止めるため)。
+   */
+  it('同期の結果表示とトースト通知が同じ文言になる(#216)', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === '/api/auth/me') return Promise.resolve(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' }));
+      if (url === '/api/sync/push') return Promise.resolve(jsonResponse(201, { seq: 1 }));
+      if (url.startsWith('/api/sync/pull')) return Promise.resolve(jsonResponse(200, { blobs: [], latest: 0 }));
+      throw new Error(`unexpected url: ${url}`);
+    });
+    localStorage.setItem('it-index-v2:token', 'tok-1');
+    vi.stubGlobal('fetch', fetchMock);
+    const onSyncNotify = vi.fn();
+
+    renderSyncScreen(createSyncDeps(), { onSyncNotify });
+    await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+
+    await waitFor(() => expect(onSyncNotify).toHaveBeenCalled());
+    const [message, variant] = onSyncNotify.mock.calls[0] as [string, string];
+    const panelText = screen.getByTestId('sync-result').textContent ?? '';
+
+    expect(variant).toBe('info');
+    expect(panelText).not.toBe('');
+    expect(message).toContain(panelText);
+    // 「受信N件」はblobの件数で、#202で画面から外した数値。どちらにも出さない
+    expect(message).not.toContain('受信');
+    expect(panelText).not.toContain('受信');
   });
 
   it('ログアウトでトークンを破棄し、ログインフォームに戻る', async () => {
@@ -429,7 +468,7 @@ describe('SyncScreen', () => {
     await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
 
-    await waitFor(() => expect(screen.getByText(/変わった内容はありませんでした/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/変わった内容はありません/)).toBeTruthy());
     expect(onSyncApplied).not.toHaveBeenCalled();
   });
 
