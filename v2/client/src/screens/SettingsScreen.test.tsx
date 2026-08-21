@@ -596,4 +596,117 @@ describe('SettingsScreen', () => {
       expect(screen.getByRole('button', { name: 'オールクリアする' })).toBeTruthy();
     });
   });
+
+  // #220: パスワードの変更(ログイン中のみ)。これまで一度登録したパスワードを変える手段が無かった
+  describe('パスワードの変更', () => {
+    function stubAuth(passwordChange?: { status: number; body: unknown }) {
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if (url === '/api/auth/me') {
+          return Promise.resolve(
+            jsonResponse(200, {
+              accountId: 'acc-1',
+              email: 'a@example.com',
+              licensed: false,
+              licenseCode: null,
+              licenseSource: null,
+              activatedAt: null,
+              paymentMethod: null,
+            }),
+          );
+        }
+        if (url === '/api/auth/password') {
+          const r = passwordChange ?? { status: 200, body: { ok: true } };
+          return Promise.resolve(jsonResponse(r.status, r.body));
+        }
+        throw new Error(`unexpected url: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      return fetchMock;
+    }
+
+    async function fillForm(current: string, next: string, confirm: string) {
+      fireEvent.change(await screen.findByLabelText('現在のパスワード'), { target: { value: current } });
+      fireEvent.change(screen.getByLabelText('新しいパスワード'), { target: { value: next } });
+      fireEvent.change(screen.getByLabelText('新しいパスワード(確認)'), { target: { value: confirm } });
+    }
+
+    it('未ログインでは欄自体を出さない', async () => {
+      renderSettingsScreen();
+      await waitFor(() => expect(screen.getByText('APIキー設定')).toBeTruthy());
+      expect(screen.queryByText('パスワードの変更')).toBeNull();
+    });
+
+    it('変更を送ると現在と新しいパスワードをサーバーへ渡す', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      const fetchMock = stubAuth();
+      renderSettingsScreen();
+
+      await fillForm('OldPass2026', 'NewPass2026x', 'NewPass2026x');
+      fireEvent.click(screen.getByRole('button', { name: 'パスワードを変更する' }));
+
+      await waitFor(() => expect(screen.getByText('パスワードを変更しました。')).toBeTruthy());
+      const call = fetchMock.mock.calls.find((c) => c[0] === '/api/auth/password');
+      expect(JSON.parse(call?.[1].body)).toEqual({
+        currentPassword: 'OldPass2026',
+        newPassword: 'NewPass2026x',
+      });
+    });
+
+    it('できないことを謳わない: 他の端末がログインしたままであることを伝える', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubAuth();
+      renderSettingsScreen();
+
+      await fillForm('OldPass2026', 'NewPass2026x', 'NewPass2026x');
+      fireEvent.click(screen.getByRole('button', { name: 'パスワードを変更する' }));
+
+      // JWTは自前で失効させる仕組みが無い。「他端末からログアウトさせた」と見せてはいけない
+      await waitFor(() => expect(screen.getByText(/他の端末はログインしたままです/)).toBeTruthy());
+    });
+
+    it('確認が一致しない間は送信できない', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubAuth();
+      renderSettingsScreen();
+
+      await fillForm('OldPass2026', 'NewPass2026x', 'NewPass2026y');
+      expect(screen.getByText('パスワードが一致していません')).toBeTruthy();
+      expect((screen.getByRole('button', { name: 'パスワードを変更する' }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('要件を満たさない新パスワードでは送信できない(登録時と同じ条件)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubAuth();
+      renderSettingsScreen();
+
+      await fillForm('OldPass2026', 'weak', 'weak');
+      expect((screen.getByRole('button', { name: 'パスワードを変更する' }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('現在のパスワードが違えばサーバーの理由をそのまま出す', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubAuth({
+        status: 401,
+        body: { error: { code: 'invalid_current_password', message: '現在のパスワードが正しくありません' } },
+      });
+      renderSettingsScreen();
+
+      await fillForm('WrongPass2026', 'NewPass2026x', 'NewPass2026x');
+      fireEvent.click(screen.getByRole('button', { name: 'パスワードを変更する' }));
+
+      await waitFor(() => expect(screen.getByText('現在のパスワードが正しくありません')).toBeTruthy());
+      expect(screen.queryByText('パスワードを変更しました。')).toBeNull();
+    });
+
+    it('キーボードによる書き換えを止める(#213と同じ理由)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubAuth();
+      renderSettingsScreen();
+
+      const input = await screen.findByLabelText('現在のパスワード');
+      expect(input.getAttribute('autocapitalize')).toBe('none');
+      expect(input.getAttribute('autocorrect')).toBe('off');
+      expect(input.getAttribute('spellcheck')).toBe('false');
+    });
+  });
 });

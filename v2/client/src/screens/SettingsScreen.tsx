@@ -22,6 +22,9 @@ import {
 } from '../sync/serverConfig';
 import { useAuthState, type AuthState } from '../sync/useAuthState';
 import ApiKeySection from './ApiKeySection';
+import { PASSWORD_MIN_LENGTH, checkPasswordRules, validatePassword } from '@it-index/shared';
+import { IME_OFF, PasswordRule } from '../lib/passwordUi';
+import { changePassword } from '../sync/apiClient';
 
 export interface SettingsScreenProps {
   db: ItIndexDB;
@@ -73,6 +76,9 @@ export default function SettingsScreen({
           </p>
         )}
       </section>
+
+      {/* パスワードの変更(ログイン中のみ)。認証に関わる操作なのでAPIキー設定の直後に置く */}
+      {auth.status === 'authed' && <PasswordChangeSection token={auth.token} />}
 
       <ServerSection />
 
@@ -674,6 +680,129 @@ function DataSection({ db }: { db: ItIndexDB }) {
             </button>
           </div>
           {error && <p className="sync-error">初期化に失敗しました: {error}</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+
+/**
+ * パスワードの変更(ログイン中のみ)。
+ *
+ * **なぜ設定画面に置くか。** これまで、一度登録したパスワードを変える手段が一切無かった。
+ * 2026-08-22に「Androidのキーボードが入力を書き換えてログインできない」という不具合が起きた際、
+ * PC版で入れたおかげで救われたが、**本人が正しい文字列に直す手段は無かった**。
+ * #205 でパスワード要件を強めた時の判断根拠も「再設定の導線が無いため、ログインでは検証しない」だった。
+ *
+ * **「ログインできない状態からの再設定」はここでは扱えない**(全端末で入れなくなったら詰む)。
+ * それには本人性を確認する別の経路(メール送信等)が要る。ここが救えるのは
+ * 「1台でもログインできる端末が残っている」場合まで。
+ */
+function PasswordChangeSection({ token }: { token: string }) {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [shown, setShown] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  const rules = checkPasswordRules(next);
+  const policy = validatePassword(next);
+  const mismatch = confirm.length > 0 && next !== confirm;
+  const canSubmit =
+    current.length > 0 && policy.ok && next === confirm && confirm.length > 0 && !busy;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setBusy(true);
+    setError(null);
+    setDone(false);
+    try {
+      await changePassword(token, current, next);
+      setDone(true);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+      setShown(false);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : 'サーバーに接続できませんでした');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="settings-section">
+      <h2>パスワードの変更</h2>
+      <form onSubmit={submit}>
+        <label htmlFor="pw-current">現在のパスワード</label>
+        <input
+          id="pw-current"
+          type={shown ? 'text' : 'password'}
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          {...IME_OFF}
+          required
+        />
+
+        <label htmlFor="pw-next">新しいパスワード</label>
+        <input
+          id="pw-next"
+          type={shown ? 'text' : 'password'}
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          aria-describedby="pw-rules"
+          {...IME_OFF}
+          required
+        />
+        <ul id="pw-rules" className="password-rules">
+          <PasswordRule ok={rules.length}>{PASSWORD_MIN_LENGTH}文字以上</PasswordRule>
+          <PasswordRule ok={rules.uppercase}>英大文字を1つ以上</PasswordRule>
+          <PasswordRule ok={rules.lowercase}>英小文字を1つ以上</PasswordRule>
+          <PasswordRule ok={rules.digit}>数字を1つ以上</PasswordRule>
+        </ul>
+        {policy.code === 'common_password' && (
+          <p className="error-text" role="alert">
+            {policy.message}
+          </p>
+        )}
+
+        <label htmlFor="pw-confirm">新しいパスワード(確認)</label>
+        <input
+          id="pw-confirm"
+          type={shown ? 'text' : 'password'}
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          {...IME_OFF}
+          required
+        />
+        {mismatch && (
+          <p className="error-text" role="alert">
+            パスワードが一致していません
+          </p>
+        )}
+
+        <button type="button" className="btn-text" onClick={() => setShown((v) => !v)}>
+          {shown ? '入力内容を隠す' : '入力内容を表示する'}
+        </button>
+
+        <button type="submit" className="btn-primary" disabled={!canSubmit}>
+          {busy ? '変更しています…' : 'パスワードを変更する'}
+        </button>
+      </form>
+
+      {error && <p className="error-text">{error}</p>}
+      {done && (
+        <div className="status-text">
+          <p>パスワードを変更しました。</p>
+          {/* できないことを「できた」と見せない。JWTは自前で失効させる仕組みが無い */}
+          <p>
+            <strong>他の端末はログインしたままです。</strong>
+            次に他の端末でログインする時から、新しいパスワードが必要になります。
+          </p>
         </div>
       )}
     </section>

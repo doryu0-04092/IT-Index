@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { PASSWORD_MIN_LENGTH, checkPasswordRules, validatePassword } from '@it-index/shared';
+import { IME_OFF, PasswordRule } from '../lib/passwordUi';
 
 /**
  * ログイン/新規登録フォーム(SyncScreen.tsxから抽出。設定タブ「ライセンス」のログイン誘導と
@@ -11,26 +12,6 @@ import { PASSWORD_MIN_LENGTH, checkPasswordRules, validatePassword } from '@it-i
  * サーバー(/api/auth/signup)と同じ関数を呼ぶ——画面側だけの検証はAPIを
  * 直接叩けば回避できるので、ここはUXのための先出しであって防御の本体ではない。
  */
-/**
- * スマートフォンのキーボードによる書き換えを止める(#213)。
- *
- * **なぜ必要か。** Androidのキーボードは入力欄の先頭を大文字にしたり、綴りを直したりする。
- * メールアドレスが `Foo@…` になるとサーバーの照合に掛からず、パスワードも1文字違えば通らない。
- * PCでは起きないため、**「PCでは入れるのに端末では弾かれる」**という分かりにくい形で出る
- * (2026-08-22に実際に報告された)。
- *
- * **パスワード欄にも必要。** 伏せ字(`type="password"`)の間はキーボードも余計なことをしないが、
- * 「パスワードを表示する」で `type="text"` に変わった瞬間、ただの文章入力として扱われる。
- *
- * サーバー側でもメールの大文字小文字は吸収するが(COLLATE NOCASE)、**入力した通りに送るのが本筋**で、
- * パスワードは正規化できない以上こちらで止めるしかない。
- */
-const IME_OFF = {
-  autoCapitalize: 'none',
-  autoCorrect: 'off',
-  spellCheck: false,
-} as const;
-
 export default function AuthForms({
   busy,
   error,
@@ -179,12 +160,3 @@ function PasswordVisibilityToggle({ shown, onToggle }: { shown: boolean; onToggl
 }
 
 /** 条件1行。記号だけでなくaria-labelでも充足/未充足が分かるようにする */
-function PasswordRule({ ok, children }: { ok: boolean; children: ReactNode }) {
-  return (
-    <li className={ok ? 'password-rule-ok' : 'password-rule-todo'}>
-      <span aria-hidden="true">{ok ? '✓' : '・'}</span>
-      <span>{children}</span>
-      <span className="visually-hidden">{ok ? '(条件を満たしています)' : '(未入力です)'}</span>
-    </li>
-  );
-}

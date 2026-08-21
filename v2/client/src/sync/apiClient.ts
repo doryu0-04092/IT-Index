@@ -67,6 +67,25 @@ export async function login(email: string, password: string): Promise<{ token: s
   return apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
 }
 
+/**
+ * パスワードの変更(ログイン中のみ)。現在のパスワードの検証はサーバー側で行う。
+ *
+ * **トークンは失効しない。** JWTは自己完結でサーバーにセッションの記録が無いため、
+ * 変更後も他端末で発行済みのトークンは有効なまま。画面でその旨を伝えること
+ * (できないことを「できた」と見せない)。
+ */
+export async function changePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: true }> {
+  return apiFetch('/auth/password', {
+    method: 'POST',
+    headers: authHeader(token),
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
 /** サーバーが持つお支払い方法の表示情報(完全なカード番号・CVCは含まない) */
 export interface PaymentMethod {
   brand: CardBrand;
