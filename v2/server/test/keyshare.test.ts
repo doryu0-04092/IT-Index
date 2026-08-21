@@ -152,8 +152,9 @@ describe('鍵の受け渡し', () => {
 describe('DELETE /api/sync/blobs', () => {
   it('自アカウントの差分を全部消す。seqは1から振り直しになる', async () => {
     const token = await signupAndGetToken();
+    // 端末ごとに最新1件だけ残る(#202)ため、2台ぶんを積んでから消す
     await push(token, 'device-a', JSON.stringify({ a: 1 }));
-    await push(token, 'device-a', JSON.stringify({ a: 2 }));
+    await push(token, 'device-b', JSON.stringify({ b: 1 }));
 
     const res = await deleteBlobs(token);
     expect(res.status).toBe(200);

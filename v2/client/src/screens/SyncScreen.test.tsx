@@ -195,7 +195,8 @@ describe('SyncScreen', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
 
-    await waitFor(() => expect(screen.getByText(/受信0件/)).toBeTruthy());
+    // 表示は「実際に変わった語数」(#202)。受信blobの件数ではない
+    await waitFor(() => expect(screen.getByText(/変わった内容はありませんでした/)).toBeTruthy());
     expect(fetchMock.mock.calls.some(([url]) => url === '/api/sync/push')).toBe(true);
   });
 
@@ -390,7 +391,7 @@ describe('SyncScreen', () => {
     await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
 
-    await waitFor(() => expect(screen.getByText(/受信0件/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/変わった内容はありませんでした/)).toBeTruthy());
     expect(onSyncApplied).not.toHaveBeenCalled();
   });
 

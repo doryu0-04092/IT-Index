@@ -23,6 +23,82 @@ async function pull(token: string, since: number) {
   });
 }
 
+describe('blobの圧縮(#202)', () => {
+  it('同じ端末が再pushすると、その端末の古い行は消える(1端末1行)', async () => {
+    const token = await signupAndGetToken();
+
+    await push(token, 'device-a', JSON.stringify({ v: 1 }));
+    await push(token, 'device-a', JSON.stringify({ v: 2 }));
+    await push(token, 'device-a', JSON.stringify({ v: 3 }));
+
+    const body = await (await pull(token, 0)).json<{
+      blobs: Array<{ seq: number; deviceId: string; payload: string }>;
+      latest: number;
+    }>();
+
+    // 端末が送るのは全量スナップショットなので、最新1件あれば足りる
+    expect(body.blobs).toHaveLength(1);
+    expect(body.blobs[0].payload).toBe(JSON.stringify({ v: 3 }));
+    expect(body.latest).toBe(3);
+  });
+
+  it('他端末の行は消さない(端末ごとに1行ずつ残る)', async () => {
+    const token = await signupAndGetToken();
+
+    await push(token, 'device-a', JSON.stringify({ from: 'a1' }));
+    await push(token, 'device-b', JSON.stringify({ from: 'b1' }));
+    await push(token, 'device-a', JSON.stringify({ from: 'a2' }));
+
+    const body = await (await pull(token, 0)).json<{
+      blobs: Array<{ deviceId: string; payload: string }>;
+    }>();
+
+    expect(body.blobs).toHaveLength(2);
+    const byDevice = new Map(body.blobs.map((b) => [b.deviceId, b.payload]));
+    expect(byDevice.get('device-a')).toBe(JSON.stringify({ from: 'a2' }));
+    expect(byDevice.get('device-b')).toBe(JSON.stringify({ from: 'b1' }));
+  });
+
+  it('latestは減らない(クライアントのcursor自己修復を誤発火させない)', async () => {
+    const token = await signupAndGetToken();
+
+    const first = await (await push(token, 'device-a', '{}')).json<{ seq: number }>();
+    const second = await (await push(token, 'device-a', '{}')).json<{ seq: number }>();
+    const body = await (await pull(token, 0)).json<{ latest: number }>();
+
+    // 古い行が消えてもlatestは常に「直前に挿入した行」なので単調増加する。
+    // ここが減ると、cursorがlatestを追い越して全件の読み直しが起きてしまう(#182)
+    expect(second.seq).toBeGreaterThan(first.seq);
+    expect(body.latest).toBe(second.seq);
+  });
+
+  it('圧縮後もcursorから先だけが返る(取りこぼさない)', async () => {
+    const token = await signupAndGetToken();
+
+    await push(token, 'device-a', JSON.stringify({ n: 1 }));
+    const b1 = await (await push(token, 'device-b', JSON.stringify({ n: 2 }))).json<{ seq: number }>();
+    await push(token, 'device-a', JSON.stringify({ n: 3 }));
+
+    // device-b のcursor(自分がpushしたseq)以降を取りに行く
+    const body = await (await pull(token, b1.seq)).json<{ blobs: Array<{ deviceId: string }> }>();
+
+    // device-a の最新(全量スナップショット)が届く。消えた古い行の内容も含まれている
+    expect(body.blobs.map((b) => b.deviceId)).toEqual(['device-a']);
+  });
+
+  it('他アカウントの行は消さない', async () => {
+    const a = await signupAndGetToken();
+    const b = await signupAndGetToken();
+
+    await push(a, 'device-x', '{}');
+    await push(b, 'device-x', '{}'); // 同じdeviceIdでも別アカウント
+    await push(a, 'device-x', '{}');
+
+    const bodyB = await (await pull(b, 0)).json<{ blobs: unknown[] }>();
+    expect(bodyB.blobs).toHaveLength(1);
+  });
+});
+
 describe('sync', () => {
   it('push then pull round trip', async () => {
     const token = await signupAndGetToken();

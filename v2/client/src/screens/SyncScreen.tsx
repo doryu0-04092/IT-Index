@@ -201,9 +201,15 @@ export default function SyncScreen({
         </button>
         {lastSyncedAt && <p className="status-text">最終同期: {new Date(lastSyncedAt).toLocaleString('ja-JP')}</p>}
         {lastResult && (
-          <p className="status-text">
-            受信{lastResult.receivedBlobs}件(検証失敗{lastResult.skippedBlobs}件をスキップ)・競合{lastResult.conflictCount}件
+          /* 利用者に出すのは「実際に何語変わったか」(#202)。blobの件数は端末が送る
+             全量スナップショットの数で、中身が同じでも1件と数えるため意味を持たない */
+          <p className="status-text" data-testid="sync-result">
+            {lastResult.changedTerms > 0
+              ? `${lastResult.changedTerms}語 変わりました`
+              : '変わった内容はありませんでした'}
+            {lastResult.conflictCount > 0 && `・競合${lastResult.conflictCount}件`}
             {lastResult.undecryptableBlobs > 0 && `・鍵が合わず読めなかった分${lastResult.undecryptableBlobs}件`}
+            {lastResult.skippedBlobs > 0 && `・読めなかったデータ${lastResult.skippedBlobs}件`}
           </p>
         )}
         {syncError && <p className="sync-error">{syncError}</p>}

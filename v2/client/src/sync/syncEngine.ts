@@ -1,4 +1,5 @@
 import {
+  computeSyncDelta,
   isSameContent,
   isSyncTarget,
   mergeSnapshot,
@@ -331,6 +332,12 @@ export interface SyncRunResult {
    * 同期で取り込まれる(cursorを進めていないため)。
    */
   undecryptableBlobs: number;
+  /**
+   * この同期で**実際に内容が変わった語の数**(#202)。
+   * `receivedBlobs` は端末が送る全量スナップショットの件数で、中身が同じでも1件と数える
+   * ため、利用者への表示にはこちらを使う。
+   */
+  changedTerms: number;
   /** この同期イベントに紐づく競合件数(新規+再発+持ち越し) */
   conflictCount: number;
   /** 相手側(PC)の決定を採用して統一した件数 */
@@ -349,6 +356,11 @@ export interface SyncRunResult {
 export async function runSync(deps: SyncEngineDeps, token: string): Promise<SyncRunResult> {
   const syncEventId = crypto.randomUUID();
   const at = Date.now();
+
+  // 取り込みで実際に何が変わったかを数えるための、同期前のスナップショット(#202)。
+  // 「受信N件」はblobの件数で、利用者が知りたい情報ではない(端末が全量スナップショットを
+  // 送る仕組みのため、中身が同じでも1件と数えられる)。前後を突き合わせて語数で示す。
+  const before = await buildLocalSnapshot(deps);
 
   const { seq } = await pushToRelay(deps, token);
   // pullが途中で失敗しても「この同期は始まった」記録は残す(completed:falseが痕跡になる)
@@ -391,11 +403,18 @@ export async function runSync(deps: SyncEngineDeps, token: string): Promise<Sync
   });
 
   const linkedCount = (await deps.noteConflictsRepo.getBySyncEventId(syncEventId)).length;
+
+  // 同期の前後を突き合わせ、実際に変わった語数を出す(#202)
+  const after = await buildLocalSnapshot(deps);
+  const delta = computeSyncDelta(before, after);
+  const changedTermIds = new Set([...delta.termIds, ...delta.noteTermIds]);
+
   return {
     syncEventId,
     receivedBlobs: pulled.receivedBlobs,
     skippedBlobs: pulled.skippedBlobs,
     undecryptableBlobs: pulled.undecryptableBlobs,
+    changedTerms: changedTermIds.size,
     conflictCount: linkedCount,
     adoptedDecisions: pulled.adoptedDecisions,
   };
