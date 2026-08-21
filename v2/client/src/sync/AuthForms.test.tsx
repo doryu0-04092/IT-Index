@@ -171,4 +171,31 @@ describe('AuthForms', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ログイン' }));
     expect((screen.getByLabelText('パスワード') as HTMLInputElement).value).toBe('');
   });
+
+  // #213: スマートフォンのキーボードが先頭を大文字にしたり綴りを直したりすると、
+  // 入力した通りに送られず「PCでは入れるのに端末では弾かれる」状態になる。
+  describe('キーボードによる書き換えを止める(#213)', () => {
+    it('メール欄で大文字化・自動修正・綴り確認が全て切れている', () => {
+      setup();
+      const input = screen.getByLabelText('メールアドレス');
+      expect(input.getAttribute('autocapitalize')).toBe('none');
+      expect(input.getAttribute('autocorrect')).toBe('off');
+      expect(input.getAttribute('spellcheck')).toBe('false');
+      expect(input.getAttribute('inputmode')).toBe('email');
+    });
+
+    it('パスワード欄でも切れている(表示に切り替えた後も)', () => {
+      setup();
+      const input = screen.getByLabelText('パスワード');
+      expect(input.getAttribute('autocapitalize')).toBe('none');
+
+      // 伏せ字の間は問題にならないが、text へ変わると普通の文章入力として扱われる
+      fireEvent.click(screen.getByRole('button', { name: 'パスワードを表示する' }));
+      const shown = screen.getByLabelText('パスワード');
+      expect(shown.getAttribute('type')).toBe('text');
+      expect(shown.getAttribute('autocapitalize')).toBe('none');
+      expect(shown.getAttribute('autocorrect')).toBe('off');
+      expect(shown.getAttribute('spellcheck')).toBe('false');
+    });
+  });
 });
