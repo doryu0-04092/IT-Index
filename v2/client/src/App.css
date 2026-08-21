@@ -969,6 +969,27 @@ a,
   gap: 12px;
 }
 
+/* 複数台の競合を縦一列に並べる(#203。ConflictGroupItem.tsx)。
+   横2列(.sync-conflict-sides)は3台以上で収まらないため、こちらは1列に固定する。
+   1番目が常に「この端末」で、以降が相手端末(更新が新しい順) */
+.conflict-device-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  counter-reset: conflict-device;
+}
+
+/* 端末ごとの操作。採用とAI統合を横に並べ、狭い画面では折り返す */
+.conflict-device-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
 .sync-conflict-side {
   flex: 1 1 220px;
   display: flex;

@@ -5,6 +5,7 @@ import { ApiRequestError } from '../sync/apiClient';
 import AuthForms from '../sync/AuthForms';
 import KeyTransferSection from '../sync/KeyTransferSection';
 import { runSync, type SyncEngineDeps, type SyncRunResult } from '../sync/syncEngine';
+import { groupConflictsByTerm } from '../sync/groupConflicts';
 import { runPendingBlobCleanup } from '../sync/syncKeyCleanup';
 import { getAccountId } from '../sync/tokenStore';
 import { useAuthState } from '../sync/useAuthState';
@@ -16,6 +17,7 @@ import type { NotesRepository } from '../repositories/notes';
 import type { SyncEventsRepository } from '../repositories/syncEvents';
 import type { SyncStateRepository } from '../repositories/syncState';
 import type { TermsRepository } from '../repositories/terms';
+import ConflictGroupItem from './ConflictGroupItem';
 import ConflictItem from './ConflictItem';
 
 export interface SyncScreenProps {
@@ -91,6 +93,9 @@ export default function SyncScreen({
 
   const [conflicts, setConflicts] = useState<NoteConflictRecord[]>([]);
   const [resolvedConflicts, setResolvedConflicts] = useState<NoteConflictRecord[]>([]);
+
+  // 未解決の競合は単語ごとにまとめて出す(#203。sync/groupConflicts.ts)
+  const conflictGroups = groupConflictsByTerm(conflicts);
 
   const loadConflicts = useCallback(async () => {
     // 直近の同期に紐づく競合だけを出す(#157)。同期記録がまだ無ければ空
@@ -250,23 +255,25 @@ export default function SyncScreen({
         <>
           {conflicts.length > 0 && (
             <div className="sync-conflicts">
-              <h3>未解決の競合({conflicts.length}件)</h3>
+              {/* 単語ごとにまとめて縦一列で出す(#203)。複数の端末で同じ単語に
+                  AI検索を掛け続けると、その語の競合が端末の数だけ並ぶため */}
+              <h3>未解決の競合({conflictGroups.length}語)</h3>
               <p className="status-text">
-                どちらかを採用するか、2つをAIで統合できます。何もしなければこの端末では新しい方(自動採用)のままです。
+                いずれかを採用するか、AIで統合できます。何もしなければこの端末では新しい方(自動採用)のままです。
                 解消するとスマートフォン側も次の同期で同じ内容に統一されます。
               </p>
               <ul className="sync-conflict-list">
-                {conflicts.map((c) => (
-                  <ConflictItem
-                    key={c.id}
-                    conflict={c}
+                {conflictGroups.map((group) => (
+                  <ConflictGroupItem
+                    key={group.termId}
+                    group={group}
                     canResolve
-                    merging={mergingId === c.id}
-                    mergeError={mergeErrors[c.id] ?? null}
-                    mergeErrorCode={mergeErrorCodes[c.id] ?? null}
-                    onChooseLocal={() => chooseLocal(c)}
-                    onChooseRemote={() => chooseRemote(c)}
-                    onMerge={() => void merge(c)}
+                    mergingId={mergingId}
+                    mergeErrors={mergeErrors}
+                    mergeErrorCodes={mergeErrorCodes}
+                    onChooseLocal={chooseLocal}
+                    onChooseRemote={chooseRemote}
+                    onMerge={(c) => void merge(c)}
                     onGoToSettings={onGoToSettings}
                   />
                 ))}
