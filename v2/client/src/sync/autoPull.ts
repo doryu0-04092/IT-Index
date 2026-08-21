@@ -1,5 +1,6 @@
 import { ApiRequestError } from './apiClient';
 import { runSync, type SyncEngineDeps, type SyncRunResult } from './syncEngine';
+import { runPendingBlobCleanup } from './syncKeyCleanup';
 
 /**
  * 起動時の自動受け取り(#193)。
@@ -46,6 +47,10 @@ export async function runAutoPull(deps: AutoPullDeps): Promise<AutoPullOutcome> 
   if (deps.syncDeps === null) return { status: 'skipped', reason: 'not-ready' };
 
   try {
+    // 鍵の受け取り後の後始末が終わっていなければ、同期の前にやり直す(sync/syncKeyCleanup.ts)。
+    // 残したまま同期すると、孤児blobで**相手端末のカーソルが止まったまま**になる
+    await runPendingBlobCleanup(deps.syncDeps.accountId, deps.token);
+
     const result = await runSync(deps.syncDeps, deps.token);
     return { status: 'succeeded', result };
   } catch (err) {

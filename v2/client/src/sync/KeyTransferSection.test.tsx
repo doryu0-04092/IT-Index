@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import KeyTransferSection from './KeyTransferSection';
 import { getDataKey, setDataKey } from './syncKeyStore';
 import { generateDataKey, normalizeTransferCode, wrapDataKey } from './syncCrypto';
+import { markBlobCleanupPending } from './syncKeyCleanup';
 
 // カメラ層(getUserMedia・requestAnimationFrame)は実機依存でテスト対象外(qrScanner.ts参照)。
 // ここでは「カメラの有無で選択肢の出し分けが変わる」ことだけを見たいのでモックする。
@@ -227,9 +228,10 @@ describe('KeyTransferSection', () => {
     expect(onSyncNow).toHaveBeenCalledTimes(1);
   });
 
-  it('古い差分の削除に失敗したら、鍵は受け取れた上で失敗を明示する', async () => {
+  it('古い差分の削除に失敗したら警告を出し、やり直しで消せるようにする', async () => {
     const dataKey = generateDataKey();
     const wrapped = await wrapDataKey(dataKey, '12345678');
+    let deleteShouldFail = true;
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((url: string, init: { method?: string }) => {
@@ -237,9 +239,9 @@ describe('KeyTransferSection', () => {
           return Promise.resolve(jsonResponse(200, wrapped));
         }
         if (url === '/api/sync/blobs') {
-          return Promise.resolve(
-            jsonResponse(500, { error: { code: 'server_error', message: 'サーバーエラー' } }),
-          );
+          return deleteShouldFail
+            ? Promise.reject(new Error('network down'))
+            : Promise.resolve(jsonResponse(200, { deleted: 1 }));
         }
         return Promise.resolve(jsonResponse(200, { deleted: true }));
       }),
@@ -253,9 +255,47 @@ describe('KeyTransferSection', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '鍵を受け取る' }));
 
-    const error = await screen.findByTestId('key-transfer-error');
-    expect(error.textContent).toContain('鍵は受け取りましたが');
-    expect(getDataKey(ACCOUNT)).toBe(dataKey); // 鍵自体は保存されている
+    // 黙って進ませない。相手が受け取れなくなることを明示する
+    const warning = await screen.findByTestId('cleanup-pending');
+    expect(warning.textContent).toContain('相手の端末がこちらのデータを受け取れなくなります');
+    expect(getDataKey(ACCOUNT)).toBe(dataKey); // 鍵自体は受け取れている
+
+    // 通信できるようになればやり直せる
+    deleteShouldFail = false;
+    fireEvent.click(screen.getByRole('button', { name: '後始末をやり直す' }));
+    await waitFor(() => expect(screen.queryByTestId('cleanup-pending')).toBeNull());
+  });
+
+  it('未完了の印が残っている状態で開いたら、最初から警告を出す', async () => {
+    markBlobCleanupPending(ACCOUNT);
+    renderSection();
+
+    expect(await screen.findByTestId('cleanup-pending')).toBeTruthy();
+  });
+
+  it('削除に成功した場合は警告を出さない', async () => {
+    const dataKey = generateDataKey();
+    const wrapped = await wrapDataKey(dataKey, '12345678');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init: { method?: string }) =>
+        url === '/api/sync/keyshare' && (init.method ?? 'GET') === 'GET'
+          ? Promise.resolve(jsonResponse(200, wrapped))
+          : Promise.resolve(jsonResponse(200, { deleted: 1 })),
+      ),
+    );
+
+    renderSection();
+    await openFallback();
+    fireEvent.click(screen.getByRole('button', { name: '数字コードを入力する(受け取る側)' }));
+    fireEvent.change(screen.getByLabelText('相手の画面に出ている8桁'), {
+      target: { value: '12345678' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '鍵を受け取る' }));
+
+    await screen.findByTestId('key-transfer-done');
+    expect(screen.queryByTestId('cleanup-pending')).toBeNull();
+    expect(getDataKey(ACCOUNT)).toBe(dataKey);
   });
 
   it('渡す側には「相手の画面で確認して」と出す(こちらからは成否が分からないため)', async () => {

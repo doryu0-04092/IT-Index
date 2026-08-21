@@ -5,6 +5,7 @@ import { ApiRequestError } from '../sync/apiClient';
 import AuthForms from '../sync/AuthForms';
 import KeyTransferSection from '../sync/KeyTransferSection';
 import { runSync, type SyncEngineDeps, type SyncRunResult } from '../sync/syncEngine';
+import { runPendingBlobCleanup } from '../sync/syncKeyCleanup';
 import { getAccountId } from '../sync/tokenStore';
 import { useAuthState } from '../sync/useAuthState';
 import { useConflictResolution } from '../sync/useConflictResolution';
@@ -148,6 +149,10 @@ export default function SyncScreen({
     setSyncBusy(true);
     setSyncError(null);
     try {
+      // 鍵の受け取り後の後始末が終わっていなければ、同期の前にやり直す(sync/syncKeyCleanup.ts)。
+      // 残したまま同期すると、孤児blobで相手端末のカーソルが止まったままになる
+      await runPendingBlobCleanup(accountId, auth.token);
+
       const outcome = await runSync(deps, auth.token);
       setLastResult(outcome);
       setLastSyncedAt(Date.now());
