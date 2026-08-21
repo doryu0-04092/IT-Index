@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import { createProxyAiClient } from './ai/aiClient';
 import { createCommitOrchestrator } from './ai/commitOrchestrator';
@@ -19,6 +19,7 @@ import SyncScreen from './screens/SyncScreen';
 import TermDetailScreen from './screens/TermDetailScreen';
 import TermIndexScreen from './screens/TermIndexScreen';
 import { purchaseLicense, savePaymentMethod } from './sync/apiClient';
+import { runAutoPull, shouldRefreshAfterAutoPull } from './sync/autoPull';
 import { retryPendingPush, runAutoPush } from './sync/pendingPush';
 import { pushToRelay, type SyncEngineDeps } from './sync/syncEngine';
 import { getAccountId, getToken } from './sync/tokenStore';
@@ -214,6 +215,51 @@ export function App() {
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
   }, [settingsRepo, pushSnapshotToRelay]);
+
+  /**
+   * 起動時の自動受け取り(#193)。同期は送る側だけが自動で、受け取る側は「今すぐ同期」を
+   * 押した時しか走らなかったため、相手が自動pushしていてもこちらへ降りてこず、
+   * 片方向にしか進んでいないように見えていた(#182の実機確認で報告された)。
+   *
+   * **失敗しても画面には出さない**(sync/autoPull.tsのコメント参照)。押していないのに
+   * エラーが出るのは筋が通らないため。受信があった時だけ各画面のデータを読み直す。
+   */
+  const autoPullDone = useRef(false);
+  useEffect(() => {
+    if (!deviceId || autoPullDone.current) return;
+    autoPullDone.current = true; // 起動につき1回だけ(依存の再評価で複数回走らせない)
+
+    const token = getToken();
+    const accountId = getAccountId();
+    const syncDeps: SyncEngineDeps | null =
+      accountId !== null
+        ? {
+            db,
+            termsRepo,
+            notesRepo,
+            asksRepo,
+            noteConflictsRepo,
+            syncEventsRepo,
+            syncStateRepo,
+            deviceId,
+            accountId,
+            holdLocalOnConflict: isNativeApp,
+          }
+        : null;
+
+    void runAutoPull({ token, syncDeps, online: navigator.onLine }).then((outcome) => {
+      if (shouldRefreshAfterAutoPull(outcome)) setCommitRefreshTick((t) => t + 1);
+    });
+  }, [
+    deviceId,
+    termsRepo,
+    notesRepo,
+    asksRepo,
+    noteConflictsRepo,
+    syncEventsRepo,
+    syncStateRepo,
+    isNativeApp,
+  ]);
 
   // 確定オーケストレーション(要件定義書§5.3)。deviceId確定前はAI確定操作自体が起きない
   // (ChatScreenを開くには辞書取り込み・deviceId発行が済んでいる必要がある)ため、
