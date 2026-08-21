@@ -8,6 +8,8 @@ export default defineConfig({
   base: './',
   test: {
     environment: 'jsdom',
+    // 非同期待ちの予算をここで一括設定する(#204)。理由と実測は src/test-setup.ts を参照
+    setupFiles: ['./src/test-setup.ts'],
     globals: false,
   },
 });

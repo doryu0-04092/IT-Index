@@ -41,7 +41,7 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByText('登録単語数(1語)')).toBeTruthy());
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'HTTP' } });
-    const result = await waitFor(() => screen.getByText('HTTP'), { timeout: 1000 });
+    const result = await waitFor(() => screen.getByText('HTTP'));
     fireEvent.click(result.closest('button')!);
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /HTTP/ })).toBeTruthy());
@@ -90,7 +90,7 @@ describe('App', () => {
 
     // まず検索経由でHTTPの詳細を開き、asksに確定を1件記録させる(履歴に出すため)
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'HTTP' } });
-    const result = await waitFor(() => screen.getByText('HTTP'), { timeout: 1000 });
+    const result = await waitFor(() => screen.getByText('HTTP'));
     fireEvent.click(result.closest('button')!);
     await waitFor(() => expect(screen.getByRole('heading', { name: /HTTP/ })).toBeTruthy());
     fireEvent.click(screen.getByText('← 戻る'));
@@ -100,7 +100,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: '履歴' }));
     await waitFor(() => expect(screen.getByRole('button', { name: '重み付け' })).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: '重み付け' }));
-    const weightedResult = await waitFor(() => screen.getByText('HTTP'), { timeout: 1000 });
+    const weightedResult = await waitFor(() => screen.getByText('HTTP'));
     fireEvent.click(weightedResult.closest('button')!);
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /HTTP/ })).toBeTruthy());
