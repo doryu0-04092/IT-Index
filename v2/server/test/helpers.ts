@@ -77,7 +77,7 @@ export async function signupAccount(
   const res = await exports.default.fetch(`${BASE}/api/auth/signup`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password: 'password123' }),
+    body: JSON.stringify({ email, password: 'TestPass2026' }),
   });
   const body = await res.json<{ token: string }>();
 
