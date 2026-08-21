@@ -1,4 +1,5 @@
-import { exports } from 'cloudflare:workers';
+import { env, exports } from 'cloudflare:workers';
+import { hashPassword } from '../src/crypto';
 import { describe, expect, it } from 'vitest';
 
 const BASE = 'https://example.com';
@@ -30,12 +31,12 @@ describe('health', () => {
 describe('auth', () => {
   it('signup -> login -> me', async () => {
     const email = `user-${crypto.randomUUID()}@example.com`;
-    const signupRes = await signup(email, 'password123');
+    const signupRes = await signup(email, 'TestPass2026');
     expect(signupRes.status).toBe(201);
     const signupBody = await signupRes.json<{ token: string }>();
     expect(typeof signupBody.token).toBe('string');
 
-    const loginRes = await login(email, 'password123');
+    const loginRes = await login(email, 'TestPass2026');
     expect(loginRes.status).toBe(200);
     const loginBody = await loginRes.json<{ token: string }>();
 
@@ -52,10 +53,10 @@ describe('auth', () => {
 
   it('duplicate signup returns 409', async () => {
     const email = `dup-${crypto.randomUUID()}@example.com`;
-    const first = await signup(email, 'password123');
+    const first = await signup(email, 'TestPass2026');
     expect(first.status).toBe(201);
 
-    const second = await signup(email, 'password123');
+    const second = await signup(email, 'TestPass2026');
     expect(second.status).toBe(409);
     const body = await second.json<{ error: { code: string } }>();
     expect(body.error.code).toBe('email_taken');
@@ -69,12 +70,52 @@ describe('auth', () => {
     expect(body.error.code).toBe('weak_password');
   });
 
+  // パスワード要件(#205)。判定はshared/core/passwordPolicyにあり、ここでは
+  // 「エンドポイントが実際に弾くこと」だけを確かめる——画面の検証はこのAPIを
+  // 直接叩けば迂回できるため、防御が成立しているのはサーバー側だけ。
+  it('文字数を満たしても英大文字・英小文字・数字が欠けていれば400', async () => {
+    for (const password of ['abcdefghij', 'ABCDEFGHIJ', 'Abcdefghij', 'abcdefgh12']) {
+      const email = `types-${crypto.randomUUID()}@example.com`;
+      const res = await signup(email, password);
+      expect(res.status, password).toBe(400);
+      const body = await res.json<{ error: { code: string } }>();
+      expect(body.error.code).toBe('weak_password');
+    }
+  });
+
+  it('文字種の条件を満たしていても、よく使われるパスワードは400', async () => {
+    const email = `common-${crypto.randomUUID()}@example.com`;
+    const res = await signup(email, 'Password1');
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe('weak_password');
+    expect(body.error.message).toContain('よく使われている');
+  });
+
+  // 回帰防止。ログイン側に要件の検証を足すと、パスワード再設定の導線が無いこのアプリでは
+  // 条件に該当する既存アカウントが永久にログイン不能になる。
+  it('要件を満たさない既存アカウントでもログインできる(ログインでは検証しない)', async () => {
+    const email = `legacy-${crypto.randomUUID()}@example.com`;
+    const weak = 'password123'; // 現在の要件では登録できない(大文字なし・ブロックリスト該当)
+
+    // 要件の追加前に作られたアカウントを再現するため、signupを通さずDBへ直接入れる
+    expect((await signup(`pre-${email}`, weak)).status).toBe(400);
+    await env.DB.prepare(
+      'INSERT INTO accounts (id, email, password_hash, created_at) VALUES (?1, ?2, ?3, ?4)'
+    )
+      .bind(crypto.randomUUID(), email, await hashPassword(weak), Date.now())
+      .run();
+
+    const res = await login(email, weak);
+    expect(res.status).toBe(200);
+  });
+
   it('login with wrong password returns 401 without revealing whether the email exists', async () => {
     const email = `wrongpw-${crypto.randomUUID()}@example.com`;
-    await signup(email, 'password123');
+    await signup(email, 'TestPass2026');
 
     const wrongPassword = await login(email, 'wrongpassword');
-    const unknownEmail = await login(`unknown-${crypto.randomUUID()}@example.com`, 'password123');
+    const unknownEmail = await login(`unknown-${crypto.randomUUID()}@example.com`, 'TestPass2026');
 
     expect(wrongPassword.status).toBe(401);
     expect(unknownEmail.status).toBe(401);
