@@ -87,7 +87,7 @@ describe('SearchScreen', () => {
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'アルゴリズム' } });
 
-    await waitFor(() => expect(screen.getAllByText('アルゴリズム').length).toBeGreaterThan(0), { timeout: 1000 });
+    await waitFor(() => expect(screen.getAllByText('アルゴリズム').length).toBeGreaterThan(0));
     expect(screen.queryByText('TCP/IP')).toBeNull();
   });
 
@@ -108,7 +108,7 @@ describe('SearchScreen', () => {
     );
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'TCP' } });
-    const result = await waitFor(() => screen.getByText('TCP/IP'), { timeout: 1000 });
+    const result = await waitFor(() => screen.getByText('TCP/IP'));
     fireEvent.click(result.closest('button')!);
 
     expect(onSelectTerm).toHaveBeenCalledWith('tcp/ip');
@@ -181,7 +181,6 @@ describe('SearchScreen', () => {
         expect(
           screen.getByText('「存在しない語」に一致する語は辞書にありませんでした。上の「AIで検索」から質問できます。'),
         ).toBeTruthy(),
-      { timeout: 1000 },
     );
 
     // 二本立てだった強調ボタン(search-ask-ai-primary)は廃止済み。残るのは検索欄直下の1本だけ
@@ -248,7 +247,7 @@ describe('SearchScreen', () => {
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ア' } });
 
-    await waitFor(() => expect(screen.queryByText('ゼロトラスト')).toBeNull(), { timeout: 1000 });
+    await waitFor(() => expect(screen.queryByText('ゼロトラスト')).toBeNull());
   });
 
   it('messages.length===0のセッション(チャットを開いてすぐ戻っただけ)は取り込み待ちに出さない', async () => {
@@ -398,7 +397,7 @@ describe('SearchScreen', () => {
       />,
     );
 
-    const commitAll = await waitFor(() => screen.getByText('まとめて単語帳に取り込む(2件)'), { timeout: 1000 });
+    const commitAll = await waitFor(() => screen.getByText('まとめて単語帳に取り込む(2件)'));
     fireEvent.click(commitAll);
 
     expect(onCommitPending).toHaveBeenCalledWith('session-1');
@@ -455,7 +454,7 @@ describe('SearchScreen', () => {
       );
       const combobox = screen.getByRole('combobox');
       fireEvent.change(combobox, { target: { value: 'テスト' } });
-      await waitFor(() => expect(screen.getAllByRole('option').length).toBe(2), { timeout: 1000 });
+      await waitFor(() => expect(screen.getAllByRole('option').length).toBe(2));
       return { combobox, onSelectTerm };
     }
 

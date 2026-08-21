@@ -39,9 +39,11 @@ const OTHER_TERM = buildTermRecord({ term: '★特殊記号', readings: [], summ
  *
  * **実測(単体実行・このマシン): 差し替えなし411ms → 差し替えあり217ms。**
  * 半分になるが**ゼロにはならない**——残りは73セクションを描画する実コストで、
- * タイマー由来ではないため差し替えでは消せない。そのため待ち上限を広げる対処も併せて要る
- * (各テストのコメント参照)。当初「差し替えだけで数msになる」と見積もったが、
- * 実測して誤りと分かったので両方入れている。
+ * タイマー由来ではないため差し替えでは消せない。当初「差し替えだけで数msになる」と見積もったが、
+ * 実測して誤りと分かったので、待ち上限を広げる対処も併せて入れた。
+ *
+ * **その待ち上限は #204 で全体設定へ移した**(`src/test-setup.ts` の `asyncUtilTimeout`)。
+ * 同じ不足が他のファイルにもあると実測で分かったため、ここだけの対処ではなくなっている。
  *
  * 差し替えは描画の速さだけを変え、段階描画のロジック(1フレーム1チャンク)は変えない。
  */
@@ -113,7 +115,7 @@ describe('TermIndexScreen', () => {
     // 1000msという既定値は「即座に現れるものを待つ」ための値で、ここでの正しさとは無関係。
     // このテストが確かめているのは「最終的にリンクと見出しの2つが出る」ことであり、
     // それが何ms掛かるかは主張していない。上限は**実コストに見合う予算**として与える。
-    await waitFor(() => expect(screen.getAllByText('その他').length).toBe(2), { timeout: 5000 }); // リンク＋見出し
+    await waitFor(() => expect(screen.getAllByText('その他').length).toBe(2)); // リンク＋見出し
     expect(screen.getByText('★特殊記号')).toBeTruthy();
   });
 
@@ -161,10 +163,7 @@ describe('TermIndexScreen', () => {
     const { container } = render(<TermIndexScreen termsRepo={fakeTermsRepo(BASE_TERMS)} onSelectTerm={() => {}} />);
 
     // 「その他」該当なしのため全72バケット(英字26+五十音45+数字)のセクションが出そろう
-    // 末尾セクションまでの描画を待つため、上記と同じ理由で上限を広げる(#186)
-    await waitFor(() => expect(container.querySelectorAll('.term-index-section').length).toBe(72), {
-      timeout: 5000,
-    });
+    await waitFor(() => expect(container.querySelectorAll('.term-index-section').length).toBe(72));
     expect(screen.getByText('TCP/IP')).toBeTruthy();
     // 「アルゴリズム」は語名と読みの両方に現れるためgetAllByTextで確認する
     expect(screen.getAllByText('アルゴリズム').length).toBeGreaterThan(0);
@@ -180,7 +179,7 @@ describe('TermIndexScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: '数字' }));
 
     // 末尾(index 71)まで描画が進んでからスクロールされるため、同じ理由で上限を広げる(#186)
-    await waitFor(() => expect(scrollIntoViewSpy).toHaveBeenCalled(), { timeout: 5000 });
+    await waitFor(() => expect(scrollIntoViewSpy).toHaveBeenCalled());
     // スクロールが実行された時点で対象セクション自体もDOMに存在している
     expect(document.getElementById(`term-index-section-${encodeURIComponent('数字')}`)).toBeTruthy();
   });
