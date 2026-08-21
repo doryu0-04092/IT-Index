@@ -249,8 +249,8 @@ async function deriveCodeKey(code: string, salt: Uint8Array): Promise<CryptoKey>
 export interface WrappedDataKey {
   /** base64。コードと合わせて鍵を導出するために使う(秘密ではない) */
   salt: string;
-  /** base64。IVを先頭12バイトに連結した暗号文 */
-  wrapped: string;
+  /** base64。IVを先頭12バイトに連結した暗号文。サーバーのAPI・D1の列名と同じ名前にしてある */
+  wrappedDk: string;
 }
 
 /**
@@ -270,7 +270,7 @@ export async function wrapDataKey(dataKey: string, code: string): Promise<Wrappe
   combined.set(iv, 0);
   combined.set(ciphertext, iv.length);
 
-  return { salt: toBase64(salt), wrapped: toBase64(combined) };
+  return { salt: toBase64(salt), wrappedDk: toBase64(combined) };
 }
 
 /**
@@ -283,7 +283,7 @@ export async function unwrapDataKey(
 ): Promise<string | null> {
   try {
     const salt = fromBase64(wrappedKey.salt);
-    const combined = fromBase64(wrappedKey.wrapped);
+    const combined = fromBase64(wrappedKey.wrappedDk);
     if (combined.length <= IV_BYTES) return null;
 
     const key = await deriveCodeKey(code, salt);

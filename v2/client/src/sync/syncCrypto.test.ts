@@ -154,7 +154,7 @@ describe('wrapDataKey / unwrapDataKey', () => {
   it('包んだ結果に鍵そのものが現れない(サーバーへ渡るのは暗号文とsaltだけ)', async () => {
     const dataKey = generateDataKey();
     const wrapped = await wrapDataKey(dataKey, '12345678');
-    expect(wrapped.wrapped).not.toContain(dataKey);
+    expect(wrapped.wrappedDk).not.toContain(dataKey);
     expect(wrapped.salt).not.toContain(dataKey);
   });
 
@@ -162,12 +162,12 @@ describe('wrapDataKey / unwrapDataKey', () => {
     const dataKey = generateDataKey();
     const a = await wrapDataKey(dataKey, '12345678');
     const b = await wrapDataKey(dataKey, '12345678');
-    expect(a.wrapped).not.toBe(b.wrapped);
+    expect(a.wrappedDk).not.toBe(b.wrappedDk);
     expect(a.salt).not.toBe(b.salt);
   });
 
   it('壊れた値を渡してもnullを返す(例外を投げない)', async () => {
-    expect(await unwrapDataKey({ salt: '!!!', wrapped: '!!!' }, '12345678')).toBeNull();
-    expect(await unwrapDataKey({ salt: 'AAAA', wrapped: 'AA' }, '12345678')).toBeNull();
+    expect(await unwrapDataKey({ salt: '!!!', wrappedDk: '!!!' }, '12345678')).toBeNull();
+    expect(await unwrapDataKey({ salt: 'AAAA', wrappedDk: 'AA' }, '12345678')).toBeNull();
   });
 });
