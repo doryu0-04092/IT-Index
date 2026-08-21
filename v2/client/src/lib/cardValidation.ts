@@ -101,6 +101,31 @@ export function validateExpiry(value: string): boolean {
   return month >= 1 && month <= 12;
 }
 
+/**
+ * 登録済みカードの有効期限が切れているかの判定(#147)。
+ *
+ * **入力時の検証(`validateExpiry`)とは目的が別**なので関数を分けている。あちらは
+ * 「デモ用に過去の年月も受け付ける」(#139 本人指定)ままにし、こちらは**登録された後の
+ * 状態表示**に使う——入力を弾かない方針と、切れていることを知らせる必要は両立する。
+ *
+ * "MM/YY" はその月の**末日まで有効**(カード業界の慣行)なので、翌月1日の0時を過ぎた時点で
+ * 切れたと判定する。
+ *
+ * 形式が不正な値は `false`(切れていない扱い)を返す。判定できないものを「切れている」と
+ * 断定すると、誤った警告でカードの変更を促してしまうため。
+ */
+export function isCardExpired(expiry: string, now: Date): boolean {
+  const match = /^(\d{2})\/(\d{2})$/.exec(expiry);
+  if (!match) return false;
+
+  const month = Number(match[1]);
+  if (month < 1 || month > 12) return false;
+
+  // Dateの月は0始まりのため、1-12の`month`をそのまま渡すと「翌月の1日」になる
+  const firstDayAfterExpiry = new Date(2000 + Number(match[2]), month, 1);
+  return now.getTime() >= firstDayAfterExpiry.getTime();
+}
+
 /** セキュリティコードの判定(Amex: 4桁、他ブランド: 3桁の数字) */
 export function validateCvc(value: string, brand: CardBrand): boolean {
   return brand === 'amex' ? /^\d{4}$/.test(value) : /^\d{3}$/.test(value);
