@@ -26,6 +26,14 @@ function renderSection(undecryptableBlobs = 0) {
   );
 }
 
+/**
+ * 数字コードの経路は「QRが使えない場合」の中にしまってある(2段階)。
+ * その経路を試すテストは、まずここを開く必要がある。
+ */
+async function openFallback() {
+  fireEvent.click(await screen.findByRole('button', { name: 'QRが使えない場合' }));
+}
+
 describe('KeyTransferSection', () => {
   beforeEach(() => {
     hasCameraDevice.mockResolvedValue(false);
@@ -44,8 +52,28 @@ describe('KeyTransferSection', () => {
 
     expect(await screen.findByRole('button', { name: 'QRを表示する(渡す側)' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'QRを読み取る(受け取る側)' })).toBeNull();
-    // 数字コードの経路は常に出る(カメラが使えない場合の代替)
+  });
+
+  it('数字コードは最初は出さず、「QRが使えない場合」を開いた時だけ出す(2段階)', async () => {
+    renderSection();
+    await screen.findByRole('button', { name: 'QRを表示する(渡す側)' });
+
+    // 横並びの対等な選択肢にすると、理由なく弱い方を選べてQRを足した意味が無くなる
+    expect(screen.queryByRole('button', { name: '数字コードを表示する(渡す側)' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '数字コードを入力する(受け取る側)' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'QRが使えない場合' }));
+
+    expect(screen.getByRole('button', { name: '数字コードを表示する(渡す側)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '数字コードを入力する(受け取る側)' })).toBeTruthy();
+  });
+
+  it('数字コードを開いた時に、鍵が5分サーバーに置かれることとQRを勧める旨を出す', async () => {
+    renderSection();
+    fireEvent.click(await screen.findByRole('button', { name: 'QRが使えない場合' }));
+
+    expect(screen.getByText(/暗号化した鍵が5分間だけサーバーに置かれます/)).toBeTruthy();
+    expect(screen.getByText(/鍵がサーバーを通りません/)).toBeTruthy();
   });
 
   it('カメラがある端末では「QRを読み取る」を出す', async () => {
@@ -86,7 +114,8 @@ describe('KeyTransferSection', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     renderSection();
-    fireEvent.click(await screen.findByRole('button', { name: '数字コードを表示する(渡す側)' }));
+    await openFallback();
+    fireEvent.click(screen.getByRole('button', { name: '数字コードを表示する(渡す側)' }));
 
     const shown = await screen.findByTestId('issued-code');
     const code = normalizeTransferCode(shown.textContent ?? '');
@@ -114,7 +143,8 @@ describe('KeyTransferSection', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     renderSection();
-    fireEvent.click(await screen.findByRole('button', { name: '数字コードを入力する(受け取る側)' }));
+    await openFallback();
+    fireEvent.click(screen.getByRole('button', { name: '数字コードを入力する(受け取る側)' }));
     fireEvent.change(screen.getByLabelText('相手の画面に出ている8桁'), {
       target: { value: '1234 5678' }, // 区切りを入れても通る
     });
@@ -129,7 +159,8 @@ describe('KeyTransferSection', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, wrapped)));
 
     renderSection();
-    fireEvent.click(await screen.findByRole('button', { name: '数字コードを入力する(受け取る側)' }));
+    await openFallback();
+    fireEvent.click(screen.getByRole('button', { name: '数字コードを入力する(受け取る側)' }));
     fireEvent.change(screen.getByLabelText('相手の画面に出ている8桁'), {
       target: { value: '12345679' },
     });
@@ -150,7 +181,8 @@ describe('KeyTransferSection', () => {
     );
 
     renderSection();
-    fireEvent.click(await screen.findByRole('button', { name: '数字コードを入力する(受け取る側)' }));
+    await openFallback();
+    fireEvent.click(screen.getByRole('button', { name: '数字コードを入力する(受け取る側)' }));
     fireEvent.change(screen.getByLabelText('相手の画面に出ている8桁'), {
       target: { value: '12345678' },
     });

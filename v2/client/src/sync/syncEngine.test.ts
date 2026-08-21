@@ -9,8 +9,8 @@ import { createSyncEventsRepository } from '../repositories/syncEvents';
 import { createSyncStateRepository } from '../repositories/syncState';
 import { createTermsRepository } from '../repositories/terms';
 import { buildOutboundPayload, pullFromRelay, pushToRelay, runSync, type SyncEngineDeps } from './syncEngine';
-import { decryptSyncPayload, importDataKey, isSyncEnvelope } from './syncCrypto';
-import { getOrCreateDataKey } from './syncKeyStore';
+import { decryptSyncPayload, encryptSyncPayload, generateDataKey, importDataKey, isSyncEnvelope } from './syncCrypto';
+import { getDataKey, getOrCreateDataKey, setDataKey } from './syncKeyStore';
 
 function makeDeps(deviceId = 'device-1', holdLocalOnConflict = false): SyncEngineDeps {
   const db = new ItIndexDB(`test-syncEngine-${Math.random()}`);
@@ -22,6 +22,8 @@ function makeDeps(deviceId = 'device-1', holdLocalOnConflict = false): SyncEngin
     noteConflictsRepo: createNoteConflictsRepository(db),
     syncEventsRepo: createSyncEventsRepository(db),
     syncStateRepo: createSyncStateRepository(db),
+    // 同じアカウントの別端末という関係なので、accountIdは共有しdeviceIdだけを分ける
+    // (鍵もアカウント単位で共有される。テスト間の持ち越しはafterEachのlocalStorage.clearで断つ)
     accountId: 'test-account',
     deviceId,
     holdLocalOnConflict,
@@ -50,6 +52,7 @@ describe('syncEngine', () => {
     for (const db of dbs) db.close();
     dbs.length = 0;
     vi.unstubAllGlobals();
+    localStorage.clear(); // 同期の暗号鍵(#182)を次のテストへ持ち越さない
   });
 
   describe('buildOutboundPayload / pushToRelay', () => {
@@ -102,6 +105,134 @@ describe('syncEngine', () => {
       const key = await importDataKey(getOrCreateDataKey(deps.accountId));
       const decrypted = await decryptSyncPayload(key!, envelope);
       expect(JSON.parse(decrypted!).deviceId).toBe('device-1');
+    });
+  });
+
+  /**
+   * 暗号化された同期の通し(#182)。「端末Aが暗号化して預ける → 端末Bが鍵を受け取って読む」
+   * を、実際の暗号化・復号を通して確かめる(モックの差し替えではなく本物のWebCryptoを使う)。
+   * 端末の区別はaccountIdではなくdeviceIdで、鍵の有無はaccountIdごとの保管で表す。
+   */
+  describe('暗号化された同期の通し(#182)', () => {
+    /** 指定の鍵で暗号化した、相手端末ぶんのblobを作る */
+    async function encryptedBlobOf(dataKey: string, deviceId: string, body: string, seq: number) {
+      const key = (await importDataKey(dataKey))!;
+      const file = {
+        syncSchemaVersion: 1,
+        deviceId,
+        writtenAt: 900,
+        notes: [
+          { termId: 'term-a', body, diagrams: [], updatedAt: 500, lastEditedBy: deviceId, noteHistory: [] },
+        ],
+        asks: [],
+        aiTerms: [],
+      };
+      return {
+        seq,
+        deviceId,
+        payload: await encryptSyncPayload(key, JSON.stringify(file)),
+        createdAt: 1000,
+      };
+    }
+
+    it('同じ鍵を持つ端末は、相手の暗号化された差分を復号して取り込める', async () => {
+      const deps = track(makeDeps('device-1'));
+      // 相手と同じ鍵を持っている状態(=鍵の受け渡しが済んだ後)
+      const sharedKey = getOrCreateDataKey(deps.accountId);
+      const blob = await encryptedBlobOf(sharedKey, 'device-2', '相手の本文', 3);
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { blobs: [blob], latest: 3 })));
+
+      const outcome = await pullFromRelay(deps, 'tok', EVENT);
+
+      expect(outcome).toMatchObject({ receivedBlobs: 1, skippedBlobs: 0, undecryptableBlobs: 0 });
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('相手の本文');
+      expect(await deps.syncStateRepo.getCursor()).toBe(3);
+    });
+
+    it('鍵が違うと復号できず、**cursorを進めない**(鍵を受け取った後に読み直せるようにする)', async () => {
+      const deps = track(makeDeps('device-1'));
+      // この端末の鍵とは別の鍵で暗号化されている(=まだ受け渡しが済んでいない)
+      const blob = await encryptedBlobOf(generateDataKey(), 'device-2', '相手の本文', 3);
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { blobs: [blob], latest: 3 })));
+
+      const outcome = await pullFromRelay(deps, 'tok', EVENT);
+
+      // 「壊れている(skipped)」ではなく「鍵が無い(undecryptable)」として数える
+      expect(outcome).toMatchObject({ receivedBlobs: 0, skippedBlobs: 0, undecryptableBlobs: 1 });
+      expect(await deps.notesRepo.getByTermId('term-a')).toBeUndefined();
+      // ここが要。進めてしまうと、鍵を受け取った後にこの差分を二度と取りに行かなくなる
+      expect(await deps.syncStateRepo.getCursor()).toBe(0);
+    });
+
+    it('鍵を受け取った後に同期し直すと、読めなかった差分がそのまま取り込まれる', async () => {
+      const deps = track(makeDeps('device-1'));
+      const peerKey = generateDataKey();
+      const blob = await encryptedBlobOf(peerKey, 'device-2', '相手の本文', 3);
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { blobs: [blob], latest: 3 })));
+
+      // 1回目: 鍵が無いので読めず、cursorも進まない
+      const first = await pullFromRelay(deps, 'tok', EVENT);
+      expect(first.undecryptableBlobs).toBe(1);
+      expect(await deps.syncStateRepo.getCursor()).toBe(0);
+
+      // 受け渡し(QRまたは数字コード)で相手の鍵を受け取った、という状態にする
+      setDataKey(deps.accountId, peerKey);
+
+      // 2回目: 同じ差分が読める。データは失われていない
+      const second = await pullFromRelay(deps, 'tok', EVENT);
+      expect(second).toMatchObject({ receivedBlobs: 1, undecryptableBlobs: 0 });
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('相手の本文');
+      expect(await deps.syncStateRepo.getCursor()).toBe(3);
+    });
+
+    it('読める差分と読めない差分が混ざった場合、読める分は取り込みつつcursorは進めない', async () => {
+      const deps = track(makeDeps('device-1'));
+      const sharedKey = getOrCreateDataKey(deps.accountId);
+      const readable = await encryptedBlobOf(sharedKey, 'device-2', '読める本文', 3);
+      const unreadable = await encryptedBlobOf(generateDataKey(), 'device-3', '読めない本文', 4);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(jsonResponse(200, { blobs: [readable, unreadable], latest: 4 })),
+      );
+
+      const outcome = await pullFromRelay(deps, 'tok', EVENT);
+
+      expect(outcome).toMatchObject({ receivedBlobs: 1, undecryptableBlobs: 1 });
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('読める本文');
+      // 取り込みは冪等なので、次回同じ差分を再取得しても結果は変わらない
+      expect(await deps.syncStateRepo.getCursor()).toBe(0);
+    });
+
+    it('サーバー側の差分が消されseqが振り直された場合、cursorを0へ戻して読み直す(自己修復)', async () => {
+      const deps = track(makeDeps('device-1'));
+      // 鍵の作り直しでサーバー上の差分を全消しした後を再現: 手元のcursorは10まで進んでいるが、
+      // サーバーのlatestは1(振り直し後の1件目)しかない
+      await deps.syncStateRepo.setCursor(10);
+      const sharedKey = getOrCreateDataKey(deps.accountId);
+      const blob = await encryptedBlobOf(sharedKey, 'device-2', '再pushされた本文', 1);
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(jsonResponse(200, { blobs: [blob], latest: 1 }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const outcome = await pullFromRelay(deps, 'tok', EVENT);
+
+      expect(outcome.receivedBlobs).toBe(1);
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('再pushされた本文');
+      expect(await deps.syncStateRepo.getCursor()).toBe(1);
+      // 1回目はsince=10で空振りし、cursorを0へ戻してから読み直している
+      expect(sinceOf(fetchMock.mock.calls[0][0])).toBe(10);
+      expect(sinceOf(fetchMock.mock.calls[1][0])).toBe(0);
+    });
+
+    it('鍵を持たない端末は、最初のpushで鍵を自動生成する(受け渡し前でも同期を始められる)', async () => {
+      const deps = track(makeDeps('device-1'));
+      expect(getDataKey(deps.accountId)).toBeNull();
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(201, { seq: 1 })));
+
+      await pushToRelay(deps, 'tok');
+
+      expect(getDataKey(deps.accountId)).not.toBeNull();
     });
   });
 

@@ -1109,6 +1109,31 @@ a,
   flex-wrap: wrap;
 }
 
+/* 「QRが使えない場合」の折りたたみ(#182の2段階)。数字コードを横並びの対等な選択肢に
+   せず一段奥へ置くことで、QRで渡せる利用者が理由なく弱い方を選ばないようにする */
+.key-transfer-fallback {
+  margin-top: 10px;
+}
+
+.key-transfer-fallback-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+/* 弱い方を選ぶ理由が要ることを示す注記。危険色までは使わず、muted より一段強く出す */
+.key-transfer-fallback-note {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.7;
+  color: var(--fg);
+}
+
 .key-transfer-panel {
   display: flex;
   flex-direction: column;

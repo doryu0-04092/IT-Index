@@ -24,14 +24,29 @@ import { getOrCreateDataKey, regenerateDataKey, setDataKey } from './syncKeyStor
  * 同期の暗号鍵をもう一方の端末へ渡すUI(#182)。
  *
  * 同期データはこの端末の鍵で暗号化してから預けるため、**別の端末で読むには同じ鍵が要る**。
- * 渡し方は2通りで、既定はQR:
  *
- * - **QRで渡す(推奨)**: 鍵がサーバーを一切通らない。代わりに画面を第三者に見られると漏れる
- * - **8桁の数字コード**: カメラが使えない時の代替。包んだ鍵が5分だけサーバーに載る
+ * **2段階にしてある(本人指定)。** 元々は8桁の数字コードだけの方式で、そこへ
+ * セキュリティ向上のためQRを足した経緯がある。両方を横並びの対等な選択肢として出すと、
+ * 利用者が理由なく弱い方を選べてしまい、**QRを足した意味が無くなる**。そのため:
+ *
+ * 1. **既定はQR**。鍵がサーバーを一切通らない(代わりに画面を第三者に見られると漏れる)
+ * 2. **数字コードは「QRが使えない場合」を開いた時だけ出す**。包んだ鍵が5分だけサーバーに載る
+ *
+ * **この線引きは運営側で変更できる。** 数字コードの経路をやめる(`ALLOW_CODE_FALLBACK`を
+ * falseにする)ことも、強度が要るなら桁数を増やす(`TRANSFER_CODE_DIGITS`)こともでき、
+ * どちらも1箇所の変更で済むようにしてある——利用者への提示のしかたは運営の判断であって、
+ * 実装に埋め込まれた固定の仕様ではない。
  *
  * どちらを使っても、渡した後は両端末が同じ鍵を持つ。鍵を全部失った場合は
  * 「鍵を作り直す」でやり直せる(サーバー上の差分は読めなくなるため一緒に消す)。
  */
+
+/**
+ * 数字コードでの受け渡しを利用者に提示するか(運営側の方針。上の説明を参照)。
+ * falseにするとQR経路だけになり、カメラの無い端末では鍵を渡せなくなる——
+ * 「安全側に倒すが、渡せない利用者が出る」ことを承知の上で切り替えるためのつまみ。
+ */
+const ALLOW_CODE_FALLBACK = true;
 
 export interface KeyTransferSectionProps {
   token: string;
@@ -48,6 +63,8 @@ export default function KeyTransferSection({
   undecryptableBlobs,
 }: KeyTransferSectionProps) {
   const [mode, setMode] = useState<Mode>('idle');
+  // 数字コードの経路は「QRが使えない場合」を開いた時だけ出す(2段階。上の説明を参照)
+  const [fallbackOpen, setFallbackOpen] = useState(false);
   const [cameraAvailable, setCameraAvailable] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -224,22 +241,59 @@ export default function KeyTransferSection({
       {error && <p className="sync-error">{error}</p>}
 
       {mode === 'idle' && (
-        <div className="key-transfer-actions">
-          <button type="button" className="btn-primary" onClick={() => void handleShowQr()}>
-            QRを表示する(渡す側)
-          </button>
-          {cameraAvailable && (
-            <button type="button" className="btn-secondary" onClick={() => void handleStartScan()}>
-              QRを読み取る(受け取る側)
+        <>
+          <div className="key-transfer-actions">
+            <button type="button" className="btn-primary" onClick={() => void handleShowQr()}>
+              QRを表示する(渡す側)
             </button>
+            {cameraAvailable && (
+              <button type="button" className="btn-secondary" onClick={() => void handleStartScan()}>
+                QRを読み取る(受け取る側)
+              </button>
+            )}
+          </div>
+
+          {/* 数字コードは「QRが使えない場合」の中にしまう(2段階)。横並びの対等な選択肢に
+              すると、利用者が理由なく弱い方を選べてしまい、QRを足した意味が無くなるため */}
+          {ALLOW_CODE_FALLBACK && (
+            <div className="key-transfer-fallback">
+              {!fallbackOpen ? (
+                <button type="button" className="btn-text" onClick={() => setFallbackOpen(true)}>
+                  QRが使えない場合
+                </button>
+              ) : (
+                <div className="key-transfer-fallback-panel">
+                  <p className="status-text-small">
+                    カメラが無い、または読み取れない場合は、8桁の数字で渡すこともできます。
+                  </p>
+                  <p className="key-transfer-fallback-note">
+                    この方法では、暗号化した鍵が5分間だけサーバーに置かれます。QRで渡せる場合は
+                    QRをお使いください（鍵がサーバーを通りません）。
+                  </p>
+                  <div className="key-transfer-actions">
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => void handleIssueCode()}
+                    >
+                      数字コードを表示する(渡す側)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => resetTo('enter-code')}
+                    >
+                      数字コードを入力する(受け取る側)
+                    </button>
+                  </div>
+                  <button type="button" className="btn-text" onClick={() => setFallbackOpen(false)}>
+                    閉じる
+                  </button>
+                </div>
+              )}
+            </div>
           )}
-          <button type="button" className="btn-secondary" onClick={() => void handleIssueCode()}>
-            数字コードを表示する(渡す側)
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => resetTo('enter-code')}>
-            数字コードを入力する(受け取る側)
-          </button>
-        </div>
+        </>
       )}
 
       {mode === 'show-qr' && (
