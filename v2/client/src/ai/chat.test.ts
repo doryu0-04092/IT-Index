@@ -2,9 +2,10 @@ import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ItIndexDB } from '../db';
 import { createChatRepository, type ChatRepository } from '../repositories/chat';
-import type { AiClient } from './aiClient';
+import type { AiClient, AiMessage } from './aiClient';
 import { REFUSAL_MESSAGE, sendChatTurn } from './chat';
 import { buildQuerySubject } from './subjectContext';
+import { MAX_SENT_MESSAGES } from './trimHistory';
 
 function fakeAiClient(result: { text: string; stopReason: string }): AiClient {
   return {
@@ -138,5 +139,33 @@ describe('sendChatTurn', () => {
     const sentRequest = (aiClient.send as ReturnType<typeof vi.fn>).mock.calls[0][0];
     expect(sentRequest.system).toContain('TCP/IP');
     expect(sentRequest.messages[0].content).toBe('これはどういうもの？');
+  });
+
+  it('長い会話では直近ぶんだけを送る。保存は全件のまま(#181)', async () => {
+    const chatRepo = repo();
+    const session = await chatRepo.createSession(null, 'TCP/IP');
+    // 20往復=40件を積む(1件ずつappendするとuser/assistantが交互に並ぶ)
+    for (let i = 0; i < 20; i++) {
+      await chatRepo.appendMessage(session.id, 'user', `質問${i}`);
+      await chatRepo.appendMessage(session.id, 'assistant', `回答${i}`);
+    }
+    const aiClient = fakeAiClient({ text: 'こたえ', stopReason: 'end_turn' });
+
+    await sendChatTurn(session.id, '最後の質問', { chatRepo, aiClient });
+
+    const sentRequest = (aiClient.send as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // 直近12件 + 今回の質問1件。全量(40+1)は送らない
+    expect(sentRequest.messages.length).toBe(MAX_SENT_MESSAGES + 1);
+    // 先頭は必ずuser(サーバーが先頭ロールを検証するため)
+    expect(sentRequest.messages[0].role).toBe('user');
+    // 末尾は今回の質問
+    expect(sentRequest.messages[sentRequest.messages.length - 1].content).toBe('最後の質問');
+    // 古い会話は送られていない
+    expect(sentRequest.messages.some((m: AiMessage) => m.content === '質問0')).toBe(false);
+
+    // 保存側は全件のまま(40件 + 今回のuser + 今回のassistant)
+    const stored = await chatRepo.getMessages(session.id);
+    expect(stored.length).toBe(42);
+    expect(stored[0].content).toBe('質問0');
   });
 });

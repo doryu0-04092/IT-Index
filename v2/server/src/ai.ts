@@ -20,7 +20,22 @@ export type ApiProvider = 'anthropic' | 'openai';
 const VALID_ROLES = new Set<string>(['user', 'assistant']);
 const VALID_PROVIDERS = new Set<string>(['anthropic', 'openai']);
 const MIN_MESSAGES = 1;
-const MAX_MESSAGES = 40;
+/**
+ * 件数の外枠(#181で 40 → 120 に引き上げ)。
+ *
+ * **実効の上限はクライアント側へ移した**(`v2/client/src/ai/trimHistory.ts`。チャットは
+ * 直近12件だけを送る)。ここはその外側にある境界の防御で、想定外に大きなリクエストを
+ * 弾くためだけに残す。
+ *
+ * 引き上げた理由: 「確定」(分配統合)は**会話全体を語ごとに切り分ける処理**のため全量を送る
+ * 必要があり(`v2/client/src/ai/prompts.ts` buildDistributionMessages)、40のままだと
+ * **21往復を超えたセッションは確定が必ず400で失敗していた**。利用者からは「取り込みが
+ * 何度やっても失敗する」に見える。制限の緩和だが、実効上限がクライアント側にある以上、
+ * ここは確定が通る外枠であるべき。
+ *
+ * 送信量そのものの歯止めは MAX_TOTAL_CONTENT_CHARS(据え置き)が引き続き担う。
+ */
+const MAX_MESSAGES = 120;
 const MAX_TOTAL_CONTENT_CHARS = 200_000;
 const MAX_SYSTEM_CHARS = 10_000;
 // 利用者持ち込みキー(BYOK)の長さ上限。プロバイダのキー形式に依存しない安全側の値。

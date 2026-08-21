@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import type { AiClient } from '../ai/aiClient';
 import { sendChatTurn } from '../ai/chat';
+import { trimChatHistory } from '../ai/trimHistory';
 import type { CommitOrchestrator } from '../ai/commitOrchestrator';
 import { buildQuerySubject, buildSubjectContext, type SubjectContext } from '../ai/subjectContext';
 import ChatMessageBody from '../lib/ChatMessageBody';
@@ -282,6 +283,15 @@ export default function ChatScreen({
   const subjectLabel = subject?.label ?? session?.subjectLabel ?? '';
   const visibleMessages = messages.filter((m) => !m.hidden);
 
+  // 次の送信でAIへ渡らない古い会話がどこまでかを示す(#181)。判定にはai/chat.tsと**同じ関数**を
+  // 使い、hidden(クイック質問の定型文)も含めた全件で数える——AIへは hidden も送られるため、
+  // 表示だけで数えると区切りの位置が実際の送信範囲とずれる。
+  // 区切りは「送られる最初のメッセージ」の直前に置くが、それ自体がhiddenで画面に出ない場合が
+  // あるので、そこから先で最初に表示されるものの前に付ける。
+  const { omitted } = trimChatHistory(messages.map((m) => ({ role: m.role, content: m.content })));
+  const firstSentVisibleId =
+    omitted > 0 ? (messages.slice(omitted).find((m) => !m.hidden)?.id ?? null) : null;
+
   return (
     <div className="chat-screen">
       <div className="chat-top-row">
@@ -309,16 +319,23 @@ export default function ChatScreen({
         <>
           <ul className="chat-messages" aria-label="チャット履歴">
             {visibleMessages.map((m) => (
-              <li key={m.id} className={`chat-message chat-message-${m.role}`}>
-                <span className="chat-message-role">{m.role === 'user' ? 'あなた' : 'AI'}</span>
-                {m.role === 'assistant' ? (
-                  <div className="chat-message-content">
-                    <ChatMessageBody content={m.content} />
-                  </div>
-                ) : (
-                  <p className="chat-message-content">{m.content}</p>
+              <Fragment key={m.id}>
+                {m.id === firstSentVisibleId && (
+                  <li className="chat-omitted-divider" data-testid="chat-omitted-divider">
+                    ここより前の会話はAIへ送っていません
+                  </li>
                 )}
-              </li>
+                <li className={`chat-message chat-message-${m.role}`}>
+                  <span className="chat-message-role">{m.role === 'user' ? 'あなた' : 'AI'}</span>
+                  {m.role === 'assistant' ? (
+                    <div className="chat-message-content">
+                      <ChatMessageBody content={m.content} />
+                    </div>
+                  ) : (
+                    <p className="chat-message-content">{m.content}</p>
+                  )}
+                </li>
+              </Fragment>
             ))}
             {/* 送信中スピナー(移植元: ../../../src/ui/pc/ChatScreen.tsx:168-172の
                 .chat-loading/.chat-spinner。AIの応答を待っている間だけ表示する) */}

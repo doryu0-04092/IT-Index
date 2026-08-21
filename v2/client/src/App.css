@@ -187,6 +187,28 @@ a,
   padding-top: 20px;
 }
 
+/* 「ここより前の会話はAIへ送っていません」の区切り(#181。ChatScreen.tsx)。
+   送信量を絞ったことを利用者から見える場所に出す——見えない所で文脈が消えると
+   「さっき言ったのに忘れている」が原因不明の不具合に見えるため。
+   会話の流れを断ち切らないよう、線と小さな文字で控えめに置く */
+.chat-omitted-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.chat-omitted-divider::before,
+.chat-omitted-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
 .status-text {
   color: var(--muted);
   font-size: 0.9rem;
