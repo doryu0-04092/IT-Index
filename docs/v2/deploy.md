@@ -1,6 +1,6 @@
 # IT-Index v2 デプロイ手順 — セルフホストする(Cloudflare Workers + D1)
 
-- 版: 0.2(2026-08-10初版。2026-08-12改稿: セルフホストの位置づけを明記)
+- 版: 0.3(2026-08-10初版。2026-08-12改稿: セルフホストの位置づけを明記。2026-08-20改稿: 公式ホストの自動デプロイを§4.1に追加)
 - 前提: [v2 アーキテクチャ](./architecture.md) §7(サーバー基盤の選定結果: Cloudflare Workers + D1)
 - 対象: `v2/server`(Hono + D1 + 静的アセット配信)。`v2/client` のビルド結果(`v2/client/dist`)を
   同一Workerから同一オリジンで配信する構成(APIは相対パス`/api/*`のまま動く)。
@@ -158,12 +158,49 @@ Anthropic運用に切り替える、または既定値を上書きする場合�
 
 ## 4. デプロイ
 
+### 4.1 公式ホストは master へのマージで自動反映される(#150)
+
+**公式ホストへの反映に、手作業は要らない。** master への push(=PRマージ)をトリガに
+[.github/workflows/ci.yml](../../.github/workflows/ci.yml) の `deploy` ジョブが動き、
+次の順で本番へ出る。
+
+1. 検査ジョブ(web / v2)が**両方とも緑になるのを待つ**(`needs`)。赤ならデプロイしない
+2. `npm run deploy:migrations`(D1マイグレーション)
+3. `npm run deploy`(clientビルド → lp/コピー → `wrangler deploy`)
+4. 公開URLの `/api/health` へ疎通確認(最大5回リトライ。応答しなければワークフローが赤になる)
+
+**マイグレーションがコードデプロイより先**である点がこの順序の要で、逆にすると
+新しいコードが存在しないテーブルを参照して500になる。ワークフローで順序を固定しているため、
+人の記憶に依存しない。
+
+master の実行は途中で打ち切らない設定にしてある(`cancel-in-progress` を master だけ false)。
+デプロイの最中に後続のマージで中断されると、「マイグレーションだけ適用されてコードは古いまま」
+という中途半端な本番状態になりうるため。
+
+#### 必要な GitHub Secrets
+
+リポジトリの Settings → Secrets and variables → Actions に次の2つを登録する
+(**この登録だけは本人がCloudflareのダッシュボードで行う必要がある**)。
+
+| 名前 | 取得元 |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | Cloudflareダッシュボード → My Profile → API Tokens。**Workers Scripts: Edit** と **D1: Edit** の権限を含めること |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflareダッシュボードの Workers & Pages 画面右側に表示されるアカウントID |
+
+未登録のままmasterへマージすると、`deploy` ジョブが認証エラーで赤くなる(検査ジョブは緑のまま)。
+
+### 4.2 手動デプロイ(セルフホスト、および自動化が壊れた場合の退避路)
+
+セルフホストではこちらが通常の手順になる。公式ホストでも、上の自動デプロイが
+動かない時はこの手順で出せる。**その場合もマイグレーションを先に流すこと。**
+
 ```
 cd v2
+npm run deploy:migrations
 npm run deploy
 ```
 
-内部では `npm run build -w client`(`v2/client/dist` を生成) → `npm run deploy -w server`
+`npm run deploy` の内部では `npm run build -w client`(`v2/client/dist` を生成) → `npm run deploy -w server`
 (`wrangler deploy`。`v2/server/wrangler.jsonc` の `assets.directory` が
 `../client/dist` を指しているため、同じWorkerが `/api/*` はHonoアプリで処理し、それ以外は
 静的アセットとして配信する)の順で実行される。

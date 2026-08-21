@@ -13,9 +13,12 @@ on:
     branches: [master]
 
 # 同じブランチへ連続でpushした場合、古い実行は打ち切る(待ち時間と実行時間の節約)。
+# ただし master は打ち切らない(#150): master の実行には deploy ジョブが含まれ、
+# 途中で中断されると「マイグレーションだけ適用されてコードは古いまま」という
+# 中途半端な本番状態になりうるため。連続マージ時は前の実行が終わるのを待つ。
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   checks:
@@ -89,3 +92,69 @@ jobs:
 
       - name: E2E smoke
         run: npm run test:e2e
+
+  # master へのマージで本番(公式ホスト)へ自動反映する(#150)。
+  #
+  # 背景: #144 がマージから丸1日デプロイされないまま放置され、利用者が先に気づいた
+  # (2026-08-19)。原因は運用の抜けではなく仕組みの欠落で、本番反映が手動の
+  # `npm run deploy` に依存していた。「マージ済み＝公開済み」を仕組みで成立させる。
+  #
+  # 順序が要: マイグレーションを**コードデプロイより先**に流す。逆順にすると、
+  # 新しいコードが存在しないテーブルを参照して500になる(docs/v2/deploy.md)。
+  # needs で検査2ジョブの成功を前提条件にしているため、赤いままデプロイされることはない。
+  deploy:
+    name: deploy (production)
+    needs: [checks, v2]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2
+    env:
+      # wrangler が読む認証情報。ローカルの `wrangler login` に依存しない
+      # (トークンは Cloudflare のダッシュボードで発行し、GitHub Secrets に登録する)。
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      HEALTH_URL: https://it-index.doryu.workers.dev/api/health
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # D1マイグレーション。GitHub Actions は CI=true のため対話確認は出ない。
+      # 適用済みのものは飛ばされるので、変更が無い回でも安全に実行できる。
+      - name: Apply D1 migrations
+        run: npm run deploy:migrations
+
+      # client のビルド → lp/ のコピー → wrangler deploy(同一Workerで /api/* と静的配信)。
+      - name: Deploy worker
+        run: npm run deploy
+
+      # デプロイが「通った」だけでなく、公開URLが実際に応答することまで確かめる。
+      # 反映直後は伝播待ちで落ちることがあるため数回リトライし、それでも駄目なら赤にする。
+      - name: Smoke check (public URL)
+        working-directory: .
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3 4 5; do
+            if body=$(curl -fsS --max-time 20 "$HEALTH_URL"); then
+              echo "attempt ${attempt}: ${body}"
+              case "$body" in
+                *'"status":"ok"'*) echo "疎通確認OK"; exit 0 ;;
+              esac
+              echo "応答はあったが期待した内容ではありません" >&2
+            else
+              echo "attempt ${attempt}: 接続できませんでした" >&2
+            fi
+            sleep 10
+          done
+          echo "疎通確認に失敗しました: $HEALTH_URL" >&2
+          exit 1

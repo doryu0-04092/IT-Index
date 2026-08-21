@@ -187,6 +187,28 @@ a,
   padding-top: 20px;
 }
 
+/* 「ここより前の会話はAIへ送っていません」の区切り(#181。ChatScreen.tsx)。
+   送信量を絞ったことを利用者から見える場所に出す——見えない所で文脈が消えると
+   「さっき言ったのに忘れている」が原因不明の不具合に見えるため。
+   会話の流れを断ち切らないよう、線と小さな文字で控えめに置く */
+.chat-omitted-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.chat-omitted-divider::before,
+.chat-omitted-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
 .status-text {
   color: var(--muted);
   font-size: 0.9rem;
@@ -1496,6 +1518,108 @@ a,
 .license-billing dd {
   margin: 0;
   font-size: 0.9rem;
+}
+
+/* 有効期限切れの警告(#147。SettingsScreen.tsxのPaymentMethodRow)。
+   通常時の「毎月引き落とされます」と同じ位置に出て入れ替わるため、行の高さを揃える */
+.payment-expired-warning {
+  color: var(--danger);
+  font-size: 0.85rem;
+  margin: 4px 0 0;
+}
+
+/* 期限切れの時だけ「有効期限 MM/YY」自体も危険色にする。警告文を読む前に
+   どの値が問題なのかが分かるようにするため */
+.payment-expiry-expired {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+/* 支払い履歴(SettingsScreen.tsxのBillingHistory)。1行=1回の支払いで、開くと明細が出る */
+.license-history {
+  margin: 12px 0;
+}
+
+.license-history h4 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.license-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.license-history-list summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+  cursor: pointer;
+  /* display:flexにするとChromeは既定の三角マーカーを消すがFirefoxは残す。
+     開閉の印は下の::afterで自前に統一する(ブラウザで見た目が変わらないようにする) */
+  list-style: none;
+}
+
+.license-history-list summary::-webkit-details-marker {
+  display: none;
+}
+
+/* 開閉できる行であることの印。金額の右隣に置き、開いている間は向きを反転させる */
+.license-history-list summary::after {
+  content: '▾';
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.license-history-list details[open] summary::after {
+  content: '▴';
+}
+
+/* 金額は行の右端に寄せて縦に揃える(件数が増えても読み取りやすくする) */
+.license-history-amount {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 明細(領収の表示)。本物の領収書に見せないため、枠付きの書類らしい体裁にはしない */
+.license-receipt {
+  padding: 8px 4px 12px;
+}
+
+.license-receipt dl {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.license-receipt dl > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.license-receipt dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+  min-width: 10em;
+}
+
+.license-receipt dd {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+/* モックである旨は明細の一部として必ず読ませる。status-text-smallより一段強く出す */
+.license-receipt-note {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: var(--danger);
 }
 
 /* 解約の確認パネル内の「何が起きるか」一覧(SettingsScreen.tsxのCancelLicenseSection) */

@@ -168,6 +168,54 @@ describe('SettingsScreen', () => {
       expect(onGoToCheckout).toHaveBeenCalledWith('change-card');
     });
 
+    it('有効期限が切れたカードは警告し、引き落としの案内を出さない(#147)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      vi.setSystemTime(new Date(2026, 7, 20));
+      stubAuthAndLicenseFetch({
+        licensed: true,
+        licenseSource: 'purchase',
+        // 2020年1月末で切れているカード
+        paymentMethod: { ...VISA_CARD, expiry: '01/20' },
+      });
+
+      renderSettingsScreen();
+
+      expect(await screen.findByTestId('card-expired-warning')).toBeTruthy();
+      expect(
+        screen.getByText(
+          'このカードは有効期限が切れています。引き落としができないため、カードを変更してください。',
+        ),
+      ).toBeTruthy();
+      // 使えないカードに「毎月引き落とされます」と言い切らない(表示の矛盾を作らない)
+      expect(
+        screen.queryByText(
+          'このカードから毎月引き落とされます(モック決済のため実際の課金はありません)',
+        ),
+      ).toBeNull();
+      vi.useRealTimers();
+    });
+
+    it('有効期限内のカードでは警告を出さない(#147)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      vi.setSystemTime(new Date(2026, 7, 20));
+      stubAuthAndLicenseFetch({
+        licensed: true,
+        licenseSource: 'purchase',
+        paymentMethod: VISA_CARD, // 12/29
+      });
+
+      renderSettingsScreen();
+
+      expect(await screen.findByText('ライセンス有効')).toBeTruthy();
+      expect(screen.queryByTestId('card-expired-warning')).toBeNull();
+      expect(
+        screen.getByText(
+          'このカードから毎月引き落とされます(モック決済のため実際の課金はありません)',
+        ),
+      ).toBeTruthy();
+      vi.useRealTimers();
+    });
+
     it('購入経路なのにカードが無い場合は異常として案内し、登録導線を出す', async () => {
       localStorage.setItem('it-index-v2:token', 'tok-1');
       stubAuthAndLicenseFetch({ licensed: true, licenseSource: 'purchase', paymentMethod: null });
@@ -218,6 +266,70 @@ describe('SettingsScreen', () => {
       expect(schedule.textContent).toContain('2026年8月18日');
       expect(schedule.textContent).toContain('2026年9月18日');
       vi.useRealTimers();
+    });
+
+    it('購入経路では到来済みの支払いを新しい順で並べる(#146)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      const activatedAt = new Date(2026, 4, 18, 12, 0, 0).getTime(); // 2026-05-18に購入
+      vi.setSystemTime(new Date(2026, 7, 20)); // 2026-08-20時点 = 5/18・6/18・7/18・8/18の4件
+      stubAuthAndLicenseFetch({
+        licensed: true,
+        licenseSource: 'purchase',
+        activatedAt,
+        paymentMethod: VISA_CARD,
+      });
+
+      renderSettingsScreen();
+
+      const history = await screen.findByTestId('payment-history');
+      const rows = history.querySelectorAll('li');
+      expect(rows.length).toBe(4);
+      // 新しい順(先頭が直近の支払い)
+      expect(rows[0].textContent).toContain('2026年8月18日');
+      expect(rows[3].textContent).toContain('2026年5月18日');
+      // 未到来の次回請求日(9/18)は履歴に混ざらない
+      expect(history.textContent).not.toContain('2026年9月18日');
+      vi.useRealTimers();
+    });
+
+    it('支払いの明細に、正式な領収書ではない旨とモックである旨を出す(#146)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      const activatedAt = new Date(2026, 7, 18, 12, 0, 0).getTime();
+      vi.setSystemTime(new Date(2026, 7, 20));
+      stubAuthAndLicenseFetch({
+        licensed: true,
+        licenseCode: 'ABCD-1234',
+        licenseSource: 'purchase',
+        activatedAt,
+        paymentMethod: VISA_CARD,
+      });
+
+      renderSettingsScreen();
+
+      const history = await screen.findByTestId('payment-history');
+      expect(history.textContent).toContain('¥300');
+      expect(history.textContent).toContain('VISA');
+      expect(history.textContent).toContain('•••• 4242');
+      expect(history.textContent).toContain('ABCD-1234');
+      // 本物の領収書と見分けがつかない体裁にしない(実際には入金が起きていないため)
+      expect(history.textContent).toContain('これは正式な領収書ではありません');
+      expect(history.textContent).toContain('モック決済のため、実際の請求・入金は発生していません');
+      vi.useRealTimers();
+    });
+
+    it('運営者コードで有効化した場合は支払い履歴を出さない(#146)', async () => {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      stubAuthAndLicenseFetch({
+        licensed: true,
+        licenseCode: 'ITX-FREE-0001',
+        licenseSource: 'operator',
+        activatedAt: new Date(2026, 4, 18).getTime(),
+      });
+
+      renderSettingsScreen();
+
+      expect(await screen.findByText('ライセンス有効')).toBeTruthy();
+      expect(screen.queryByTestId('payment-history')).toBeNull();
     });
 
     it('コード有効化: 成功するとライセンス有効表示になる', async () => {
