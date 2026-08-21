@@ -11,6 +11,7 @@ import { createSyncStateRepository, type SyncStateRepository } from './repositor
 import { createTermsRepository, type TermsRepository } from './repositories/terms';
 import { detectIsNativeApp } from './lib/platform';
 import { fetchSeedFile, importSeed } from './seed/importSeed';
+import { resetSyncCursorOnce } from './sync/cursorMigration';
 
 export interface AppInit {
   termsRepo: TermsRepository;
@@ -106,7 +107,12 @@ export function useAppInit(): AppInit {
     // 一度だけ削除する。setStateを呼ばないためeffect内から直接fire-and-forgetしてよい
     // (結果を画面表示に反映する必要が無い)。
     void chatRepo.deleteUnansweredOpenSessions();
-  }, [runSeedImport, settingsRepo, chatRepo]);
+    // 同期カーソルの一度きりのリセット(#191)。#182以前のコードは暗号化された差分を
+    // 読み飛ばした上でカーソルを進めていたため、更新後もその分を永久に取りこぼす。
+    // 起動時に一度だけ0へ戻し、次の同期で読み直させる(マージは冪等なので再取り込みは無害)。
+    // 同期の実行前に済ませる必要があるが、同期は利用者の操作が起点のため起動時に走らせれば足りる。
+    void resetSyncCursorOnce(syncStateRepo);
+  }, [runSeedImport, settingsRepo, chatRepo, syncStateRepo]);
 
   return {
     termsRepo,
