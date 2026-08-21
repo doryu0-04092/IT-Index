@@ -1388,6 +1388,93 @@ a,
   font-size: 0.9rem;
 }
 
+/* 支払い履歴(SettingsScreen.tsxのBillingHistory)。1行=1回の支払いで、開くと明細が出る */
+.license-history {
+  margin: 12px 0;
+}
+
+.license-history h4 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.license-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.license-history-list summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+  cursor: pointer;
+  /* display:flexにするとChromeは既定の三角マーカーを消すがFirefoxは残す。
+     開閉の印は下の::afterで自前に統一する(ブラウザで見た目が変わらないようにする) */
+  list-style: none;
+}
+
+.license-history-list summary::-webkit-details-marker {
+  display: none;
+}
+
+/* 開閉できる行であることの印。金額の右隣に置き、開いている間は向きを反転させる */
+.license-history-list summary::after {
+  content: '▾';
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.license-history-list details[open] summary::after {
+  content: '▴';
+}
+
+/* 金額は行の右端に寄せて縦に揃える(件数が増えても読み取りやすくする) */
+.license-history-amount {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 明細(領収の表示)。本物の領収書に見せないため、枠付きの書類らしい体裁にはしない */
+.license-receipt {
+  padding: 8px 4px 12px;
+}
+
+.license-receipt dl {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.license-receipt dl > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.license-receipt dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+  min-width: 10em;
+}
+
+.license-receipt dd {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+/* モックである旨は明細の一部として必ず読ませる。status-text-smallより一段強く出す */
+.license-receipt-note {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  color: var(--danger);
+}
+
 /* 解約の確認パネル内の「何が起きるか」一覧(SettingsScreen.tsxのCancelLicenseSection) */
 .cancel-effects {
   margin: 4px 0 12px;
