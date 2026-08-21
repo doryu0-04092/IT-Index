@@ -4,7 +4,7 @@ import { resetAllData } from '../lib/factoryReset';
 import ThemeSwitcher from '../lib/ThemeSwitcher';
 import type { ThemeChoice } from '../lib/theme';
 import { brandLabel, isCardExpired } from '../lib/cardValidation';
-import { formatBillingDate, nextBillingDate } from '../lib/billingCycle';
+import { formatBillingDate, listBilledDates, nextBillingDate } from '../lib/billingCycle';
 import LicenseHelpModal from '../lib/LicenseHelpModal';
 import ServerHelpModal from '../lib/ServerHelpModal';
 import {
@@ -198,6 +198,13 @@ function LicenseSection({
                 </p>
               )}
               {activatedAt !== null && <BillingSchedule activatedAt={activatedAt} />}
+              {activatedAt !== null && (
+                <BillingHistory
+                  activatedAt={activatedAt}
+                  licenseCode={licenseCode}
+                  paymentMethod={paymentMethod}
+                />
+              )}
               <button
                 type="button"
                 className="btn-secondary"
@@ -304,6 +311,114 @@ function BillingSchedule({ activatedAt }: { activatedAt: number }) {
         <dd>{nextOn}(¥300)</dd>
       </div>
     </dl>
+  );
+}
+
+/** プレミアムの月額(表示用。金額の literal を履歴・領収・請求日で散らさないためここに置く) */
+const MONTHLY_PRICE_LABEL = '¥300';
+
+/**
+ * 支払い履歴(#146)。課金開始日から今日までに到来済みの請求日を新しい順で並べ、
+ * 各行を開くと1件分の明細(領収の表示)が出る。
+ *
+ * **サーバーに支払いの記録は無い。** 実課金が無いモック段階では入金イベント自体が
+ * 存在しないため、履歴は `activatedAt` から `lib/billingCycle.ts` の純関数で算出する
+ * (既に表示している「次回請求日」と同じ数え方・同じ関数を使う)。実課金を導入する時は、
+ * この算出をサーバーの支払い記録の取得に差し替える——画面側の構造は変えずに済む。
+ *
+ * 解約済みのアカウントはここへ到達しない(`/api/auth/me` は有効なライセンスだけを返し、
+ * 解約後は購入導線が表示されるため)。
+ */
+function BillingHistory({
+  activatedAt,
+  licenseCode,
+  paymentMethod,
+}: {
+  activatedAt: number;
+  licenseCode: string | null;
+  paymentMethod: PaymentMethod | null;
+}) {
+  // BillingScheduleと同じ理由で「今」はマウント時に一度だけ確定させる(react-hooks/purity)
+  const [now] = useState(() => Date.now());
+  const billedDates = listBilledDates(activatedAt, now);
+  if (billedDates.length === 0) return null;
+
+  return (
+    <div className="license-history" data-testid="payment-history">
+      <h4>支払い履歴</h4>
+      <ul className="license-history-list">
+        {billedDates.map((date) => (
+          <li key={date.getTime()}>
+            <details>
+              <summary>
+                <span>{formatBillingDate(date)}</span>
+                <span className="license-history-amount">{MONTHLY_PRICE_LABEL}</span>
+              </summary>
+              <PaymentReceipt date={date} licenseCode={licenseCode} paymentMethod={paymentMethod} />
+            </details>
+          </li>
+        ))}
+      </ul>
+      <p className="status-text-small">
+        モック決済のため、実際の請求・入金は発生していません。
+      </p>
+    </div>
+  );
+}
+
+/**
+ * 1件分の支払い明細(領収の表示)。**正式な領収書ではない**ことを明細そのものに書く——
+ * 実際には入金が起きていないため、本物の領収書と見分けがつかない体裁にしてはいけない。
+ * 発行者名・登録番号のような、正式な書類に見せる項目は意図的に持たない。
+ *
+ * 支払い方法は**現在登録されているカード**を出す。`payment_methods` は1アカウント1件の
+ * 上書き保存で、その時点でどのカードだったかの記録が無いため(dtのラベルでその旨を示す)。
+ */
+function PaymentReceipt({
+  date,
+  licenseCode,
+  paymentMethod,
+}: {
+  date: Date;
+  licenseCode: string | null;
+  paymentMethod: PaymentMethod | null;
+}) {
+  return (
+    <div className="license-receipt">
+      <dl>
+        <div>
+          <dt>内容</dt>
+          <dd>IT-Index プレミアム(月額)</dd>
+        </div>
+        <div>
+          <dt>支払い日</dt>
+          <dd>{formatBillingDate(date)}</dd>
+        </div>
+        <div>
+          <dt>金額</dt>
+          <dd>{MONTHLY_PRICE_LABEL}</dd>
+        </div>
+        <div>
+          <dt>支払い方法(現在の登録)</dt>
+          <dd>
+            {paymentMethod !== null
+              ? `${brandLabel(paymentMethod.brand) ?? 'カード'} •••• ${paymentMethod.last4}`
+              : '登録なし'}
+          </dd>
+        </div>
+        {licenseCode !== null && (
+          <div>
+            <dt>ライセンスコード</dt>
+            <dd>
+              <code className="license-code">{licenseCode}</code>
+            </dd>
+          </div>
+        )}
+      </dl>
+      <p className="license-receipt-note">
+        これは正式な領収書ではありません。モック決済のため、この支払いは実際には行われていません。
+      </p>
+    </div>
   );
 }
 
