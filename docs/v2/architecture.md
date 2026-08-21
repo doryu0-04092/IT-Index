@@ -164,6 +164,36 @@ sequenceDiagram
   持つアカウントに限り**実行できる(実装済み。ゲートの置き所は§5の不変条件と同じ方針)。セルフホストでは
   ライセンス概念が無いため、同期は無条件で動く([requirements.md §4](./requirements.md))
 
+### 起動時の自動pullはプラットフォーム判定を待つ(#217)
+
+起動時の自動pull(#193)は `holdLocalOnConflict` を同期エンジンへ渡す。この値は
+「Androidネイティブか」の判定(`isNativeApp`)そのもので、**判定が終わる前に走らせてはいけない。**
+
+`isNativeApp` の初期値 `false` は「PCである」ではなく「**まだ分からない**」を意味する。
+判定は `@capacitor/core` の動的import(ビルド出力では独立チャンク。`modulepreload` は付かない)の
+解決を待つ一方、`deviceId` はIndexedDBの読み1回で決まる。**どちらが先に確定するかは保証が無い。**
+
+`deviceId` が先に決まると、自動pullの「起動につき1回」ガード(`useRef`)がその時点で立ち、
+**Androidでも `holdLocalOnConflict: false` のまま同期が走る。** 依存配列に `isNativeApp` が
+あってもガードに阻まれてやり直されず、自己修復しない。
+
+`false` で走った場合の帰結は取り返しがつかない。
+
+- §4の競合方針(#157)が効かず、newest-wins マージになる
+- 採用経路が `adoptPeerDecision` ではなく `upsertFromSync` になる。前者は保持していた自版を
+  `noteHistory` へ退避してから採用するが、後者は退避しない
+- 結果、この端末のノートが**どこにも残らないまま**相手の版に置き換わる。
+  Androidには競合解消UIが無い(#165)ため利用者は戻せない
+
+そこで `useAppInit` が判定の完了を `platformSettled` として返し、自動pullはそれを待つ。
+**待たせても止まらない**——`detectIsNativeApp()` は読み込みに失敗しても `false` を返して
+必ず解決する契約(`lib/platform.ts`)のため、`platformSettled` は必ず true になる。
+
+**検証は実測ではなく順序の再現で行う。** どちらが先に解決するかは端末とストレージの速度で
+決まり、実機で測っても「その時は起きなかった」以上のことは言えない。
+`App.autoPull.test.tsx` は判定のPromiseをテスト側が握り、`deviceId` 確定後に解決させることで
+順序を決定的に再現する(修正前のコードでは落ちることを確認済み)。
+
 ## 5. AIプロキシ(3つの経路)
 
 - 端末は「認証トークン+会話ペイロード」をサーバーへ送り、サーバーが自分のAPIキーでAIプロバイダを呼んで応答を中継する

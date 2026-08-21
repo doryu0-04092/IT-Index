@@ -61,6 +61,7 @@ export function App() {
     syncStateRepo,
     deviceId,
     isNativeApp,
+    platformSettled,
     autoUpdateExistingTerms,
     seedError,
     seedSettled,
@@ -226,7 +227,15 @@ export function App() {
    */
   const autoPullDone = useRef(false);
   useEffect(() => {
-    if (!deviceId || autoPullDone.current) return;
+    // **platformSettled を待つ(#217)。** isNativeApp の初期値 false は「PCである」ではなく
+    // 「まだ分からない」で、判定は @capacitor/core の動的import(別チャンク)の解決を待つ。
+    // deviceId(IndexedDB読み)が先に確定すると、下の ref ガードがその時点で立ってしまい、
+    // Androidでも holdLocalOnConflict: false のまま自動pullが走る——そして deps に
+    // isNativeApp があっても ref に阻まれて**やり直されない**。false で走ると
+    // newest-wins マージになり、この端末のノートが noteHistory に残らないまま
+    // 上書きされる(sync/syncEngine.ts の holdLocalOnConflict 分岐 / repositories/notes.ts の
+    // upsertFromSync と adoptPeerDecision の違い)。Androidには競合解消UIが無いため戻せない。
+    if (!deviceId || !platformSettled || autoPullDone.current) return;
     autoPullDone.current = true; // 起動につき1回だけ(依存の再評価で複数回走らせない)
 
     const token = getToken();
@@ -252,6 +261,7 @@ export function App() {
     });
   }, [
     deviceId,
+    platformSettled,
     termsRepo,
     notesRepo,
     asksRepo,
