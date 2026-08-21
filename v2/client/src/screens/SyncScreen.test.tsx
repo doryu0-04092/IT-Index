@@ -246,6 +246,44 @@ describe('SyncScreen', () => {
     localStorage.setItem('it-index-v2:token', 'tok-1');
   }
 
+  it('同じ単語で複数台と競合したら、1枚のカードに端末ごとに縦に並べる(#203)', async () => {
+    const deps = createSyncDeps();
+    // 同じ語について3台と競合している状態(端末ごとに1件できる)
+    await seedConflict(deps, {
+      termId: 'tcp-ip',
+      local: { termId: 'tcp-ip', diagrams: [], noteHistory: [], body: 'この端末の内容', updatedAt: 100, lastEditedBy: 'device-1' },
+      remote: { termId: 'tcp-ip', diagrams: [], noteHistory: [], body: 'B端末の内容', updatedAt: 300, lastEditedBy: 'device-b' },
+    });
+    await seedConflict(
+      deps,
+      {
+        termId: 'tcp-ip',
+        local: { termId: 'tcp-ip', diagrams: [], noteHistory: [], body: 'この端末の内容', updatedAt: 100, lastEditedBy: 'device-1' },
+        remote: { termId: 'tcp-ip', diagrams: [], noteHistory: [], body: 'C端末の内容', updatedAt: 200, lastEditedBy: 'device-c' },
+      },
+      1000,
+    );
+    stubAuthedFetch();
+
+    renderSyncScreen(deps);
+
+    const card = await screen.findByTestId('conflict-group-tcp-ip');
+    // 語の数で数える(端末ごとの件数ではない)
+    expect(screen.getByText('未解決の競合(1語)')).toBeTruthy();
+    expect(within(card).getByText(/2台の端末と内容が食い違っています/)).toBeTruthy();
+
+    // この端末が一番上、その下に相手端末が更新の新しい順で並ぶ。
+    // 本文にも同じ文字列が出るため、見出し(sync-conflict-side-title)だけを数える
+    const titles = Array.from(card.querySelectorAll('.sync-conflict-side-title')).map(
+      (el) => el.textContent ?? '',
+    );
+    expect(titles).toHaveLength(3);
+    expect(titles[0]).toContain('この端末の内容');
+    expect(titles[1]).toContain('別の端末の内容');
+    expect(within(card).getByText('B端末の内容')).toBeTruthy();
+    expect(within(card).getByText('C端末の内容')).toBeTruthy();
+  });
+
   it('「AIで統合する」を適用するとnotesに反映され、再度統合を選んでもキャッシュがあれば再呼び出ししない', async () => {
     const deps = createSyncDeps();
     await seedConflict(deps, makeConflict('tcp-ip'));
@@ -260,7 +298,7 @@ describe('SyncScreen', () => {
     await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
 
     let item = screen.getByText('tcp-ip').closest('li')!;
-    fireEvent.click(within(item).getByRole('button', { name: 'AIで統合する' }));
+    fireEvent.click(within(item).getByRole('button', { name: 'この端末とAIで統合' }));
 
     await waitFor(() => expect(screen.getByText('解決済みの競合(1件)')).toBeTruthy());
     expect(send).toHaveBeenCalledTimes(1);
@@ -295,7 +333,7 @@ describe('SyncScreen', () => {
     await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
 
     const item = screen.getByText('tcp-ip').closest('li')!;
-    fireEvent.click(within(item).getByRole('button', { name: 'AIで統合する' }));
+    fireEvent.click(within(item).getByRole('button', { name: 'この端末とAIで統合' }));
 
     await waitFor(() => expect(within(item).getByText(/ライセンスが必要です/)).toBeTruthy());
     fireEvent.click(within(item).getByRole('button', { name: '設定タブへ' }));
@@ -316,7 +354,7 @@ describe('SyncScreen', () => {
     await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
 
     const item = screen.getByText('tcp-ip').closest('li')!;
-    fireEvent.click(within(item).getByRole('button', { name: 'AIで統合する' }));
+    fireEvent.click(within(item).getByRole('button', { name: 'この端末とAIで統合' }));
 
     await waitFor(() => expect(within(item).getByText('AIの応答を解釈できませんでした。')).toBeTruthy());
   });
@@ -442,7 +480,7 @@ describe('SyncScreen', () => {
     expect(screen.queryByText('相手の端末の内容')).toBeNull();
     // 解消操作も一切出さない
     expect(screen.queryByRole('button', { name: 'こちらを採用' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'AIで統合する' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'この端末とAIで統合' })).toBeNull();
   });
 
   it('採用中の選択肢にはバッジが付く(#157)', async () => {
