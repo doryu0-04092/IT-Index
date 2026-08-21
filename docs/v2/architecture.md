@@ -80,7 +80,7 @@ flowchart LR
 | テーブル | 内容 |
 |---|---|
 | `accounts` | id・email・パスワードハッシュ・作成日時 |
-| `sync_blobs` | account_id・device_id・seq(単調増加)・payload(端末が出した差分。**サーバーは中身を解釈しない**)・created_at |
+| `sync_blobs` | account_id・device_id・seq(単調増加)・payload(端末が出した差分。**サーバーは中身を解釈しない**)・created_at。**端末ごとに最新1行だけ残す**(#202。下記) |
 | `usage`(Phase 2) | account_id・期間・AI呼び出し回数(上限判定用) |
 | `licenses` | code(UNIQUE)・account_id・source(`'purchase'`\|`'operator'`)・issued_at・activated_at・canceled_at |
 | `payment_methods` | account_id(PK)・brand・last4・expiry・holder_name・updated_at。**表示用のみ。カード番号とCVCの列は無い** |
@@ -119,6 +119,25 @@ sequenceDiagram
     Note over B: 純関数mergeSnapshotで決定的マージ<br/>取り込みはDexieトランザクションで原子的に<br/>(v1の未達要件を必達化)
     B->>B: 競合はnoteConflictsに記録(#157: 解消はPC側のみ。Androidネイティブは案内表示+自版保持で、PCの決定を次の同期で採用して統一する。競合はsyncEventsにリンクし履歴タブから追跡・選び直しできる)
 ```
+
+### 端末ごとに最新1行だけ残す(#202)
+
+`sync_blobs` は当初 `INSERT` するだけで行が消えず、自動push(取り込み完了・競合解消・起動時・
+オンライン復帰。#177/#179/#193)のたびに積み上がっていた。カーソルが0に戻った端末
+(ローカル削除・鍵の受け取り)はその全部を取り直すため、**受信件数が実態とかけ離れて膨らむ**。
+
+各payloadは**端末の全量スナップショット**なので、端末ごとに最新1件あれば足り、古い行は
+新しい行に完全に含まれている。そのため push 時に同じ `device_id` の古い行を消す。
+
+- **中身は解釈しない。** 見るのは `device_id` と `seq` だけで、§2の責任分担は変わらない
+- **`latest` は減らない。** 消すのは「今入れた行より古い同一端末の行」だけなので、
+  最大seqは常に直前の挿入行。クライアントのカーソル自己修復(`latest < cursor` で0へ戻す)を
+  誤発火させない
+- 消し残っても壊れない。次のpushでまた消しにいくだけで、マージは冪等なので結果は変わらない
+
+**利用者への表示は「受信N件」ではなく「N語 変わりました」にする。** blobの件数は端末が送る
+全量スナップショットの数で、中身が同じでも1件と数えるため、利用者にとって意味を持たない。
+同期の前後のスナップショットを `computeSyncDelta`(shared)で突き合わせて語数を出す。
 
 - **冪等**: 同じ差分を2回取り込んでも結果が変わらない(v1のマージ設計が既にこの性質を持つ)
 - **原子性**: pull結果の反映は関係テーブルを1トランザクションで書く。途中失敗はロールバックし、カーソルを進めない

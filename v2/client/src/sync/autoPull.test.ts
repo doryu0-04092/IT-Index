@@ -39,6 +39,7 @@ function runResult(overrides: Partial<SyncRunResult> = {}): SyncRunResult {
     receivedBlobs: 0,
     skippedBlobs: 0,
     undecryptableBlobs: 0,
+    changedTerms: 0,
     conflictCount: 0,
     adoptedDecisions: 0,
     ...overrides,

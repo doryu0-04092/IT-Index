@@ -225,6 +225,51 @@ describe('syncEngine', () => {
       expect(sinceOf(fetchMock.mock.calls[1][0])).toBe(0);
     });
 
+    it('取り込みで実際に変わった語数を数える(#202)', async () => {
+      const deps = track(makeDeps('device-1'));
+      const sharedKey = getOrCreateDataKey(deps.accountId);
+      const blob = await encryptedBlobOf(sharedKey, 'device-2', '相手の本文', 3);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) =>
+          Promise.resolve(
+            url.includes('/api/sync/push')
+              ? jsonResponse(201, { seq: 4 })
+              : jsonResponse(200, { blobs: [blob], latest: 3 }),
+          ),
+        ),
+      );
+
+      const result = await runSync(deps, 'tok');
+
+      // 相手のノート1件が入ったので1語
+      expect(result.changedTerms).toBe(1);
+    });
+
+    it('内容が同じ差分を取り込んでも「変わった語」は0になる(件数と区別する)', async () => {
+      const deps = track(makeDeps('device-1'));
+      // こちらが既に持っている内容と、相手が送ってくる内容が同一の状態を作る
+      await deps.notesRepo.saveBody('term-a', '同じ本文', 'device-2', 500);
+      const sharedKey = getOrCreateDataKey(deps.accountId);
+      const blob = await encryptedBlobOf(sharedKey, 'device-2', '同じ本文', 3);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation((url: string) =>
+          Promise.resolve(
+            url.includes('/api/sync/push')
+              ? jsonResponse(201, { seq: 4 })
+              : jsonResponse(200, { blobs: [blob], latest: 3 }),
+          ),
+        ),
+      );
+
+      const result = await runSync(deps, 'tok');
+
+      // blobは1件受信しているが、中身は変わっていない。利用者にはこちらを見せる
+      expect(result.receivedBlobs).toBe(1);
+      expect(result.changedTerms).toBe(0);
+    });
+
     it('鍵を持たない端末は、最初のpushで鍵を自動生成する(受け渡し前でも同期を始められる)', async () => {
       const deps = track(makeDeps('device-1'));
       expect(getDataKey(deps.accountId)).toBeNull();

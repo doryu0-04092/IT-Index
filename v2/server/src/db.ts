@@ -39,6 +39,24 @@ export async function insertSyncBlob(
         .bind(accountId, deviceId, payload, createdAt)
         .first<{ seq: number }>();
       if (!row) throw new Error('insert into sync_blobs returned no row');
+
+      // 同じ端末の古い行を消す(#202)。各payloadは**端末の全量スナップショット**なので、
+      // 端末ごとに最新1件あれば足り、古い行は新しい行に完全に含まれている。
+      //
+      // 消さないと行が際限なく積み上がる: 自動pushは取り込み完了時・競合解消時・起動時・
+      // オンライン復帰時に走る(#177/#179/#193)。カーソルが0に戻った端末(ローカル削除・
+      // 鍵の受け取り)はその全部を取り直すことになり、受信件数が実態とかけ離れて膨らむ。
+      //
+      // **中身は解釈しない。** 見ているのは device_id と seq だけで、
+      // 「サーバーはpayloadの中身を解釈しない」という設計(architecture.md §2)は保つ。
+      //
+      // INSERTとは別のSQLになるが、途中で失敗しても壊れない: 消し残った古い行は
+      // 次のpushでまた消しにいくだけで、取り込み結果はマージが冪等なため変わらない。
+      await db
+        .prepare('DELETE FROM sync_blobs WHERE account_id = ?1 AND device_id = ?2 AND seq < ?3')
+        .bind(accountId, deviceId, row.seq)
+        .run();
+
       return row.seq;
     } catch (err) {
       lastError = err;
