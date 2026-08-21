@@ -210,6 +210,14 @@ export default function SyncScreen({
           token={auth.token}
           accountId={accountId}
           undecryptableBlobs={lastResult?.undecryptableBlobs ?? 0}
+          syncBusy={syncBusy}
+          onSyncNow={() => void handleSyncNow()}
+          // 鍵を受け取った側はサーバー上の古い差分を消すため、自分のカーソルも0へ戻す
+          // (消した後に並ぶ新しい差分を読み直すため。KeyTransferSection.adoptKey参照)
+          onKeyAdopted={async () => {
+            await syncStateRepo.setCursor(0);
+            setLastResult(null);
+          }}
         />
       )}
 

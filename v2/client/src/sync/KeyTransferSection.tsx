@@ -53,6 +53,15 @@ export interface KeyTransferSectionProps {
   accountId: string;
   /** 直前の同期で復号できなかった差分の件数。0より大きければ鍵が揃っていない */
   undecryptableBlobs: number;
+  /**
+   * 鍵を受け取り、サーバー上の古い差分を消した直後に呼ばれる。
+   * 呼び出し側は同期カーソルを0へ戻す(消した後に並ぶ新しい差分を読み直すため)。
+   */
+  onKeyAdopted: () => Promise<void>;
+  /** 「今すぐ同期」を実行する。鍵を受け取った後の誘導ボタンから呼ぶ */
+  onSyncNow: () => void;
+  /** 同期の実行中はボタンを押せないようにする */
+  syncBusy: boolean;
 }
 
 type Mode = 'idle' | 'show-qr' | 'scan-qr' | 'show-code' | 'enter-code';
@@ -61,6 +70,9 @@ export default function KeyTransferSection({
   token,
   accountId,
   undecryptableBlobs,
+  onKeyAdopted,
+  onSyncNow,
+  syncBusy,
 }: KeyTransferSectionProps) {
   const [mode, setMode] = useState<Mode>('idle');
   // 数字コードの経路は「QRが使えない場合」を開いた時だけ出す(2段階。上の説明を参照)
@@ -103,6 +115,41 @@ export default function KeyTransferSection({
     setMode(next);
   }
 
+  /**
+   * 受け取った鍵を採用する(QR・数字コードで共通)。
+   *
+   * **古い差分をサーバーから消してから採用する(#182の実機確認で判明)。**
+   * この端末は鍵を受け取る前に「自分で作った鍵」でpushしている場合があり、鍵を上書きすると
+   * その差分が**誰にも復号できない孤児**になる。相手端末はそれに当たると
+   * 「復号できない＝カーソルを進めない」設計が働き、**そこで永久に止まる**——
+   * 鍵が揃うまで取りこぼさないための安全策が、鍵を揃えた後に自分を縛る形になっていた。
+   *
+   * 差分は各端末の全量スナップショットなので、消しても情報は失われない(次のpushで作り直される)。
+   * 自分のカーソルも0へ戻し、消した後にサーバーへ並ぶ新しい差分を読み直せるようにする。
+   */
+  async function adoptKey(dataKey: string): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      setDataKey(accountId, dataKey);
+      await deleteSyncBlobs(token);
+      await onKeyAdopted();
+      setMode('idle');
+      setMessage('鍵を受け取りました。');
+    } catch (err) {
+      // 鍵自体は保存済み。差分の消去に失敗しただけなので、その旨を分けて伝える
+      setMode('idle');
+      setMessage(null);
+      setError(
+        err instanceof ApiRequestError
+          ? `鍵は受け取りましたが、サーバー上の古い差分を消せませんでした(${err.message})。もう一度お試しください。`
+          : '鍵は受け取りましたが、サーバーに接続できませんでした。もう一度お試しください。',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /* ---------------- QRで渡す ---------------- */
 
   async function handleShowQr() {
@@ -143,10 +190,7 @@ export default function KeyTransferSection({
     }
     stopScanRef.current?.();
     stopScanRef.current = null;
-    setDataKey(accountId, dataKey);
-    setError(null);
-    setMode('idle');
-    setMessage('鍵を受け取りました。「今すぐ同期」で相手のデータを読み込めます。');
+    await adoptKey(dataKey);
   }
 
   /* ---------------- 数字コードで渡す ---------------- */
@@ -183,11 +227,10 @@ export default function KeyTransferSection({
         setError('コードが違います。相手の画面に出ている8桁を確認してください。');
         return;
       }
-      setDataKey(accountId, dataKey);
       // 受け取れたらサーバーの預かりを消す(取り残しは期限切れでも失効する。二段で残さない)
       await deleteKeyShare(token).catch(() => undefined);
-      resetTo('idle');
-      setMessage('鍵を受け取りました。「今すぐ同期」で相手のデータを読み込めます。');
+      setCodeDraft('');
+      await adoptKey(dataKey);
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 404) {
         setError('受け渡しの有効期限(5分)が切れています。相手の画面でコードを出し直してください。');
@@ -237,8 +280,27 @@ export default function KeyTransferSection({
         同期データはこの端末の鍵で暗号化してから預けています。別の端末で読むには、同じ鍵を渡してください。
       </p>
 
-      {message && <p className="status-text key-transfer-done">{message}</p>}
-      {error && <p className="sync-error">{error}</p>}
+      {/* 受け渡しの成否は、受け取った側にだけはっきり出せる(渡した側は相手が読んだかを
+          知る手段が無い。QRはサーバーを通らず、数字コードも復号の成否はサーバーに届かない)。
+          成功時はそのまま同期へ進めるよう、この場に「今すぐ同期」を出す */}
+      {message && (
+        <div className="key-transfer-done" data-testid="key-transfer-done" role="status">
+          <p>
+            <strong>{message}</strong>
+          </p>
+          <p className="status-text-small">
+            まだデータは同期されていません。「今すぐ同期」を実行すると、相手のデータを読み込みます。
+          </p>
+          <button type="button" className="btn-primary" onClick={onSyncNow} disabled={syncBusy}>
+            {syncBusy ? '同期しています…' : '今すぐ同期'}
+          </button>
+        </div>
+      )}
+      {error && (
+        <p className="sync-error" data-testid="key-transfer-error" role="alert">
+          {error}
+        </p>
+      )}
 
       {mode === 'idle' && (
         <>
@@ -311,8 +373,14 @@ export default function KeyTransferSection({
               dangerouslySetInnerHTML={{ __html: qrSvg }}
             />
           )}
+          {/* 渡した側は、相手が読み取れたかを知る手段が無い(QRはサーバーを通らないため)。
+              分からないことを分かるように書く——「完了しました」と嘘をつかない */}
+          <p className="status-text-small">
+            <strong>相手の端末に「鍵を受け取りました」と出れば完了です。</strong>
+            この画面からは相手が読み取れたか分かりません。
+          </p>
           <button type="button" className="btn-secondary" onClick={() => resetTo('idle')}>
-            閉じる
+            相手側で受け取れたので閉じる
           </button>
         </div>
       )}
@@ -339,8 +407,14 @@ export default function KeyTransferSection({
               {formatTransferCode(issuedCode)}
             </p>
           )}
+          {/* QRと同じ理由で、渡した側は相手が開けたかを知る手段が無い
+              (復号はすべて相手の端末内で行われ、成否はサーバーに届かない) */}
+          <p className="status-text-small">
+            <strong>相手の端末に「鍵を受け取りました」と出れば完了です。</strong>
+            この画面からは相手が開けたか分かりません。
+          </p>
           <button type="button" className="btn-secondary" onClick={() => resetTo('idle')}>
-            閉じる
+            相手側で受け取れたので閉じる
           </button>
         </div>
       )}
