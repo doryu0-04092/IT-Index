@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env } from './types';
+import { validatePassword } from '@it-index/shared';
 import { hashPassword, verifyPassword } from './crypto';
 import { issueToken, requireAuth, type AuthedVariables } from './auth';
 import {
@@ -41,7 +42,6 @@ import {
   validatePaymentMethodInput,
 } from './paymentMethod';
 
-const MIN_PASSWORD_LENGTH = 8;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
 
 const app = new Hono<{ Bindings: Env; Variables: AuthedVariables }>();
@@ -144,11 +144,15 @@ app.post('/api/auth/signup', async (c) => {
   if (!email || !password) {
     return c.json({ error: { code: 'invalid_request', message: 'emailとpasswordが必要です' } }, 400);
   }
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    return c.json(
-      { error: { code: 'weak_password', message: 'パスワードは8文字以上で入力してください' } },
-      400
-    );
+  // パスワード要件(#205)。判定はshared/core/passwordPolicyの1箇所に置き、画面側と同じ関数を使う。
+  // 画面の検証はUXのための先出しで、ここを通らなければ登録されない(このエンドポイントを
+  // 直接叩けば画面は迂回できるため、防御の本体はこちら)。
+  // **ログイン(/api/auth/login)では検証しない**——再設定の導線が無いため、条件に該当する
+  // 既存アカウントが永久にログイン不能になる。
+  const policy = validatePassword(password);
+  if (!policy.ok) {
+    // エラーコードは 'weak_password' のまま据え置き(既存の契約)。理由はmessageで返す
+    return c.json({ error: { code: 'weak_password', message: policy.message } }, 400);
   }
 
   const existing = await c.env.DB.prepare('SELECT id FROM accounts WHERE email = ?1')

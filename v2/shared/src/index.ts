@@ -10,5 +10,7 @@ export { isSyncTarget } from './core/syncTarget';
 export { validateSeedFile } from './core/validateSeed';
 export { parseSyncFile } from './core/validateSyncFile';
 export { makeTermId, buildTermRecord } from './core/term';
+export { PASSWORD_MIN_LENGTH, checkPasswordRules, isCommonPassword, validatePassword } from './core/passwordPolicy';
+export type { PasswordRuleResults, PasswordErrorCode, PasswordValidationResult } from './core/passwordPolicy';
 export { FIELDS } from './types';
 export type { Field, TermRecord, NoteRecord, NoteHistoryEntry, AskRecord } from './types';

@@ -1133,6 +1133,63 @@ a,
   flex-wrap: wrap;
 }
 
+/* パスワード入力欄と表示切替・条件表示(#205。sync/AuthForms.tsx)。
+   入力欄は上の .sync-auth input で width:100% になるため、flexで並べて
+   切替ボタンを右に置く(入力欄の上に重ねると幅の計算が端末ごとにずれる)。 */
+.password-field {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.password-toggle {
+  flex-shrink: 0;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* 新規登録でだけ出す条件のチェックリスト。満たした行は色で沈める */
+.password-rules {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
+.password-rules li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.password-rule-todo {
+  color: var(--muted);
+}
+
+.password-rule-ok {
+  color: var(--accent);
+}
+
+/* 画面には出さず読み上げにだけ渡す(条件の充足を記号以外でも伝えるため) */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* 同期の鍵の受け渡し(#182。sync/KeyTransferSection.tsx) */
 .key-transfer {
   margin-top: 24px;
