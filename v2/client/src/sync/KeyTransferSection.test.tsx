@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import KeyTransferSection from './KeyTransferSection';
 import { getDataKey, setDataKey } from './syncKeyStore';
 import { generateDataKey, normalizeTransferCode, wrapDataKey } from './syncCrypto';
@@ -20,9 +20,19 @@ function jsonResponse(status: number, body: unknown) {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) };
 }
 
+const onKeyAdopted = vi.fn<() => Promise<void>>();
+const onSyncNow = vi.fn();
+
 function renderSection(undecryptableBlobs = 0) {
   render(
-    <KeyTransferSection token="tok-1" accountId={ACCOUNT} undecryptableBlobs={undecryptableBlobs} />,
+    <KeyTransferSection
+      token="tok-1"
+      accountId={ACCOUNT}
+      undecryptableBlobs={undecryptableBlobs}
+      onKeyAdopted={onKeyAdopted}
+      onSyncNow={onSyncNow}
+      syncBusy={false}
+    />,
   );
 }
 
@@ -38,6 +48,9 @@ describe('KeyTransferSection', () => {
   beforeEach(() => {
     hasCameraDevice.mockResolvedValue(false);
     startQrScan.mockResolvedValue(() => {});
+    onKeyAdopted.mockReset();
+    onKeyAdopted.mockResolvedValue(undefined);
+    onSyncNow.mockReset();
   });
 
   afterEach(() => {
@@ -131,14 +144,14 @@ describe('KeyTransferSection', () => {
     expect(init.body).not.toContain(code);
   });
 
-  it('正しいコードを入力すると鍵を受け取り、サーバーの預かりを消す', async () => {
+  it('正しいコードを入力すると鍵を受け取り、預かりと古い差分の両方を消す', async () => {
     const dataKey = generateDataKey();
     const wrapped = await wrapDataKey(dataKey, '12345678');
     const fetchMock = vi.fn().mockImplementation((url: string, init: { method?: string }) => {
       if (url === '/api/sync/keyshare' && (init.method ?? 'GET') === 'GET') {
         return Promise.resolve(jsonResponse(200, wrapped));
       }
-      return Promise.resolve(jsonResponse(200, { deleted: true }));
+      return Promise.resolve(jsonResponse(200, { deleted: 1 }));
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -151,7 +164,108 @@ describe('KeyTransferSection', () => {
     fireEvent.click(screen.getByRole('button', { name: '鍵を受け取る' }));
 
     await waitFor(() => expect(getDataKey(ACCOUNT)).toBe(dataKey));
-    expect(fetchMock.mock.calls.some(([, init]) => init.method === 'DELETE')).toBe(true);
+    // 預かりの削除
+    expect(
+      fetchMock.mock.calls.some(([url, init]) => url === '/api/sync/keyshare' && init.method === 'DELETE'),
+    ).toBe(true);
+    // 古い差分の削除(孤児blobを残さないため)
+    expect(
+      fetchMock.mock.calls.some(([url, init]) => url === '/api/sync/blobs' && init.method === 'DELETE'),
+    ).toBe(true);
+  });
+
+  it('鍵を受け取ったら、サーバー上の古い差分を消してカーソルも戻す(孤児blobを作らない)', async () => {
+    const dataKey = generateDataKey();
+    const wrapped = await wrapDataKey(dataKey, '12345678');
+    const fetchMock = vi.fn().mockImplementation((url: string, init: { method?: string }) => {
+      if (url === '/api/sync/keyshare' && (init.method ?? 'GET') === 'GET') {
+        return Promise.resolve(jsonResponse(200, wrapped));
+      }
+      return Promise.resolve(jsonResponse(200, { deleted: 2 }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderSection();
+    await openFallback();
+    fireEvent.click(screen.getByRole('button', { name: '数字コードを入力する(受け取る側)' }));
+    fireEvent.change(screen.getByLabelText('相手の画面に出ている8桁'), {
+      target: { value: '12345678' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '鍵を受け取る' }));
+
+    // 鍵を受け取る前に自分の鍵でpushした分が残っていると、相手のカーソルがそこで永久に
+    // 止まる。消した上で自分のカーソルも戻す(呼び出し側が0にする)
+    await waitFor(() => expect(onKeyAdopted).toHaveBeenCalledTimes(1));
+  });
+
+  it('受け取り成功は明示し、その場から同期へ進める(同期はまだ済んでいないことも書く)', async () => {
+    const dataKey = generateDataKey();
+    const wrapped = await wrapDataKey(dataKey, '12345678');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init: { method?: string }) =>
+        url === '/api/sync/keyshare' && (init.method ?? 'GET') === 'GET'
+          ? Promise.resolve(jsonResponse(200, wrapped))
+          : Promise.resolve(jsonResponse(200, { deleted: 0 })),
+      ),
+    );
+
+    renderSection();
+    await openFallback();
+    fireEvent.click(screen.getByRole('button', { name: '数字コードを入力する(受け取る側)' }));
+    fireEvent.change(screen.getByLabelText('相手の画面に出ている8桁'), {
+      target: { value: '12345678' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '鍵を受け取る' }));
+
+    const done = await screen.findByTestId('key-transfer-done');
+    expect(done.textContent).toContain('鍵を受け取りました');
+    // 鍵の受け渡しと同期は別であることを、この場で伝える
+    expect(done.textContent).toContain('まだデータは同期されていません');
+
+    fireEvent.click(within(done).getByRole('button', { name: '今すぐ同期' }));
+    expect(onSyncNow).toHaveBeenCalledTimes(1);
+  });
+
+  it('古い差分の削除に失敗したら、鍵は受け取れた上で失敗を明示する', async () => {
+    const dataKey = generateDataKey();
+    const wrapped = await wrapDataKey(dataKey, '12345678');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init: { method?: string }) => {
+        if (url === '/api/sync/keyshare' && (init.method ?? 'GET') === 'GET') {
+          return Promise.resolve(jsonResponse(200, wrapped));
+        }
+        if (url === '/api/sync/blobs') {
+          return Promise.resolve(
+            jsonResponse(500, { error: { code: 'server_error', message: 'サーバーエラー' } }),
+          );
+        }
+        return Promise.resolve(jsonResponse(200, { deleted: true }));
+      }),
+    );
+
+    renderSection();
+    await openFallback();
+    fireEvent.click(screen.getByRole('button', { name: '数字コードを入力する(受け取る側)' }));
+    fireEvent.change(screen.getByLabelText('相手の画面に出ている8桁'), {
+      target: { value: '12345678' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '鍵を受け取る' }));
+
+    const error = await screen.findByTestId('key-transfer-error');
+    expect(error.textContent).toContain('鍵は受け取りましたが');
+    expect(getDataKey(ACCOUNT)).toBe(dataKey); // 鍵自体は保存されている
+  });
+
+  it('渡す側には「相手の画面で確認して」と出す(こちらからは成否が分からないため)', async () => {
+    setDataKey(ACCOUNT, generateDataKey());
+    renderSection();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'QRを表示する(渡す側)' }));
+
+    expect(await screen.findByText(/相手の端末に「鍵を受け取りました」と出れば完了です/)).toBeTruthy();
+    expect(screen.getByText(/この画面からは相手が読み取れたか分かりません/)).toBeTruthy();
   });
 
   it('コードが違う場合は案内を出し、鍵を保存しない', async () => {
