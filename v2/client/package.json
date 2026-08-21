@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:android": "vite build --mode android && npx cap sync android",
-    "preview": "vite preview"
+    "build:android": "vite build --mode android && node scripts/verify-android-assets.mjs && npx cap sync android",
+    "preview": "vite preview",
+    "verify:android-apk": "node scripts/verify-android-assets.mjs android/app/src/main/assets/public/assets"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

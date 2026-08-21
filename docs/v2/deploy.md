@@ -295,6 +295,32 @@ npx cap open android
 - `npx cap open android` でAndroid Studioが起動する。Android StudioのBuildメニューから
   APKを生成する(Build → Build Bundle(s) / APK(s) → Build APK(s))
 
+> **`npm run build`(素のWebビルド)でAPKを作ってはいけない。** Viteは**modeに一致する`.env.<mode>`しか読まない**ため、
+> `--mode android`を付けずに作ると`VITE_API_BASE`が埋め込まれず、相対パス`/api`が**端末自身**を指す。
+> 型検査・lint・テストは**全て緑のまま**、サーバーへ一切繋がらないAPKができる。
+>
+> これは実際に起きた(2026-08-22、0.4.3を公開してしまい即日0.4.4で差し替え)。
+> 再発防止として`npm run build:android`は`scripts/verify-android-assets.mjs`を挟み、
+> **パッケージへ入る直前の成果物**にサーバーURLが埋まっていなければビルドを止める。
+
+### リリース用APKの手順(コマンドライン)
+
+Android Studioを使わずに出す場合。**この順で、検査を飛ばさずに実行する。**
+
+```
+cd v2/client
+npm run build:android                  # 検査込み。素のbuildは使わない
+cd android && ./gradlew assembleDebug   # assembleReleaseは署名されず入れられない
+```
+
+公開する前に、**実物のAPKを見て**確認する:
+
+```
+cd v2/client && npm run verify:android-apk    # サーバーURLが埋まっているか
+apksigner verify --print-certs <apk>          # 署名が前バージョンと同じか(違うと上書き更新できない)
+aapt dump badging <apk>                       # versionCode/versionName とCAMERA権限
+```
+
 ### 接続先
 
 Androidアプリは既定で公式ホスト(`https://it-index.doryu.workers.dev`)へ接続する。
