@@ -676,4 +676,48 @@ describe('SyncScreen', () => {
     expect(screen.getAllByText(/^現在の選択:/)).toHaveLength(1);
   });
 
+  /**
+   * **採用しても統合ボタンは消えない(#246)。**
+   *
+   * #238で統合をグループ単位にした際、表示条件を「未解決の競合があるとき」に狭めたため、
+   * **どれかを採用した瞬間にボタンが消えていた**（実機で報告された）。
+   * 競合履歴に出るのは決着済みが中心なので、履歴タブではほぼ常に出なかった。
+   */
+  it('どれかを採用した後も「AIで統合」できる(#246)', async () => {
+    const deps = createSyncDeps();
+    await seedConflict(deps, makeConflict('term-a'));
+    localStorage.setItem('it-index-v2:token', 'tok-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' })));
+
+    renderSyncScreen(deps);
+    await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
+
+    // 同期直後(未解決)はボタンがある
+    const mergeButton = () => screen.queryByRole('button', { name: /AIで統合/ });
+    await waitFor(() => expect(mergeButton()).not.toBeNull());
+
+    // 「こちらを採用」で解消する
+    fireEvent.click(screen.getAllByRole('button', { name: 'こちらを採用' })[0]);
+    await waitFor(() => expect(screen.getByText('✓ 採用中')).toBeTruthy());
+
+    // **採用しても消えない**(あとから全部まとめ直せる)
+    expect(mergeButton()).not.toBeNull();
+  });
+
+  /** 決着済みだけのグループ(=競合履歴に出る形)でも統合できる(#246) */
+  it('決着済みだけでも統合ボタンが出る(#246)', async () => {
+    const deps = createSyncDeps();
+    await seedConflict(deps, makeConflict('term-a'));
+    const stored = await deps.noteConflictsRepo.getAllOrdered();
+    await deps.noteConflictsRepo.setResolution(stored[0].id, 'remote', null, 1000);
+
+    localStorage.setItem('it-index-v2:token', 'tok-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' })));
+
+    renderSyncScreen(deps);
+    await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: /AIで統合/ })).not.toBeNull());
+  });
+
 });
