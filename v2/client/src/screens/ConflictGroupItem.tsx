@@ -36,7 +36,11 @@ export interface ConflictGroupItemProps {
   mergeErrorCodes: Record<string, string | null>;
   onChooseLocal: (conflict: NoteConflictRecord) => void;
   onChooseRemote: (conflict: NoteConflictRecord) => void;
-  onMerge: (conflict: NoteConflictRecord) => void;
+  /**
+   * この語の競合を**まとめて**AIで統一する(#238)。相手ごとに統合すると情報が薄まり、
+   * 決定が分裂して相手端末が収束しないため、渡すのは未解決の競合**全件**。
+   */
+  onMergeAll: (conflicts: NoteConflictRecord[]) => void;
   onGoToSettings?: () => void;
 }
 
@@ -52,7 +56,7 @@ export default function ConflictGroupItem({
   mergeErrorCodes,
   onChooseLocal,
   onChooseRemote,
-  onMerge,
+  onMergeAll,
   onGoToSettings,
 }: ConflictGroupItemProps) {
   // どの競合レコードの`local`も同じこの端末の内容だが、検出時刻がずれていれば差がありうる。
@@ -67,6 +71,20 @@ export default function ConflictGroupItem({
    * こちら側にも採用ボタンを出さない——出すと相手側だけ操作不可という
    * ちぐはぐな状態になり、押しても解消をPC側へ集約する設計(#157/#165)に反する。
    */
+  // 統合はグループ単位(#238)。状態も語(termId)をキーに持つ
+  const merging = mergingId === group.termId;
+  const mergeError = mergeErrors[group.termId] ?? null;
+  const mergeErrorCode = mergeErrorCodes[group.termId] ?? null;
+  /** まだ決着していない競合。統合はこれ全部をまとめて対象にする */
+  const openConflicts = group.conflicts.filter((c) => c.resolution === null && c.closedReason === null);
+  /**
+   * 統合を選び直せる対象(#238)。未解決が無くても、以前の統合結果が残っていて
+   * いまそれを採用していない場合は戻せるようにする——AIは呼び直さない(フック側で判定)。
+   */
+  const mergeTargets =
+    openConflicts.length > 0 ? openConflicts : resolvableWithMergedCache(group.conflicts);
+  const hasCachedMerge = openConflicts.length === 0 && mergeTargets.length > 0;
+
   const resolvable = group.conflicts.filter((c) => c.closedReason !== 'peer-decision');
   const localTarget = resolvable.length > 0
     ? resolvable.reduce((newest, c) => (c.detectedAt > newest.detectedAt ? c : newest))
@@ -102,9 +120,6 @@ export default function ConflictGroupItem({
           // 自動で閉じた競合も選び直せる(#224)。'peer-decision' だけは対象外
           const interactive = canResolve && conflict.closedReason !== 'peer-decision';
           const adopted = conflict.resolution === 'remote';
-          const merging = mergingId === conflict.id;
-          const mergeError = mergeErrors[conflict.id] ?? null;
-          const mergeErrorCode = mergeErrorCodes[conflict.id] ?? null;
 
           return (
             <li
@@ -134,34 +149,10 @@ export default function ConflictGroupItem({
                 </div>
               )}
 
-              {interactive && (
+              {interactive && !adopted && (
                 <div className="conflict-device-actions">
-                  {!adopted && (
-                    <button type="button" className="btn-secondary" onClick={() => onChooseRemote(conflict)}>
-                      こちらを採用
-                    </button>
-                  )}
-                  {conflict.resolution !== 'merged' && (
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() => onMerge(conflict)}
-                      disabled={merging}
-                    >
-                      {merging ? 'AIが統合しています…' : conflict.merged ? '統合した内容を採用' : 'この端末とAIで統合'}
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {mergeError && mergeErrorCode !== 'license_required' && (
-                <p className="error-text">{mergeError}</p>
-              )}
-              {mergeErrorCode === 'license_required' && onGoToSettings && (
-                <div className="chat-license-required">
-                  <p className="error-text">{mergeError}</p>
-                  <button type="button" className="btn-secondary" onClick={onGoToSettings}>
-                    設定タブへ
+                  <button type="button" className="btn-secondary" onClick={() => onChooseRemote(conflict)}>
+                    こちらを採用
                   </button>
                 </div>
               )}
@@ -170,9 +161,59 @@ export default function ConflictGroupItem({
         })}
       </ol>
 
+      {canResolve && mergeTargets.length > 0 && (
+        /*
+         * **統合はこの語ぜんぶを1回で(#238)。** 相手ごとに統合すると、1回目の結果を
+         * 2回目でもう一度AIに通すことになり要約の要約で情報が薄まるうえ、決定が
+         * 複数回に分かれて相手端末が収束しない(実機で報告された)。
+         */
+        <div className="conflict-group-actions">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => onMergeAll(mergeTargets)}
+            disabled={merging}
+          >
+            {merging
+              ? 'AIが統合しています…'
+              : hasCachedMerge
+                ? '統合した内容を採用'
+                : `すべての端末の内容をAIで統合(${mergeTargets.length + 1}件)`}
+          </button>
+          {!hasCachedMerge && (
+            <p className="status-text-small">
+              この端末と相手{mergeTargets.length}台の内容を、1回の処理で1つにまとめます。
+            </p>
+          )}
+        </div>
+      )}
+
+      {mergeError && mergeErrorCode !== 'license_required' && <p className="error-text">{mergeError}</p>}
+      {mergeErrorCode === 'license_required' && onGoToSettings && (
+        <div className="chat-license-required">
+          <p className="error-text">{mergeError}</p>
+          <button type="button" className="btn-secondary" onClick={onGoToSettings}>
+            設定タブへ
+          </button>
+        </div>
+      )}
+
       {!canResolve && <p className="status-text conflict-pc-only-notice">{CONFLICT_PC_ONLY_NOTICE}</p>}
     </li>
   );
+}
+
+/**
+ * 以前の統合結果が残っていて、いまそれを採用していない競合(#238)。
+ * 全件が同じ結果を持っている場合だけ「戻せる」——1件でも欠けていれば、
+ * その相手の情報が入っていない古い結果なので作り直す必要がある。
+ */
+function resolvableWithMergedCache(conflicts: NoteConflictRecord[]): NoteConflictRecord[] {
+  const withCache = conflicts.filter((c) => c.merged !== null && c.closedReason !== 'peer-decision');
+  if (withCache.length === 0 || withCache.length !== conflicts.length) return [];
+  if (withCache.every((c) => c.resolution === 'merged')) return []; // 既に採用中
+  const first = withCache[0].merged;
+  return withCache.every((c) => c.merged?.body === first?.body) ? withCache : [];
 }
 
 function describeResolution(how: 'local' | 'remote' | 'merged'): string {

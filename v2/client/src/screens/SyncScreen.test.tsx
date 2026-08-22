@@ -357,7 +357,7 @@ describe('SyncScreen', () => {
     await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
 
     let item = screen.getByText('tcp-ip').closest('li')!;
-    fireEvent.click(within(item).getByRole('button', { name: 'この端末とAIで統合' }));
+    fireEvent.click(within(item).getByRole('button', { name: 'すべての端末の内容をAIで統合(2件)' }));
 
     await waitFor(() => expect(screen.getByText('解決済みの競合(1件)')).toBeTruthy());
     expect(send).toHaveBeenCalledTimes(1);
@@ -392,7 +392,7 @@ describe('SyncScreen', () => {
     await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
 
     const item = screen.getByText('tcp-ip').closest('li')!;
-    fireEvent.click(within(item).getByRole('button', { name: 'この端末とAIで統合' }));
+    fireEvent.click(within(item).getByRole('button', { name: 'すべての端末の内容をAIで統合(2件)' }));
 
     await waitFor(() => expect(within(item).getByText(/ライセンスが必要です/)).toBeTruthy());
     fireEvent.click(within(item).getByRole('button', { name: '設定タブへ' }));
@@ -413,7 +413,7 @@ describe('SyncScreen', () => {
     await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
 
     const item = screen.getByText('tcp-ip').closest('li')!;
-    fireEvent.click(within(item).getByRole('button', { name: 'この端末とAIで統合' }));
+    fireEvent.click(within(item).getByRole('button', { name: 'すべての端末の内容をAIで統合(2件)' }));
 
     await waitFor(() => expect(within(item).getByText('AIの応答を解釈できませんでした。')).toBeTruthy());
   });
@@ -539,7 +539,7 @@ describe('SyncScreen', () => {
     expect(screen.queryByText('相手の端末の内容')).toBeNull();
     // 解消操作も一切出さない
     expect(screen.queryByRole('button', { name: 'こちらを採用' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'この端末とAIで統合' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'すべての端末の内容をAIで統合(2件)' })).toBeNull();
   });
 
   it('採用中の選択肢にはバッジが付く(#157)', async () => {
