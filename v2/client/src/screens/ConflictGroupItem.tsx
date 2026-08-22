@@ -62,7 +62,23 @@ export default function ConflictGroupItem({
   // どの競合レコードの`local`も同じこの端末の内容だが、検出時刻がずれていれば差がありうる。
   // 最も新しく検出されたものを代表にする
   const representative = localSideOf(group);
-  const adoptedLocal = group.conflicts.some((c) => c.resolution === 'local');
+  /*
+   * **「採用中」はグループに1つだけ(#242)。**
+   *
+   * 競合レコードは相手端末ごとに1件ずつある(#224)が、**ノートは1語に1つしか無い**。
+   * レコードごとにバッジを出していたため、別々の解消結果が入っていると
+   * 「AIで統合した内容」と「別の端末の内容」の両方に採用中が付き、いまノートに
+   * 入っているのがどれか画面から判断できなかった(実機で報告された)。
+   *
+   * **最後に解消したものが、いまの内容。** resolvedAt が最大のレコードを見る。
+   */
+  const currentChoice = group.conflicts
+    .filter((c) => c.resolution !== null && c.resolvedAt !== null)
+    .reduce<NoteConflictRecord | null>(
+      (latest, c) => (latest === null || (c.resolvedAt ?? 0) > (latest.resolvedAt ?? 0) ? c : latest),
+      null,
+    );
+  const adoptedLocal = currentChoice?.resolution === 'local';
   // 履歴タブでは決着済みの競合も同じ形で並べる(#225)。見出しはその区別に使う
   const openCount = group.conflicts.filter((c) => c.resolution === null && c.closedReason === null).length;
   /*
@@ -119,7 +135,8 @@ export default function ConflictGroupItem({
         {group.conflicts.map((conflict) => {
           // 自動で閉じた競合も選び直せる(#224)。'peer-decision' だけは対象外
           const interactive = canResolve && conflict.closedReason !== 'peer-decision';
-          const adopted = conflict.resolution === 'remote';
+          // バッジは「いまの選択」の1件だけ(#242)
+          const adopted = currentChoice?.id === conflict.id && conflict.resolution === 'remote';
 
           return (
             <li
@@ -136,18 +153,6 @@ export default function ConflictGroupItem({
               {conflict.closedReason !== null && (
                 <p className="status-text">{describeClosed(conflict.closedReason)}</p>
               )}
-              {conflict.closedReason === null && conflict.resolution !== null && canResolve && (
-                <p className="status-text">
-                  現在の選択: {describeResolution(conflict.resolution)}(いつでも選び直せます)
-                </p>
-              )}
-
-              {conflict.resolution === 'merged' && conflict.merged && (
-                <div className="sync-conflict-merged-preview">
-                  <p className="sync-conflict-side-title">AIで統合した内容{adoptedBadge}</p>
-                  <p>{conflict.merged.body}</p>
-                </div>
-              )}
 
               {interactive && !adopted && (
                 <div className="conflict-device-actions">
@@ -160,6 +165,20 @@ export default function ConflictGroupItem({
           );
         })}
       </ol>
+
+      {currentChoice?.resolution === 'merged' && currentChoice.merged && (
+        /* 統合結果は全レコード共通なので、グループに1回だけ出す(#242) */
+        <div className="sync-conflict-merged-preview">
+          <p className="sync-conflict-side-title">AIで統合した内容{adoptedBadge}</p>
+          <p>{currentChoice.merged.body}</p>
+        </div>
+      )}
+
+      {currentChoice !== null && currentChoice.closedReason === null && canResolve && (
+        <p className="status-text">
+          現在の選択: {describeResolution(currentChoice.resolution!)}(いつでも選び直せます)
+        </p>
+      )}
 
       {canResolve && mergeTargets.length > 0 && (
         /*
