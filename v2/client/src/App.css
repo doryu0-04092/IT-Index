@@ -1037,13 +1037,6 @@ a,
   color: var(--muted);
 }
 
-/* AI統合を採用中のとき、採用されている統合結果そのものを見せるプレビュー(#157) */
-.sync-conflict-merged-preview {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 
 /* Androidネイティブ向けの「PC側で解消して」案内(#157) */
 .conflict-pc-only-notice {
