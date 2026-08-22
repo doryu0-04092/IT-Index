@@ -1,7 +1,13 @@
 import type { ConflictGroup } from '../sync/groupConflicts';
 import { localSideOf, MAX_CONFLICT_DEVICES } from '../sync/groupConflicts';
 import type { NoteConflictRecord } from '../types';
-import { CONFLICT_PC_ONLY_NOTICE } from './ConflictItem';
+/**
+ * Androidネイティブで解消操作を出さない時の案内(#165)。
+ * 競合の表示は本コンポーネントに一本化したため、文言もここに置く(#225)。
+ */
+export const CONFLICT_PC_ONLY_NOTICE =
+  '解消はパソコン側で行ってください。それまでこの端末では、この端末で保存した内容を表示します。' +
+  'パソコン側で解消すると、次の同期で同じ内容に統一されます。';
 
 /**
  * 同じ単語で複数の端末と競合した場合の表示(#203)。
@@ -53,13 +59,27 @@ export default function ConflictGroupItem({
   // 最も新しく検出されたものを代表にする
   const representative = localSideOf(group);
   const adoptedLocal = group.conflicts.some((c) => c.resolution === 'local');
+  // 履歴タブでは決着済みの競合も同じ形で並べる(#225)。見出しはその区別に使う
+  const openCount = group.conflicts.filter((c) => c.resolution === null && c.closedReason === null).length;
+  /*
+   * 「この端末の内容」側の操作可否は**グループ単位**で決まる(相手側は競合ごと)。
+   * 'peer-decision'(AndroidがPCの決定を採用した記録)しか無いグループでは、
+   * こちら側にも採用ボタンを出さない——出すと相手側だけ操作不可という
+   * ちぐはぐな状態になり、押しても解消をPC側へ集約する設計(#157/#165)に反する。
+   */
+  const resolvable = group.conflicts.filter((c) => c.closedReason !== 'peer-decision');
+  const localTarget = resolvable.length > 0
+    ? resolvable.reduce((newest, c) => (c.detectedAt > newest.detectedAt ? c : newest))
+    : undefined;
   const adoptedBadge = <span className="conflict-adopted-badge">✓ 採用中</span>;
 
   return (
     <li className="sync-conflict" data-testid={`conflict-group-${group.termId}`}>
       <h4>{group.termId}</h4>
-      <p className="status-text">
-        {group.conflicts.length}台の端末と内容が食い違っています
+<p className="status-text">
+        {openCount > 0
+          ? `${openCount}台の端末と内容が食い違っています`
+          : `${group.conflicts.length}台の端末との競合は決着しています`}
         {group.hiddenCount > 0 && `(ほか${group.hiddenCount}台は履歴タブで確認できます)`}
       </p>
 
@@ -71,16 +91,16 @@ export default function ConflictGroupItem({
             {adoptedLocal && adoptedBadge}
           </p>
           <p>{representative.local.body}</p>
-          {canResolve && !adoptedLocal && (
-            <button type="button" className="btn-secondary" onClick={() => onChooseLocal(representative)}>
+          {canResolve && !adoptedLocal && localTarget && (
+            <button type="button" className="btn-secondary" onClick={() => onChooseLocal(localTarget)}>
               こちらを採用
             </button>
           )}
         </li>
 
         {group.conflicts.map((conflict) => {
-          const closed = conflict.closedReason !== null;
-          const interactive = canResolve && !closed;
+          // 自動で閉じた競合も選び直せる(#224)。'peer-decision' だけは対象外
+          const interactive = canResolve && conflict.closedReason !== 'peer-decision';
           const adopted = conflict.resolution === 'remote';
           const merging = mergingId === conflict.id;
           const mergeError = mergeErrors[conflict.id] ?? null;
@@ -97,6 +117,15 @@ export default function ConflictGroupItem({
                 {adopted && adoptedBadge}
               </p>
               <p>{conflict.remote.body}</p>
+
+              {conflict.closedReason !== null && (
+                <p className="status-text">{describeClosed(conflict.closedReason)}</p>
+              )}
+              {conflict.closedReason === null && conflict.resolution !== null && canResolve && (
+                <p className="status-text">
+                  現在の選択: {describeResolution(conflict.resolution)}(いつでも選び直せます)
+                </p>
+              )}
 
               {conflict.resolution === 'merged' && conflict.merged && (
                 <div className="sync-conflict-merged-preview">
@@ -144,6 +173,18 @@ export default function ConflictGroupItem({
       {!canResolve && <p className="status-text conflict-pc-only-notice">{CONFLICT_PC_ONLY_NOTICE}</p>}
     </li>
   );
+}
+
+function describeResolution(how: 'local' | 'remote' | 'merged'): string {
+  if (how === 'merged') return 'AIで統合した内容';
+  return `${how === 'local' ? 'この端末の内容' : '相手の端末の内容'}にしました。`;
+}
+
+function describeClosed(reason: 'peer-decision' | 'converged' | 'superseded'): string {
+  if (reason === 'peer-decision') return 'パソコン側の解消結果に統一済みです。';
+  // 'superseded' は #224 以前の自動クローズ。既存の記録が残るため文言を維持する
+  if (reason === 'superseded') return '解消済みです(次の同期で競合が再発しませんでした)。';
+  return '相手の端末と同じ内容になったため決着しました。';
 }
 
 /** 上限の値を画面外(テスト等)から参照するための再輸出 */

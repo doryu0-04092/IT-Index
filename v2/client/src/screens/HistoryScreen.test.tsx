@@ -512,6 +512,32 @@ describe('HistoryScreen', () => {
       expect(screen.getAllByRole('button', { name: 'こちらを採用' })).toHaveLength(2);
     });
 
+    /**
+     * 競合の見せ方を同期画面と揃える(#225)。同じ競合が画面によって別物に見えると、
+     * 1つの語の経緯を追えなくなる。**同期イベントごとの区切りは残したまま**、
+     * その中を単語ごとにまとめて縦一列で描く(ConflictGroupItem)。
+     */
+    it('競合タブは同期画面と同じ ConflictGroupItem で描かれ、イベントの区切りは残る(#225)', async () => {
+      const events = [makeSyncEvent('event-1', 1000, 2)];
+      const conflicts = [
+        makeConflictRecord({ id: 'c1', termId: 'tcp-ip', peerDeviceId: 'device-2', syncEventId: 'event-1' }),
+        makeConflictRecord({ id: 'c2', termId: 'tcp-ip', peerDeviceId: 'device-3', syncEventId: 'event-1' }),
+      ];
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'conflicts', fakeChatRepo(), {
+        syncEvents: events,
+        conflicts,
+      });
+
+      // 同期画面と同じ testid(単語ごとのグループ・端末ごとの行)で出る
+      await waitFor(() => expect(screen.getByTestId('conflict-group-tcp-ip')).toBeTruthy());
+      expect(screen.getByTestId('conflict-device-device-2')).toBeTruthy();
+      expect(screen.getByTestId('conflict-device-device-3')).toBeTruthy();
+      // 同じ語の2台ぶんが1枚にまとまる(以前は競合ごとに別カードだった)
+      expect(screen.getAllByTestId(/^conflict-group-/)).toHaveLength(1);
+      // イベントの区切りは残す(時系列の軸を失わないため)
+      expect(screen.getByText(/の同期$/)).toBeTruthy();
+    });
+
     it('競合0件時は「まだ競合の記録がありません。」を表示する', async () => {
       renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'conflicts');
       await waitFor(() => expect(screen.getByText('まだ競合の記録がありません。')).toBeTruthy());

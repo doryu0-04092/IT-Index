@@ -19,7 +19,6 @@ import type { SyncEventsRepository } from '../repositories/syncEvents';
 import type { SyncStateRepository } from '../repositories/syncState';
 import type { TermsRepository } from '../repositories/terms';
 import ConflictGroupItem from './ConflictGroupItem';
-import ConflictItem from './ConflictItem';
 
 export interface SyncScreenProps {
   db: ItIndexDB;
@@ -53,6 +52,12 @@ export interface SyncScreenProps {
    * ボタンを出さないだけで、通常経路(App.tsx)では必ず渡す。
    */
   onGoToSettings?: () => void;
+  /**
+   * 競合履歴(履歴タブの「競合」)へ移動する(#225)。
+   * 同期画面には**直近の同期に紐づく競合**しか出ないため、過去の経緯を追う導線が要る。
+   * 履歴側から同期画面への導線(連携履歴の「競合を見る」)は既にある。
+   */
+  onGoToConflictHistory?: () => void;
 }
 
 /**
@@ -80,6 +85,7 @@ export default function SyncScreen({
   onSyncApplied,
   onResolutionApplied,
   onGoToSettings,
+  onGoToConflictHistory,
 }: SyncScreenProps) {
   const { auth, authError, authBusy, handleAuthSubmit, handleLogout } = useAuthState();
 
@@ -240,6 +246,11 @@ export default function SyncScreen({
               それまでこの端末では、この端末で保存した内容を表示します。
               パソコン側で解消すると、次の同期で同じ内容に統一されます。
             </p>
+            {onGoToConflictHistory && (
+              <button type="button" className="btn-secondary" onClick={onGoToConflictHistory}>
+                競合履歴を見る
+              </button>
+            )}
           </div>
         )
       ) : (
@@ -253,6 +264,12 @@ export default function SyncScreen({
                 いずれかを採用するか、AIで統合できます。何もしなければこの端末では新しい方(自動採用)のままです。
                 解消するとスマートフォン側も次の同期で同じ内容に統一されます。
               </p>
+              {/* ここに出るのは直近の同期に紐づく分だけ。過去の経緯は履歴タブで追う(#225) */}
+              {onGoToConflictHistory && (
+                <button type="button" className="btn-secondary" onClick={onGoToConflictHistory}>
+                  競合履歴を見る
+                </button>
+              )}
               <ul className="sync-conflict-list">
                 {conflictGroups.map((group) => (
                   <ConflictGroupItem
@@ -277,17 +294,17 @@ export default function SyncScreen({
               <h3>解決済みの競合({resolvedConflicts.length}件)</h3>
               <p className="status-text">選び直しはいつでもできます。選び直すとこの端末のnotesが置き換わります。</p>
               <ul className="sync-conflict-list">
-                {resolvedConflicts.map((c) => (
-                  <ConflictItem
-                    key={c.id}
-                    conflict={c}
+                {groupConflictsByTerm(resolvedConflicts).map((group) => (
+                  <ConflictGroupItem
+                    key={group.termId}
+                    group={group}
                     canResolve
-                    merging={mergingId === c.id}
-                    mergeError={mergeErrors[c.id] ?? null}
-                    mergeErrorCode={mergeErrorCodes[c.id] ?? null}
-                    onChooseLocal={() => chooseLocal(c)}
-                    onChooseRemote={() => chooseRemote(c)}
-                    onMerge={() => void merge(c)}
+                    mergingId={mergingId}
+                    mergeErrors={mergeErrors}
+                    mergeErrorCodes={mergeErrorCodes}
+                    onChooseLocal={chooseLocal}
+                    onChooseRemote={chooseRemote}
+                    onMerge={(c) => void merge(c)}
                     onGoToSettings={onGoToSettings}
                   />
                 ))}
