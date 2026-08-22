@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ESNext"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": [
+      "@cloudflare/workers-types",
+      "@cloudflare/vitest-pool-workers/types",
+      "vite/client"
+    ],
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": [
+    "**/*.ts",
+    "vitest.config.ts",
+    // 実サーバーのバインディング型(Cloudflare.Env)とワーカーのモジュール型。
+    // server/test と同じ宣言を使うことで、テスト側だけ型がずれることを防ぐ
+    "../server/test/env.d.ts"
+  ]
+}
