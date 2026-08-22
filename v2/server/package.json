@@ -8,7 +8,7 @@
     "test": "vitest run",
     "deploy": "wrangler deploy",
     "deploy:migrations": "wrangler d1 migrations apply it-index-v2 --remote",
-    "dev:e2e": "wrangler d1 migrations apply it-index-v2 --local && wrangler dev --var LICENSE_ENABLED:0 --port 4174"
+    "dev:e2e": "wrangler d1 migrations apply it-index-v2 --local && wrangler dev --var JWT_SECRET:e2e-only-secret --var LICENSE_ENABLED:0 --port 4174"
   },
   "dependencies": {
     "@it-index/shared": "*",
