@@ -704,6 +704,50 @@ describe('SyncScreen', () => {
     expect(mergeButton()).not.toBeNull();
   });
 
+  /**
+   * **統合が済んだら、ボタンは「統合した内容を採用」に変わる(v1と同じ形)。**
+   *
+   * 統合後に元の内容を選び直しても、ボタンから統合結果へ戻せる——そのどの時点でも
+   * AIは呼び直さない(キャッシュ適用のみ)。#246の最初の修正で「統合済みで押し直したら
+   * AIで作り直す」を入れてしまい、統合するたびに課金される・押すたびに内容が変わり
+   * 端末間で収束しない、として報告された(本人指定でv1の形へ戻す)。
+   */
+  it('統合後はボタンが「統合した内容を採用」になり、AIを呼び直さない', async () => {
+    const deps = createSyncDeps();
+    await seedConflict(deps, makeConflict('term-a'));
+    const send = vi.fn().mockResolvedValue({
+      text: JSON.stringify({ body: '統合された説明', diagrams: [] }),
+      stopReason: 'end_turn',
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+    stubAuthedFetch();
+
+    renderSyncScreen(deps, { aiClient: fakeAiClient({ send }) });
+    await waitFor(() => expect(screen.getByText('term-a')).toBeTruthy());
+
+    let item = screen.getByText('term-a').closest('li')!;
+    fireEvent.click(within(item).getByRole('button', { name: 'すべての端末の内容をAIで統合(2件)' }));
+    await waitFor(() => expect(screen.getByText('解決済みの競合(1件)')).toBeTruthy());
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // **統合直後(採用中)からボタンは「採用」の形。** 「AIで統合」には戻らない
+    item = screen.getByText('term-a').closest('li')!;
+    expect(within(item).queryByRole('button', { name: /AIで統合/ })).toBeNull();
+    const adoptButton = within(item).getByRole('button', { name: '統合した内容を採用' });
+
+    // 採用中に押しても、AIを呼び直さない(内容も変わらない)
+    fireEvent.click(adoptButton);
+    await waitFor(async () => expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('統合された説明'));
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // 元の内容へ選び直しても、ボタンは「統合した内容を採用」のまま残り、戻せる
+    fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[0]);
+    await waitFor(async () => expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('この端末の内容'));
+    fireEvent.click(within(item).getByRole('button', { name: '統合した内容を採用' }));
+    await waitFor(async () => expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('統合された説明'));
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   /** 決着済みだけのグループ(=競合履歴に出る形)でも統合できる(#246) */
   it('決着済みだけでも統合ボタンが出る(#246)', async () => {
     const deps = createSyncDeps();
