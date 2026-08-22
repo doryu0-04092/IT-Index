@@ -69,6 +69,14 @@ export interface NoteConflictsRepository {
     merged: { body: string; diagrams: string[] } | null,
     at: number,
   ): Promise<void>;
+  /**
+   * 解消済みレコードを最新keepCount件(resolvedAtの新しい順)だけ残し、古い分をDBから
+   * 削除する(#246)。常設化で解決済みカードがたまり続けるため、表示だけ隠すのではなく
+   * レコードごと消す(本人指定「削除していく方式」)。**未解決(resolution===null)は
+   * 対象にしない。** 削除した記録は履歴タブからも消えるが、不採用側の内容は
+   * notesRepo.applyConflictResolutionがnoteHistoryへ退避済みで失われない。
+   */
+  pruneResolved(keepCount: number): Promise<number>;
 }
 
 export function createNoteConflictsRepository(db: ItIndexDB): NoteConflictsRepository {
@@ -132,6 +140,15 @@ export function createNoteConflictsRepository(db: ItIndexDB): NoteConflictsRepos
       await db.noteConflicts.update(id, { closedReason: reason, closedAt: at });
     },
 
+    async pruneResolved(keepCount) {
+      const resolved = await db.noteConflicts.filter((c) => c.resolution !== null).toArray();
+      if (resolved.length <= keepCount) return 0;
+      const excess = resolved
+        .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0))
+        .slice(keepCount);
+      await db.noteConflicts.bulkDelete(excess.map((c) => c.id));
+      return excess.length;
+    },
     async setResolution(id, resolution, merged, at) {
       await db.noteConflicts.update(id, {
         resolution,

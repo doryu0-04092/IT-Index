@@ -71,6 +71,9 @@ export interface SyncScreenProps {
  * - 解消操作はPC側のみ(isNativeApp=falseのとき)。Androidネイティブでは案内文言を出す
  * - 解消ロジックはsync/useConflictResolution.tsへ切り出し、履歴タブと共有する
  */
+/** 解決済みの競合カードの保持上限(本人指定)。超えた分は古い順にDBから削除する(#246) */
+const RESOLVED_CONFLICTS_LIMIT = 30;
+
 export default function SyncScreen({
   db,
   deviceId,
@@ -147,6 +150,8 @@ export default function SyncScreen({
     const latest = await syncEventsRepo.getLatest();
     const linked = latest ? await noteConflictsRepo.getBySyncEventId(latest.id) : [];
     setConflicts(linked.filter((c) => c.closedReason === null && c.resolution === null));
+    // 常設化でたまり続けるため、最新30件だけ残して古い解消済みを削除する(本人指定)
+    await noteConflictsRepo.pruneResolved(RESOLVED_CONFLICTS_LIMIT);
     /*
      * **解決済みは同期イベントに関係なく常設する(本人指定)。**
      *
