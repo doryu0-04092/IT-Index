@@ -133,7 +133,7 @@
 
   /* ===== phone frame ===== */
   .phone {
-    width: min(290px, 72vw);
+    width: min(290px, 100%);
     margin: 0 auto;
     border: 10px solid #222a33;
     border-radius: 36px;
@@ -278,12 +278,38 @@
     .feature-grid { grid-template-columns: 1fr; }
     .audience-grid { grid-template-columns: 1fr; }
     .steps { grid-template-columns: 1fr; gap: 34px; }
-    .gallery { grid-template-columns: repeat(2, 1fr); }
+    .gallery { grid-template-columns: repeat(2, 1fr); gap: 18px; }
+    .gallery .phone { border-width: 6px; border-radius: 26px; }
+    .gallery .phone img { border-radius: 20px; }
     .install-grid { grid-template-columns: 1fr; }
     .stats .wrap { grid-template-columns: repeat(2, 1fr); }
     .btn { width: 100%; }
+    /* スティッキーヘッダーにアンカー先の見出しが隠れないよう逃がす */
+    section[id] { scroll-margin-top: 28px; }
   }
+
+  /* ===== Android実機で開いた時だけ、Android導線を主にする ===== */
+  html[data-os="android"] .cta-row .btn-android {
+    order: -1;
+    background: var(--accent); color: var(--accent-fg);
+    border-color: var(--accent);
+    box-shadow: var(--shadow);
+  }
+  html[data-os="android"] .cta-row .btn-android:hover {
+    background: var(--accent-strong); border-color: var(--accent-strong);
+  }
+  html[data-os="android"] .cta-row .btn-web {
+    background: transparent; color: var(--accent);
+    border: 2px solid var(--accent);
+    box-shadow: none;
+  }
+  html[data-os="android"] .cta-row .btn-web:hover { background: transparent; }
+  html[data-os="android"] #install-android { order: -1; }
 </style>
+<script>
+  /* Android実機で開いた時だけ data-os を立て、CSSで導線の主従を入れ替える(JS無効時はPC向けの既定順のまま) */
+  if (/Android/i.test(navigator.userAgent)) document.documentElement.dataset.os = 'android';
+</script>
 </head>
 <body>
 
@@ -305,8 +331,8 @@
         IT用語 3,510語(IPAシラバスをもとにした24分類)を収録した、個人用のIT用語辞書アプリです。
       </p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://it-index.doryu.workers.dev" target="_blank" rel="noopener">ブラウザで今すぐ使う</a>
-        <a class="btn btn-secondary" href="#install">Android版を入れる</a>
+        <a class="btn btn-primary btn-web" href="https://it-index.doryu.workers.dev" target="_blank" rel="noopener">ブラウザで今すぐ使う</a>
+        <a class="btn btn-secondary btn-android" href="#install">Android版を入れる</a>
         <span class="cta-note">辞書機能は無料・アカウント登録不要。PCはインストールも不要です(AIの利用のみ無料のアカウント登録が必要)。</span>
       </div>
     </div>
@@ -426,7 +452,7 @@
     <h2>はじめかた</h2>
     <p class="section-lead">PCはインストール不要。Androidはアプリとして持ち歩けます。</p>
     <div class="install-grid">
-      <div class="install-card">
+      <div class="install-card" id="install-pc">
         <span class="badge">PC / ブラウザ</span>
         <h3>URLを開くだけ</h3>
         <ol>
@@ -436,7 +462,7 @@
         </ol>
         <a class="btn btn-primary" href="https://it-index.doryu.workers.dev" target="_blank" rel="noopener">Web版を開く(無料)</a>
       </div>
-      <div class="install-card">
+      <div class="install-card" id="install-android">
         <span class="badge">Android</span>
         <h3>APKをインストール</h3>
         <ol>
@@ -499,8 +525,8 @@
     <h2>今日引いた用語が、明日の辞書になる。</h2>
     <p class="section-lead">まずはブラウザでひとこと検索してみてください。登録は不要です。</p>
     <div class="cta-row">
-      <a class="btn btn-primary" href="https://it-index.doryu.workers.dev" target="_blank" rel="noopener">ブラウザで今すぐ使う</a>
-      <a class="btn btn-secondary" href="https://github.com/doryu0-04092/IT-Index/releases/download/v2-android-0.4.7/it-index-android-0.4.7.apk">Android版APKをダウンロード</a>
+      <a class="btn btn-primary btn-web" href="https://it-index.doryu.workers.dev" target="_blank" rel="noopener">ブラウザで今すぐ使う</a>
+      <a class="btn btn-secondary btn-android" href="https://github.com/doryu0-04092/IT-Index/releases/download/v2-android-0.4.7/it-index-android-0.4.7.apk">Android版APKをダウンロード</a>
     </div>
   </div>
 </section>
