@@ -40,7 +40,7 @@ interface Device {
   deps: SyncEngineDeps;
 }
 
-function makeDevice(name: string, accountId: string, holdLocalOnConflict = false): Device {
+function makeDevice(name: string, accountId: string): Device {
   const db = new ItIndexDB(`integration-${name}-${crypto.randomUUID()}`);
   return {
     name,
@@ -55,7 +55,6 @@ function makeDevice(name: string, accountId: string, holdLocalOnConflict = false
       syncStateRepo: createSyncStateRepository(db),
       accountId,
       deviceId: `device-${name}`,
-      holdLocalOnConflict,
     },
   };
 }

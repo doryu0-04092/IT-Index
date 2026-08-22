@@ -23,7 +23,7 @@ function fakeAiClient(overrides: Partial<AiClient> = {}): AiClient {
 }
 
 function makeConflict(termId = 'term-a'): NoteConflict {
-  const base = { termId, diagrams: [], noteHistory: [] };
+  const base = { termId, diagrams: [], resolvedAt: null, noteHistory: [] };
   return {
     termId,
     local: { ...base, body: 'この端末の内容', updatedAt: 100, lastEditedBy: 'device-1' },
@@ -310,15 +310,15 @@ describe('SyncScreen', () => {
     // 同じ語について3台と競合している状態(端末ごとに1件できる)
     await seedConflict(deps, {
       termId: 'tcp-ip',
-      local: { termId: 'tcp-ip', diagrams: [], noteHistory: [], body: 'この端末の内容', updatedAt: 100, lastEditedBy: 'device-1' },
-      remote: { termId: 'tcp-ip', diagrams: [], noteHistory: [], body: 'B端末の内容', updatedAt: 300, lastEditedBy: 'device-b' },
+      local: { termId: 'tcp-ip', diagrams: [], resolvedAt: null, noteHistory: [], body: 'この端末の内容', updatedAt: 100, lastEditedBy: 'device-1' },
+      remote: { termId: 'tcp-ip', diagrams: [], resolvedAt: null, noteHistory: [], body: 'B端末の内容', updatedAt: 300, lastEditedBy: 'device-b' },
     });
     await seedConflict(
       deps,
       {
         termId: 'tcp-ip',
-        local: { termId: 'tcp-ip', diagrams: [], noteHistory: [], body: 'この端末の内容', updatedAt: 100, lastEditedBy: 'device-1' },
-        remote: { termId: 'tcp-ip', diagrams: [], noteHistory: [], body: 'C端末の内容', updatedAt: 200, lastEditedBy: 'device-c' },
+        local: { termId: 'tcp-ip', diagrams: [], resolvedAt: null, noteHistory: [], body: 'この端末の内容', updatedAt: 100, lastEditedBy: 'device-1' },
+        remote: { termId: 'tcp-ip', diagrams: [], resolvedAt: null, noteHistory: [], body: 'C端末の内容', updatedAt: 200, lastEditedBy: 'device-c' },
       },
       1000,
     );
@@ -445,7 +445,7 @@ describe('SyncScreen', () => {
       syncSchemaVersion: 1,
       deviceId: 'device-2',
       writtenAt: 1,
-      notes: [{ termId: 'term-a', body: '相手の本文', diagrams: [], updatedAt: 100, lastEditedBy: 'device-2', noteHistory: [] }],
+      notes: [{ termId: 'term-a', body: '相手の本文', diagrams: [], updatedAt: 100, lastEditedBy: 'device-2', resolvedAt: null, noteHistory: [] }],
       asks: [],
       aiTerms: [],
     };

@@ -134,7 +134,7 @@ function makeSyncEvent(id: string, at: number, conflictCount = 0): SyncEventReco
 }
 
 function makeConflictRecord(overrides: Partial<NoteConflictRecord> = {}): NoteConflictRecord {
-  const base = { diagrams: [], noteHistory: [] };
+  const base = { diagrams: [], resolvedAt: null, noteHistory: [] };
   return {
     id: 'conflict-1',
     termId: 'tcp-ip',

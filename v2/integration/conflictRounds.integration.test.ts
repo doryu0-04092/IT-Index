@@ -58,7 +58,6 @@ function makeDevice(name: DeviceName, accountId: string): Device {
       syncStateRepo: createSyncStateRepository(db),
       accountId,
       deviceId: `device-${name}`,
-      holdLocalOnConflict: false, // PC相当(解消できる側)
     },
   };
 }
@@ -278,7 +277,6 @@ describe('5端末で競合を繰り返す(実サーバー)', () => {
           syncStateRepo: createSyncStateRepository(db),
           accountId: account.accountId,
           deviceId: `device-${extra}`,
-          holdLocalOnConflict: false,
         },
       });
     }

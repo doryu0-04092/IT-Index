@@ -32,7 +32,7 @@ function fakeTermsRepo(): TermsRepository {
 function fakeNotesRepo(initial?: NoteRecord): NotesRepository {
   let note = initial;
   const saveBody = vi.fn((termId: string, body: string, deviceId: string, at: number) => {
-    note = { termId, body, diagrams: note?.diagrams ?? [], updatedAt: at, lastEditedBy: deviceId, noteHistory: note ? [...note.noteHistory] : [] };
+    note = { termId, body, diagrams: note?.diagrams ?? [], updatedAt: at, lastEditedBy: deviceId, resolvedAt: null, noteHistory: note ? [...note.noteHistory] : [] };
     return Promise.resolve();
   });
   return {
@@ -40,7 +40,7 @@ function fakeNotesRepo(initial?: NoteRecord): NotesRepository {
     getAll: () => Promise.resolve(note ? [note] : []),
     saveBody,
     applyCommit: (termId, body, diagrams, deviceId, at) => {
-      note = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, noteHistory: note ? [...note.noteHistory] : [] };
+      note = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, resolvedAt: null, noteHistory: note ? [...note.noteHistory] : [] };
       return Promise.resolve();
     },
     upsertFromSync: (n) => {
@@ -48,7 +48,7 @@ function fakeNotesRepo(initial?: NoteRecord): NotesRepository {
       return Promise.resolve();
     },
     applyConflictResolution: (termId, body, diagrams, deviceId, at) => {
-      note = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, noteHistory: note ? [...note.noteHistory] : [] };
+      note = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, resolvedAt: null, noteHistory: note ? [...note.noteHistory] : [] };
       return Promise.resolve();
     },
     adoptPeerDecision: (n) => {
@@ -146,6 +146,7 @@ describe('TermDetailScreen', () => {
       diagrams: ['graph TD;A-->B;', 'sequenceDiagram;A->>B: hi'],
       updatedAt: 1,
       lastEditedBy: 'device-1',
+      resolvedAt: null,
       noteHistory: [],
     };
     render(
@@ -172,6 +173,7 @@ describe('TermDetailScreen', () => {
       diagrams: [],
       updatedAt: 1,
       lastEditedBy: 'device-1',
+      resolvedAt: null,
       noteHistory: [],
     };
     const notesRepo = fakeNotesRepo(initial);

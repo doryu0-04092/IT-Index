@@ -17,7 +17,7 @@ import { getDataKey, getOrCreateDataKey, setDataKey } from './syncKeyStore';
  *   エンジンは鍵を自動生成しなくなったため、渡さないと SyncKeyMissingError になる。
  *   鍵の有無を論点にしないテストを素直に書けるよう既定でtrue。
  */
-function makeDeps(deviceId = 'device-1', holdLocalOnConflict = false, withKey = true): SyncEngineDeps {
+function makeDeps(deviceId = 'device-1', withKey = true): SyncEngineDeps {
   const db = new ItIndexDB(`test-syncEngine-${Math.random()}`);
   if (withKey) setDataKey('test-account', generateDataKey());
   return {
@@ -32,7 +32,6 @@ function makeDeps(deviceId = 'device-1', holdLocalOnConflict = false, withKey = 
     // (鍵もアカウント単位で共有される。テスト間の持ち越しはafterEachのlocalStorage.clearで断つ)
     accountId: 'test-account',
     deviceId,
-    holdLocalOnConflict,
   };
 }
 
@@ -282,7 +281,7 @@ describe('syncEngine', () => {
      * 受け渡しをしていない端末が独自の鍵でpushすると、相手からは復号できない差分が並ぶ。
      */
     it('鍵を持たない端末は同期せず、鍵も作らない(#226)', async () => {
-      const deps = track(makeDeps('device-1', false, false));
+      const deps = track(makeDeps('device-1', false));
       expect(getDataKey(deps.accountId)).toBeNull();
       const fetchMock = vi.fn();
       vi.stubGlobal('fetch', fetchMock);
@@ -396,8 +395,8 @@ describe('syncEngine', () => {
       expect(unresolved).toHaveLength(1);
       expect(unresolved[0].local.body).toBe('この端末の内容');
       expect(unresolved[0].remote.body).toBe('相手の内容');
-      // updatedAtが新しい方(相手)がnewest-winsで採用されている
-      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('相手の内容');
+      // #234: 相手の方が新しくても、解消するまで自分の版のまま
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('この端末の内容');
     });
 
     it('ページ上限で複数回に分かれて返る場合、latestに達するまでpullを繰り返す', async () => {
@@ -492,12 +491,20 @@ describe('syncEngine', () => {
       return { blobs, fetchMock };
     }
 
-    function fileOf(deviceId: string, termId: string, body: string, updatedAt: number, lastEditedBy = deviceId) {
+    /** @param resolvedAt 競合の解消の結果ならその時刻(#234)。通常の編集はnull */
+    function fileOf(
+      deviceId: string,
+      termId: string,
+      body: string,
+      updatedAt: number,
+      lastEditedBy = deviceId,
+      resolvedAt: number | null = null,
+    ) {
       return {
         syncSchemaVersion: 1,
         deviceId,
         writtenAt: updatedAt,
-        notes: [{ termId, body, diagrams: [], updatedAt, lastEditedBy, noteHistory: [] }],
+        notes: [{ termId, body, diagrams: [], updatedAt, lastEditedBy, resolvedAt, noteHistory: [] }],
         asks: [],
         aiTerms: [],
       };
@@ -549,8 +556,12 @@ describe('syncEngine', () => {
       await deps.notesRepo.saveBody('term-a', 'この端末の内容', 'device-1', 300);
       await runSync(deps, 'tok');
 
-      // 相手が同じ内容(=現在この端末が持つLWW採用済みの内容)を改めて送ってきた → 競合は再発しない
-      relay.blobs.push({ seq: relay.blobs.length + 1, deviceId: 'device-2', payload: JSON.stringify(fileOf('device-2', 'term-a', '相手の内容', 700)), createdAt: 2 });
+      /*
+       * 相手が**この端末の内容へ揃えて**送ってきた → 差が無くなったので決着する。
+       * #234で自動採用をやめたため、この端末の内容は 'この端末の内容' のまま。
+       * 「相手が寄せてきた」形でないと converged にはならない(それが正しい)。
+       */
+      relay.blobs.push({ seq: relay.blobs.length + 1, deviceId: 'device-2', payload: JSON.stringify(fileOf('device-2', 'term-a', 'この端末の内容', 700)), createdAt: 2 });
       const second = await runSync(deps, 'tok');
 
       const all = await deps.noteConflictsRepo.getAllOrdered();
@@ -697,13 +708,14 @@ describe('syncEngine', () => {
     });
 
     it('B3: 競合検出と解消blobがページを跨いでも、同一のrunSync内で統一される', async () => {
-      const deps = track(makeDeps('device-an', true));
+      const deps = track(makeDeps('device-an'));
       await deps.notesRepo.saveBody('term-a', 'Android版の内容', 'device-an', 300);
-      const pcFile = (body: string, updatedAt: number) => ({
+      // #234: resolvedAt がある版だけが「相手の解消」として採用される
+      const pcFile = (body: string, updatedAt: number, resolvedAt: number | null = null) => ({
         syncSchemaVersion: 1,
         deviceId: 'device-pc',
         writtenAt: updatedAt,
-        notes: [{ termId: 'term-a', body, diagrams: [], updatedAt, lastEditedBy: 'device-pc', noteHistory: [] }],
+        notes: [{ termId: 'term-a', body, diagrams: [], updatedAt, lastEditedBy: 'device-pc', resolvedAt, noteHistory: [] }],
         asks: [],
         aiTerms: [],
       });
@@ -723,7 +735,7 @@ describe('syncEngine', () => {
           // 2ページ目: PCの解消結果 → baselineを超えるので決定として採用される
           return Promise.resolve(
             jsonResponse(200, {
-              blobs: [{ seq: 2, deviceId: 'device-pc', payload: JSON.stringify(pcFile('PCの解消結果', 900)), createdAt: 2 }],
+              blobs: [{ seq: 2, deviceId: 'device-pc', payload: JSON.stringify(pcFile('PCの解消結果', 900, 900)), createdAt: 2 }],
               latest: 2,
             }),
           );
@@ -850,7 +862,7 @@ describe('syncEngine', () => {
       // 競合はdevice-pcとの間で記録されたが、決定として採用されるのはdevice-3の新しい版。
       // 競合行(peerDeviceId=device-pc)は見つからないため自動クローズはされないが、
       // notesは統一され同期は完走する(防御分岐)
-      const deps = track(makeDeps('device-an', true));
+      const deps = track(makeDeps('device-an'));
       const relay = makeRelay();
       vi.stubGlobal('fetch', relay.fetchMock);
       relay.blobs.push({ seq: 1, deviceId: 'device-pc', payload: JSON.stringify(fileOf('device-pc', 'term-a', 'PC版', 400)), createdAt: 1 });
@@ -858,11 +870,12 @@ describe('syncEngine', () => {
       await runSync(deps, 'tok');
       expect((await deps.noteConflictsRepo.getOpen())[0].peerDeviceId).toBe('device-pc');
 
-      // 別端末(device-3)がbaselineより新しい版を出す
+      // 別端末(device-3)がbaselineより新しい**解消の版**を出す(#234: resolvedAtが要る)
+      const resolvedByDevice3 = fileOf('device-3', 'term-a', '端末3の版', 900, 'device-3', 900);
       relay.blobs.push({
         seq: relay.blobs.length + 1,
         deviceId: 'device-3',
-        payload: JSON.stringify(fileOf('device-3', 'term-a', '端末3の版', 900)),
+        payload: JSON.stringify(resolvedByDevice3),
         createdAt: 2,
       });
       const outcome = await runSync(deps, 'tok');
@@ -913,19 +926,20 @@ describe('syncEngine', () => {
       await runSync(deps, 'tok');
       expect(await deps.noteConflictsRepo.getOpen()).toHaveLength(1);
 
-      // 別peer(device-3)が、現在この端末が持つ内容と同じものを送ってくる → 競合は再発しない
+      // 別peer(device-3)のデータが届く。#234で自動採用しなくなったため、
+      // この端末は 'この端末の内容' のままで、device-3 とも新たに競合する
       relay.blobs.push({
         seq: relay.blobs.length + 1,
         deviceId: 'device-3',
-        payload: JSON.stringify(fileOf('device-3', 'term-a', '端末2の内容', 800)),
+        payload: JSON.stringify(fileOf('device-3', 'term-a', '端末3の内容', 800)),
         createdAt: 3,
       });
       await runSync(deps, 'tok');
 
+      // **device-2 の競合は閉じない**(その相手の版が来ていないため)。これが本題
       const open = await deps.noteConflictsRepo.getOpen();
-      expect(open).toHaveLength(1);
-      expect(open[0].peerDeviceId).toBe('device-2');
-      expect(open[0].closedReason).toBeNull();
+      expect(open.map((c) => c.peerDeviceId).sort()).toEqual(['device-2', 'device-3']);
+      expect(open.find((c) => c.peerDeviceId === 'device-2')?.closedReason).toBeNull();
     });
 
     /**
@@ -945,15 +959,15 @@ describe('syncEngine', () => {
       // 相手ごとに1件ずつ記録される(以前は最も新しい1台だけで、常に1件しかできなかった)
       const afterFirst = await deps.noteConflictsRepo.getOpen();
       expect(afterFirst.map((c) => c.peerDeviceId).sort()).toEqual(['device-2', 'device-3']);
-      // 内容は newest-wins で端末3の版になっている
-      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('端末3の内容');
+      // #234: 相手の方が新しくても、解消するまで自分の版のまま
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('この端末の内容');
 
-      // 端末2だけが、この端末の現在の内容と同じものを送ってくる
+      // 端末2だけが、この端末の現在の内容へ揃えて送ってくる → 差が無くなるので決着する
       relay.blobs.push({
         // seqは直書きしない: 自分のpushと衝突すると pull(seq > since) に乗らない
         seq: relay.blobs.length + 1,
         deviceId: 'device-2',
-        payload: JSON.stringify(fileOf('device-2', 'term-a', '端末3の内容', 600)),
+        payload: JSON.stringify(fileOf('device-2', 'term-a', 'この端末の内容', 600)),
         createdAt: 3,
       });
       await runSync(deps, 'tok');

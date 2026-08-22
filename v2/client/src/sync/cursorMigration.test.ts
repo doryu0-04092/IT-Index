@@ -31,7 +31,6 @@ function makeDeps(db: ItIndexDB): SyncEngineDeps {
     syncStateRepo: createSyncStateRepository(db),
     accountId: 'test-account',
     deviceId: 'device-1',
-    holdLocalOnConflict: false,
   };
 }
 

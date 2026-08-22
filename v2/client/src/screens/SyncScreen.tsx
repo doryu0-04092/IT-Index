@@ -193,7 +193,6 @@ export default function SyncScreen({
       syncStateRepo,
       deviceId,
       accountId,
-      holdLocalOnConflict: isNativeApp,
     };
 
     setSyncBusy(true);

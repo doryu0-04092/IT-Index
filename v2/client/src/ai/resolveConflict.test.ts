@@ -4,7 +4,7 @@ import type { AiClient } from './aiClient';
 import { resolveConflict } from './resolveConflict';
 
 function note(body: string, updatedAt: number, lastEditedBy: string): NoteRecord {
-  return { termId: 'tcp/ip', body, diagrams: [], updatedAt, lastEditedBy, noteHistory: [] };
+  return { termId: 'tcp/ip', body, diagrams: [], updatedAt, lastEditedBy, resolvedAt: null, noteHistory: [] };
 }
 
 describe('resolveConflict', () => {

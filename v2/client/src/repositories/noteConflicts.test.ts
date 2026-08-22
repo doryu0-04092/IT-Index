@@ -8,7 +8,7 @@ function makeDb(): ItIndexDB {
 }
 
 function makeConflict(termId = 'term-a'): NoteConflict {
-  const base = { termId, diagrams: [], noteHistory: [] };
+  const base = { termId, diagrams: [], resolvedAt: null, noteHistory: [] };
   return {
     termId,
     local: { ...base, body: 'この端末の内容', updatedAt: 100, lastEditedBy: 'device-1' },

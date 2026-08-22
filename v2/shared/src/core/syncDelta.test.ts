@@ -4,7 +4,7 @@ import type { NoteRecord } from '../types';
 import { computeSyncDelta } from './syncDelta';
 
 function note(termId: string, body: string): NoteRecord {
-  return { termId, body, diagrams: [], updatedAt: 1, lastEditedBy: 'device-A', noteHistory: [] };
+  return { termId, body, diagrams: [], updatedAt: 1, lastEditedBy: 'device-A', resolvedAt: null, noteHistory: [] };
 }
 
 describe('computeSyncDelta', () => {
