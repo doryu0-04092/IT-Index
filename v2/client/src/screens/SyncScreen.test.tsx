@@ -731,28 +731,66 @@ describe('SyncScreen', () => {
     await waitFor(() => expect(screen.getByText('解決済みの競合(1件)')).toBeTruthy());
     expect(send).toHaveBeenCalledTimes(1);
 
-    // 統合直後: 行があり、本文と✓採用中が見える。行内にボタンは無く、下部のAIボタンも無い
+    // 統合直後: 行があり、本文と✓採用中が見える。**ボタンも常設**(ラベルが「こちらを採用中」)。
+    // 下部のAIボタンだけは消える(AIを呼ぶ動線は未統合の時だけ)
     item = screen.getByText('term-a').closest('li')!;
     const entry = () => within(screen.getByText('term-a').closest('li')!).getByTestId('conflict-merged-entry');
     expect(within(entry()).getByText('統合された説明')).toBeTruthy();
     expect(entry().textContent).toContain('採用中');
-    expect(within(entry()).queryByRole('button', { name: 'こちらを採用' })).toBeNull();
+    expect(within(entry()).getByRole('button', { name: 'こちらを採用中' })).toBeTruthy();
     expect(within(item).queryByRole('button', { name: /AIで統合/ })).toBeNull();
 
-    // 元の内容へ選び直す: **統合の行も本文も消えない。** バッジが外れ「こちらを採用」が出る
+    // 元の内容へ選び直す: **統合の行も本文も消えない。** ラベルが「こちらを採用」へ戻る
     fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[0]);
     await waitFor(async () => expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('この端末の内容'));
     expect(within(entry()).getByText('統合された説明')).toBeTruthy();
-    expect(entry().textContent).not.toContain('採用中');
+    expect(within(entry()).getByRole('button', { name: 'こちらを採用' })).toBeTruthy();
 
     // 行の「こちらを採用」で統合結果へ戻す。AIは呼ばれない
     fireEvent.click(within(entry()).getByRole('button', { name: 'こちらを採用' }));
     await waitFor(async () => expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('統合された説明'));
     expect(send).toHaveBeenCalledTimes(1);
 
-    // 戻したら行はバッジ表示に戻る(行そのものは残り続ける)
-    await waitFor(() => expect(entry().textContent).toContain('採用中'));
-    expect(within(entry()).queryByRole('button', { name: 'こちらを採用' })).toBeNull();
+    // 戻したら行は「採用中」表示へ。**行もボタンも消えない**
+    await waitFor(() => expect(within(entry()).getByRole('button', { name: 'こちらを採用中' })).toBeTruthy());
+  });
+
+  /**
+   * **解決済みの競合カードは、新しい同期の後(=リロード後)も出続ける(本人指定)。**
+   *
+   * 以前は「直近の同期イベントに紐づく競合」しか読まなかったため、リロード時の自動pullで
+   * 新しい同期イベントができた瞬間、解決済みカードが同期画面から丸ごと消えていた
+   * (未解決はcarryOverで持ち越されるが、解決済みは持ち越されない)。相手が収束して
+   * convergedで閉じた後も同様に消えていた。統合した文面と採用ボタンの常設は、
+   * 一覧に載り続けて初めて成立する。
+   */
+  it('解決済みの競合は、新しい同期イベントの後も同期画面に出続ける', async () => {
+    const deps = createSyncDeps();
+    const merged = { body: '統合された説明', diagrams: [] };
+    const stored = await seedConflict(deps, makeConflict('term-a'));
+    await deps.noteConflictsRepo.setResolution(stored.id, 'merged', merged, 2000);
+    // 相手が収束して自動で閉じた状態も再現する(converged。それでも出続ける)
+    await deps.noteConflictsRepo.closeAuto(stored.id, 'converged', 2500);
+    // リロード後の自動pullを再現: 競合0件の新しい同期イベントが最新になる
+    await deps.syncEventsRepo.put({
+      id: 'event-new',
+      at: 9000,
+      pushedSeq: 2,
+      receivedBlobs: 0,
+      skippedBlobs: 0,
+      conflictCount: 0,
+      peerDeviceIds: [],
+      completed: true,
+    });
+    stubAuthedFetch();
+
+    renderSyncScreen(deps);
+    await waitFor(() => expect(screen.getByText('解決済みの競合(1件)')).toBeTruthy());
+
+    // 統合した文面が本文ごと見えている
+    const entry = screen.getByTestId('conflict-merged-entry');
+    expect(within(entry).getByText('統合された説明')).toBeTruthy();
+    expect(entry.textContent).toContain('採用中');
   });
 
   /** 決着済みだけのグループ(=競合履歴に出る形)でも統合できる(#246) */

@@ -147,9 +147,10 @@ export default function ConflictGroupItem({
             {adoptedLocal && adoptedBadge}
           </p>
           <p>{representative.local.body}</p>
-          {canResolve && !adoptedLocal && localTarget && (
+          {canResolve && localTarget && (
+            /* ボタンは常設(本人指定)。採用中はラベルで示す(v1と同じ形)。押しても同じ内容の再適用で無害 */
             <button type="button" className="btn-secondary" onClick={() => onChooseLocal(localTarget)}>
-              こちらを採用
+              {adoptedLocal ? 'こちらを採用中' : 'こちらを採用'}
             </button>
           )}
         </li>
@@ -176,10 +177,11 @@ export default function ConflictGroupItem({
                 <p className="status-text">{describeClosed(conflict.closedReason)}</p>
               )}
 
-              {interactive && !adopted && (
+              {interactive && (
                 <div className="conflict-device-actions">
+                  {/* ボタンは常設(本人指定)。採用中はラベルで示す(v1と同じ形) */}
                   <button type="button" className="btn-secondary" onClick={() => onChooseRemote(conflict)}>
-                    こちらを採用
+                    {adopted ? 'こちらを採用中' : 'こちらを採用'}
                   </button>
                 </div>
               )}
@@ -198,15 +200,16 @@ export default function ConflictGroupItem({
               {mergedAdopted && adoptedBadge}
             </p>
             <p>{mergedEntry.body}</p>
-            {canResolve && !mergedAdopted && cachedMerge !== null && (
+            {canResolve && cachedMerge !== null && (
               <div className="conflict-device-actions">
+                {/* ボタンは常設(本人指定)。採用中はラベルで示す(v1と同じ形)。AIは呼ばずキャッシュ適用のみ */}
                 <button
                   type="button"
                   className="btn-secondary"
                   onClick={() => onMergeAll(mergeTargets)}
                   disabled={merging}
                 >
-                  こちらを採用
+                  {mergedAdopted ? 'こちらを採用中' : 'こちらを採用'}
                 </button>
               </div>
             )}

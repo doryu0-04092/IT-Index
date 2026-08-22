@@ -143,13 +143,21 @@ export default function SyncScreen({
   const conflictGroups = groupConflictsByTerm(conflicts);
 
   const loadConflicts = useCallback(async () => {
-    // 直近の同期に紐づく競合だけを出す(#157)。同期記録がまだ無ければ空
+    // 未解決は直近の同期に紐づく分だけを出す(#157。openはcarryOverが最新イベントへ持ち越す)
     const latest = await syncEventsRepo.getLatest();
     const linked = latest ? await noteConflictsRepo.getBySyncEventId(latest.id) : [];
-    const active = linked.filter((c) => c.closedReason === null);
-    setConflicts(active.filter((c) => c.resolution === null));
+    setConflicts(linked.filter((c) => c.closedReason === null && c.resolution === null));
+    /*
+     * **解決済みは同期イベントに関係なく常設する(本人指定)。**
+     *
+     * 以前は直近イベントに紐づく分だけだったため、リロード時の自動pullで新しい同期
+     * イベントができた瞬間、解決済みカード(統合した文面・採用ボタンごと)が同期画面から
+     * 消えていた(解決済みはcarryOverの対象外)。相手が収束してconvergedで閉じた後も
+     * 同様に消えていた。選び直し・統合結果の常設は、一覧に載り続けて初めて成立する。
+     */
+    const all = await noteConflictsRepo.getAllOrdered();
     setResolvedConflicts(
-      active.filter((c) => c.resolution !== null).sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0)),
+      all.filter((c) => c.resolution !== null).sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0)),
     );
   }, [noteConflictsRepo, syncEventsRepo]);
 
