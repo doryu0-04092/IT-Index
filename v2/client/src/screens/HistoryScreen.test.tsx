@@ -108,6 +108,7 @@ function fakeNotesRepo(): NotesRepository {
 function fakeNoteConflictsRepo(conflicts: NoteConflictRecord[] = []): NoteConflictsRepository {
   return {
     add: () => Promise.reject(new Error('not implemented')),
+    pruneResolved: () => Promise.resolve(0),
     getAllOrdered: () => Promise.resolve([...conflicts].sort((a, b) => b.detectedAt - a.detectedAt)),
     getOpen: () => Promise.resolve(conflicts.filter((c) => c.resolution === null && c.closedReason === null)),
     findOpenByTermAndPeer: () => Promise.resolve(undefined),

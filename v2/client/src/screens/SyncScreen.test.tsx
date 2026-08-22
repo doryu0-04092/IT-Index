@@ -793,6 +793,53 @@ describe('SyncScreen', () => {
     expect(entry.textContent).toContain('採用中');
   });
 
+  /**
+   * **解決済みは最新30件まで。超えた分は古い順にDBから削除する(本人指定)。**
+   *
+   * 常設化(#246)で解決済みカードがたまり続けるため、上限を設ける。表示だけ隠すのではなく
+   * レコードごと消す(「削除していく方式」)。未解決の競合は削除の対象にしない。
+   */
+  it('解決済みが30件を超えたら、古いものからDBごと削除される', async () => {
+    const deps = createSyncDeps();
+    await deps.syncEventsRepo.put({
+      id: 'event-test',
+      at: 1000,
+      pushedSeq: 1,
+      receivedBlobs: 1,
+      skippedBlobs: 0,
+      conflictCount: 32,
+      peerDeviceIds: ['device-2'],
+      completed: true,
+    });
+    // 32語ぶんの解消済み + 未解決1件を作る(未解決は消えてはいけない)
+    for (let i = 1; i <= 32; i++) {
+      const stored = await deps.noteConflictsRepo.add(
+        makeConflict(`term-${String(i).padStart(2, '0')}`),
+        'device-2',
+        1000 + i,
+        'event-test',
+      );
+      await deps.noteConflictsRepo.setResolution(stored.id, 'local', null, 2000 + i);
+    }
+    await deps.noteConflictsRepo.add(makeConflict('term-open'), 'device-2', 1500, 'event-test');
+    stubAuthedFetch();
+
+    renderSyncScreen(deps);
+    await waitFor(() => expect(screen.getByText('解決済みの競合(30件)')).toBeTruthy());
+
+    // 最も古い2件(term-01, term-02)が消え、新しい30件が残る
+    expect(screen.queryByText('term-01')).toBeNull();
+    expect(screen.queryByText('term-02')).toBeNull();
+    expect(screen.getByText('term-03')).toBeTruthy();
+    expect(screen.getByText('term-32')).toBeTruthy();
+
+    // DBからも消えている(表示だけ隠すのではない)
+    const remaining = await deps.noteConflictsRepo.getAllOrdered();
+    expect(remaining.filter((c) => c.resolution !== null)).toHaveLength(30);
+    // 未解決は削除されない
+    expect(remaining.some((c) => c.termId === 'term-open' && c.resolution === null)).toBe(true);
+  });
+
   /** 決着済みだけのグループ(=競合履歴に出る形)でも統合できる(#246) */
   it('決着済みだけでも統合ボタンが出る(#246)', async () => {
     const deps = createSyncDeps();
