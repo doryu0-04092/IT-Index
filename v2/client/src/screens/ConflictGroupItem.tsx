@@ -106,20 +106,23 @@ export default function ConflictGroupItem({
    */
   const mergeTargets = resolvable;
   /*
-   * **統合ボタン領域は3状態(本人指定)。**
+   * **統合が終わったら「AIで統合した内容」を行として常設する(本人指定)。**
    *
-   * - **統合前(キャッシュ無し)**: 「AIで統合」。AIを呼ぶのはここだけ
-   * - **統合結果を採用中**: ボタンを出さない——「AIで統合した内容 ✓採用中」で完結して
-   *   いて、ボタンが残ると同じ内容で統合を繰り返す動線になる
-   * - **別の内容へ選び直した(採用中が外れた)**: 「統合した内容を採用」。AIは呼ばず
-   *   キャッシュを適用するだけ。戻したらまたボタンは消える
+   * 以前は採用中しか本文を出さなかったため、別の内容を選ぶと統合した文面ごと消え、
+   * 下部に文面の見えない採用ボタンだけが浮いていた。行は端末の行と完全に同じ操作:
+   * 採用中なら「✓採用中」バッジ、そうでなければ「こちらを採用」(AIは呼ばずキャッシュ適用)。
    *
-   * 例外: 新しい端末との競合が増えたら、採用中でも「AIで統合」を出し直す——
-   * その端末の情報がキャッシュに入っていないため(sharedMergedCacheの全件一致判定が弾く)。
+   * 下部の「AIで統合」は**使えるキャッシュが無い時だけ**——AIを呼ぶのはそこだけで、
+   * 統合後は行に役目を渡して消える。復活するのは、新しい端末との競合が増えて
+   * キャッシュにその端末の情報が無い時(sharedMergedCacheの全件一致判定が弾く)。
+   *
+   * 行の本文は原則キャッシュ。キャッシュが無効(新端末が加わった)でも統合結果を採用中なら、
+   * いまノートに入っている内容の説明として currentChoice.merged で行を出し続ける。
    */
-  const hasCachedMerge = sharedMergedCache(mergeTargets) !== null;
   const mergedAdopted = currentChoice?.resolution === 'merged';
-  const showMergeButton = mergeTargets.length > 0 && !(mergedAdopted && hasCachedMerge);
+  const cachedMerge = sharedMergedCache(mergeTargets);
+  const mergedEntry = cachedMerge ?? (mergedAdopted ? currentChoice.merged : null);
+  const showMergeButton = mergeTargets.length > 0 && cachedMerge === null;
 
   const localTarget = resolvable.length > 0
     ? resolvable.reduce((newest, c) => (c.detectedAt > newest.detectedAt ? c : newest))
@@ -183,15 +186,33 @@ export default function ConflictGroupItem({
             </li>
           );
         })}
-      </ol>
 
-      {currentChoice?.resolution === 'merged' && currentChoice.merged && (
-        /* 統合結果は全レコード共通なので、グループに1回だけ出す(#242) */
-        <div className="sync-conflict-merged-preview">
-          <p className="sync-conflict-side-title">AIで統合した内容{adoptedBadge}</p>
-          <p>{currentChoice.merged.body}</p>
-        </div>
-      )}
+        {mergedEntry !== null && (
+          /* 統合結果の行。端末の行と同じ形で、統合後は常設(消えない) */
+          <li
+            className={`sync-conflict-side${mergedAdopted ? ' conflict-adopted' : ''}`}
+            data-testid="conflict-merged-entry"
+          >
+            <p className="sync-conflict-side-title">
+              AIで統合した内容
+              {mergedAdopted && adoptedBadge}
+            </p>
+            <p>{mergedEntry.body}</p>
+            {canResolve && !mergedAdopted && cachedMerge !== null && (
+              <div className="conflict-device-actions">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => onMergeAll(mergeTargets)}
+                  disabled={merging}
+                >
+                  こちらを採用
+                </button>
+              </div>
+            )}
+          </li>
+        )}
+      </ol>
 
       {currentChoice !== null && currentChoice.closedReason === null && canResolve && (
         <p className="status-text">
@@ -212,17 +233,11 @@ export default function ConflictGroupItem({
             onClick={() => onMergeAll(mergeTargets)}
             disabled={merging}
           >
-            {merging
-              ? 'AIが統合しています…'
-              : hasCachedMerge
-                ? '統合した内容を採用'
-                : `すべての端末の内容をAIで統合(${mergeTargets.length + 1}件)`}
+            {merging ? 'AIが統合しています…' : `すべての端末の内容をAIで統合(${mergeTargets.length + 1}件)`}
           </button>
-          {!hasCachedMerge && (
-            <p className="status-text-small">
-              この端末と相手{mergeTargets.length}台の内容を、1回の処理で1つにまとめます。
-            </p>
-          )}
+          <p className="status-text-small">
+            この端末と相手{mergeTargets.length}台の内容を、1回の処理で1つにまとめます。
+          </p>
         </div>
       )}
 

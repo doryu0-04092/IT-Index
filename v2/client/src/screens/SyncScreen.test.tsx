@@ -368,10 +368,10 @@ describe('SyncScreen', () => {
     fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[0]);
     await waitFor(async () => expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('この端末の内容'));
 
-    // 再度「AIで統合する」(キャッシュがあるためボタン名は「統合した内容を採用」)を選ぶ
+    // 統合行(「AIで統合した内容」)の「こちらを採用」で統合結果へ戻す
     // -> AIを再度呼ばずキャッシュのbodyをそのまま適用する
     item = screen.getByText('tcp-ip').closest('li')!;
-    fireEvent.click(within(item).getByRole('button', { name: '統合した内容を採用' }));
+    fireEvent.click(within(within(item).getByTestId('conflict-merged-entry')).getByRole('button', { name: 'こちらを採用' }));
     await waitFor(async () => expect((await deps.notesRepo.getByTermId('tcp-ip'))?.body).toBe('統合された説明'));
     expect(send).toHaveBeenCalledTimes(1);
   });
@@ -705,15 +705,15 @@ describe('SyncScreen', () => {
   });
 
   /**
-   * **統合結果を採用している間は、ボタンを出さない(本人指定)。**
-   * 「AIで統合した内容 ✓採用中」の表示だけで完結している——ボタンが残ると、
-   * 同じ内容で統合を繰り返す動線になってしまう。
+   * **統合が終わったら「AIで統合した内容」は行として常設し、二度と消えない(本人指定)。**
+   * 以前は採用中しか本文を出さなかったため、別の内容を選ぶと統合した文面ごと消えていた。
    *
-   * **別の内容へ選び直したら(採用中の表示が外れたら)「統合した内容を採用」を出す。**
-   * AIは呼び直さない(キャッシュ適用のみ)。「AIで統合」へ戻るのは、新しい端末との
-   * 競合が増えてキャッシュにその端末の情報が無い時だけ。
+   * 行の操作は他の端末の行と完全に同じ形:
+   * **採用中なら「✓採用中」バッジ、そうでなければ「こちらを採用」ボタン**(AIは呼ばず
+   * キャッシュ適用)。下部の「AIで統合」は未統合の時だけ——統合後は行に役目を渡して消える
+   * (復活するのは、新しい端末との競合が増えてキャッシュにその端末の情報が無い時だけ)。
    */
-  it('統合結果を採用中はボタンが無く、選び直したら「統合した内容を採用」が出る', async () => {
+  it('統合後は「AIで統合した内容」が行として常設され、他の端末の行と同じ操作になる', async () => {
     const deps = createSyncDeps();
     await seedConflict(deps, makeConflict('term-a'));
     const send = vi.fn().mockResolvedValue({
@@ -731,25 +731,28 @@ describe('SyncScreen', () => {
     await waitFor(() => expect(screen.getByText('解決済みの競合(1件)')).toBeTruthy());
     expect(send).toHaveBeenCalledTimes(1);
 
-    // **統合結果を採用中は、統合系のボタンが一切出ない**(✓採用中の表示だけ)
+    // 統合直後: 行があり、本文と✓採用中が見える。行内にボタンは無く、下部のAIボタンも無い
     item = screen.getByText('term-a').closest('li')!;
+    const entry = () => within(screen.getByText('term-a').closest('li')!).getByTestId('conflict-merged-entry');
+    expect(within(entry()).getByText('統合された説明')).toBeTruthy();
+    expect(entry().textContent).toContain('採用中');
+    expect(within(entry()).queryByRole('button', { name: 'こちらを採用' })).toBeNull();
     expect(within(item).queryByRole('button', { name: /AIで統合/ })).toBeNull();
-    expect(within(item).queryByRole('button', { name: '統合した内容を採用' })).toBeNull();
 
-    // 元の内容へ選び直したら(採用中の表示が外れたら)「統合した内容を採用」が出る
+    // 元の内容へ選び直す: **統合の行も本文も消えない。** バッジが外れ「こちらを採用」が出る
     fireEvent.click(within(item).getAllByRole('button', { name: 'こちらを採用' })[0]);
     await waitFor(async () => expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('この端末の内容'));
-    fireEvent.click(within(item).getByRole('button', { name: '統合した内容を採用' }));
+    expect(within(entry()).getByText('統合された説明')).toBeTruthy();
+    expect(entry().textContent).not.toContain('採用中');
+
+    // 行の「こちらを採用」で統合結果へ戻す。AIは呼ばれない
+    fireEvent.click(within(entry()).getByRole('button', { name: 'こちらを採用' }));
     await waitFor(async () => expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('統合された説明'));
-    // AI呼び出しは最初の統合の1回だけ
     expect(send).toHaveBeenCalledTimes(1);
 
-    // 統合結果へ戻したので、ボタンはまた消える
-    await waitFor(() => {
-      const fresh = screen.getByText('term-a').closest('li')!;
-      expect(within(fresh).queryByRole('button', { name: '統合した内容を採用' })).toBeNull();
-      expect(within(fresh).queryByRole('button', { name: /AIで統合/ })).toBeNull();
-    });
+    // 戻したら行はバッジ表示に戻る(行そのものは残り続ける)
+    await waitFor(() => expect(entry().textContent).toContain('採用中'));
+    expect(within(entry()).queryByRole('button', { name: 'こちらを採用' })).toBeNull();
   });
 
   /** 決着済みだけのグループ(=競合履歴に出る形)でも統合できる(#246) */
