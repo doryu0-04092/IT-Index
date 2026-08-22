@@ -638,4 +638,42 @@ describe('SyncScreen', () => {
     });
   });
 
+  /**
+   * **「採用中」はグループに1つだけ(#242)。**
+   *
+   * 競合レコードは相手端末ごとに1件ずつある(#224)が、**ノートは1語に1つしか無い**。
+   * レコードごとにバッジを出していたため、別々の解消結果が入っていると
+   * 「AIで統合した内容」と「別の端末の内容」の両方に採用中が付き、
+   * **いまノートに入っているのがどれか画面から判断できなかった**(実機で報告された)。
+   */
+  it('解消結果が混在しても「採用中」は1つだけ(#242)', async () => {
+    const deps = createSyncDeps();
+    const merged = { body: 'AIが統合した内容', diagrams: [] };
+    // 相手2台。片方は「相手を採用」、もう片方は後から「AI統合」で決着した状態を作る
+    await seedConflict(deps, makeConflict('term-a'));
+    const stored = await deps.noteConflictsRepo.getAllOrdered();
+    await deps.noteConflictsRepo.setResolution(stored[0].id, 'remote', null, 1000);
+    const second = await deps.noteConflictsRepo.add(
+      { termId: 'term-a', local: stored[0].local, remote: { ...stored[0].remote, lastEditedBy: 'device-3' } },
+      'device-3',
+      1100,
+      stored[0].syncEventId ?? 'event-test',
+    );
+    await deps.noteConflictsRepo.setResolution(second.id, 'merged', merged, 2000);
+
+    localStorage.setItem('it-index-v2:token', 'tok-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' })));
+
+    renderSyncScreen(deps);
+    await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText('✓ 採用中').length).toBeGreaterThan(0));
+
+    // **1つだけ。** 最後に解消したもの(resolvedAt が最大 = AI統合)が現在の内容
+    expect(screen.getAllByText('✓ 採用中')).toHaveLength(1);
+    expect(screen.getByText('AIで統合した内容').textContent).toContain('採用中');
+
+    // 「現在の選択」もグループに1回だけ
+    expect(screen.getAllByText(/^現在の選択:/)).toHaveLength(1);
+  });
+
 });
