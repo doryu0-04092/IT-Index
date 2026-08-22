@@ -91,11 +91,28 @@ export function mergeSnapshot(
     // 同じ端末の古いblobと解消後のblobが両方入った場合に古い方を拾ってしまい、
     // 「baselineより新しくない=相手側の決定ではない」と誤判定して解消結果をバッチごと捨てていた
     // (PC解消→PC同期→Android同期の自然な1往復で統一されない実バグ)。
-    const conflictingRemote = localNote
-      ? remoteNotes
-          .filter((r) => isRealConflict(localNote, r))
-          .sort((a, b) => b.updatedAt - a.updatedAt)[0]
-      : undefined;
+    // 競合している相手を**端末ごとに1件**に畳む(#224)。
+    //
+    // 以前は最も新しい競合版1台だけを見ていたため、3台以上で編集しても competing する
+    // 相手が1件しか記録されず、画面は常に「この端末＋相手1台」の2行しか描けなかった
+    // (#203 は表示のまとめ方を直したが、まとめる材料が1件しか無かった)。
+    //
+    // **notes の勝者は1件のまま**(1語1note)で、competing する相手だけを複数持つ。
+    // 同じ端末の blob が1回のpullに複数入る場合があるので、端末ごとに最も新しい版へ畳む
+    // (#169と同じ理由: 古い版を拾うと解消結果を取りこぼす)。
+    const conflictingByDevice = new Map<string, NoteRecord>();
+    if (localNote) {
+      for (const r of remoteNotes) {
+        if (!isRealConflict(localNote, r)) continue;
+        const current = conflictingByDevice.get(r.lastEditedBy);
+        if (current === undefined || r.updatedAt > current.updatedAt) {
+          conflictingByDevice.set(r.lastEditedBy, r);
+        }
+      }
+    }
+    const conflictingRemotes = [...conflictingByDevice.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+    // 内容の採否(newest-wins・PC決定の判定)は従来どおり**最も新しい1件**で決める
+    const conflictingRemote = conflictingRemotes[0];
 
     if (localNote === undefined || conflictingRemote === undefined) {
       // 競合なし: 両モード共通でnewest-wins
@@ -104,9 +121,11 @@ export function mergeSnapshot(
     }
 
     if (!options?.holdLocalOnConflict) {
-      // 従来動作(PC): newest-winsで先に内容を確定し、競合としても記録する
+      // 従来動作(PC): newest-winsで先に内容を確定し、競合としても記録する。
+      // 記録は競合している相手ごと(#224)——採用される内容は1つでも、
+      // 「誰と食い違っているか」は端末の数だけある
       notes.push(newest);
-      conflicts.push({ termId, local: localNote, remote: conflictingRemote });
+      for (const remote of conflictingRemotes) conflicts.push({ termId, local: localNote, remote });
       continue;
     }
 
@@ -119,7 +138,8 @@ export function mergeSnapshot(
       peerDecisions.push({ termId, adopted: conflictingRemote });
     } else {
       notes.push(localNote);
-      conflicts.push({ termId, local: localNote, remote: conflictingRemote });
+      // 決定として採用しなかった場合も、競合は相手ごとに記録する(#224)
+      for (const remote of conflictingRemotes) conflicts.push({ termId, local: localNote, remote });
     }
   }
 

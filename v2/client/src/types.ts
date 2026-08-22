@@ -128,6 +128,6 @@ export interface NoteConflictRecord {
    * - 'superseded': 次の同期で新鮮なデータが届き、競合が再発しなかった
    * openの定義 = resolution===null && closedReason===null
    */
-  closedReason: 'peer-decision' | 'superseded' | null;
+  closedReason: 'peer-decision' | 'converged' | 'superseded' | null;
   closedAt: number | null;
 }

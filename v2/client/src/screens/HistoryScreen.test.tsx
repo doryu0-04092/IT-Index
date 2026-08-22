@@ -471,11 +471,18 @@ describe('HistoryScreen', () => {
       expect(screen.queryByRole('button', { name: '競合を見る' })).toBeNull();
     });
 
-    it('自動クローズ済みの競合は理由を表示し、選び直しの対象にしない', async () => {
+    /**
+     * #224 で期待値を変更した。元は「自動クローズ済みは一律で選び直し不可」だったが、
+     * 内容が揃って自動で閉じた競合は**利用者が一度も選んでいない**ため、それでは選び直す
+     * 手段が無くなる(退避した版は競合レコードが保持しているのに使えない)。
+     * 'peer-decision'(AndroidがPCの決定を採用した記録)だけは対象外のまま——
+     * 解消をPC側に集約する設計(#157/#165)を崩さないため。
+     */
+    it('自動クローズ済みの競合は理由を表示し、peer-decision以外は選び直せる(#224)', async () => {
       const events = [makeSyncEvent('event-1', 1000, 1)];
       const conflicts = [
         makeConflictRecord({ id: 'c1', termId: 'tcp-ip', syncEventId: 'event-1', closedReason: 'peer-decision', closedAt: 2000 }),
-        makeConflictRecord({ id: 'c2', termId: 'dns', syncEventId: 'event-1', closedReason: 'superseded', closedAt: 2000 }),
+        makeConflictRecord({ id: 'c2', termId: 'dns', syncEventId: 'event-1', closedReason: 'converged', closedAt: 2000 }),
       ];
       renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'conflicts', fakeChatRepo(), {
         syncEvents: events,
@@ -484,8 +491,25 @@ describe('HistoryScreen', () => {
 
       await waitFor(() => expect(screen.getByText('tcp-ip')).toBeTruthy());
       expect(screen.getByText('パソコン側の解消結果に統一済みです。')).toBeTruthy();
+      expect(screen.getByText('相手の端末と同じ内容になったため決着しました。')).toBeTruthy();
+      // convergedの1件ぶん(この端末/相手の2つ)だけ出る。peer-decisionの分は出ない
+      expect(screen.getAllByRole('button', { name: 'こちらを採用' })).toHaveLength(2);
+    });
+
+    /** #224以前に書かれた 'superseded' の記録も、文言が出て選び直せること(移行の担保) */
+    it('旧レコードの superseded も理由を表示し、選び直せる(#224)', async () => {
+      const events = [makeSyncEvent('event-1', 1000, 1)];
+      const conflicts = [
+        makeConflictRecord({ id: 'c3', termId: 'dns', syncEventId: 'event-1', closedReason: 'superseded', closedAt: 2000 }),
+      ];
+      renderHistory(fakeAsksRepo([]), fakeTermsRepo([]), 'conflicts', fakeChatRepo(), {
+        syncEvents: events,
+        conflicts,
+      });
+
+      await waitFor(() => expect(screen.getByText('dns')).toBeTruthy());
       expect(screen.getByText('解消済みです(次の同期で競合が再発しませんでした)。')).toBeTruthy();
-      expect(screen.queryByRole('button', { name: 'こちらを採用' })).toBeNull();
+      expect(screen.getAllByRole('button', { name: 'こちらを採用' })).toHaveLength(2);
     });
 
     it('競合0件時は「まだ競合の記録がありません。」を表示する', async () => {

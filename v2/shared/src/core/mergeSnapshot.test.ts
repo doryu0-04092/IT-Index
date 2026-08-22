@@ -185,14 +185,21 @@ describe('mergeSnapshot', () => {
         expect(result.conflicts[0].remote.body).toBe('B版(新)');
       });
 
-      it('A4: 3端末(別peer)の競合版が混在しても、最も新しい版が競合相手になる', () => {
+      /**
+       * #224 で期待値を変更した。元は「conflicts は1件」を固定していたが、それは
+       * **3台目が記録されない**という欠陥そのものだった(実機で「3端末で編集しても2行しか出ない」
+       * として現れた)。このテストの本来の意図は #169 由来の**古い版を掴まないこと**なので、
+       * そちらは「先頭(最も新しい競合版)が C版であること」で引き続き固定する。
+       */
+      it('A4: 3端末(別peer)の競合版が混在したら相手ごとに積み、先頭は最も新しい版になる', () => {
         const local: LocalSnapshot = { notes: [note('tcp', 'from A', 3, 'A')], asks: [], aiTerms: [] };
         const remote = [syncFile('B', [note('tcp', 'B版', 4, 'B')]), syncFile('C', [note('tcp', 'C版', 7, 'C')])];
 
         const result = mergeSnapshot(local, remote);
 
-        expect(result.conflicts).toHaveLength(1);
-        expect(result.conflicts[0].remote.body).toBe('C版');
+        expect(result.conflicts).toHaveLength(2);
+        expect(result.conflicts[0].remote.body).toBe('C版'); // 古い方を掴まない(#169の再発防止)
+        expect(result.conflicts.map((c) => c.remote.lastEditedBy).sort()).toEqual(['B', 'C']);
       });
     });
 
@@ -296,4 +303,82 @@ describe('mergeSnapshot', () => {
       });
     });
   });
+
+  /**
+   * 3端末での競合(#224)。
+   *
+   * 従来は「最も新しい競合版」1台だけを conflicts に積んでいたため、3台目以降が
+   * どこにも記録されず、画面には常に「この端末＋相手1台」の2行しか出せなかった
+   * (#203 は表示のまとめ方だけを直したが、まとめる材料が1件しか無かった)。
+   *
+   * **notes の勝者は1件のまま**(1語1note)で、conflicts だけを相手ごとに積む。
+   */
+  describe('複数端末との競合(#224)', () => {
+    it('3端末がそれぞれ独自に編集したら、競合を相手ごとに積む', () => {
+      const local: LocalSnapshot = { notes: [note('tcp', 'Aの版', 5, 'A')], asks: [], aiTerms: [] };
+      const remote = [syncFile('B', [note('tcp', 'Bの版', 3, 'B')]), syncFile('C', [note('tcp', 'Cの版', 4, 'C')])];
+
+      const result = mergeSnapshot(local, remote);
+
+      expect(result.conflicts).toHaveLength(2);
+      expect(result.conflicts.map((c) => c.remote.lastEditedBy).sort()).toEqual(['B', 'C']);
+    });
+
+    it('競合が複数でも、採用される note は1件だけ(newest-wins)', () => {
+      const local: LocalSnapshot = { notes: [note('tcp', 'Aの版', 5, 'A')], asks: [], aiTerms: [] };
+      const remote = [syncFile('B', [note('tcp', 'Bの版', 9, 'B')]), syncFile('C', [note('tcp', 'Cの版', 4, 'C')])];
+
+      const result = mergeSnapshot(local, remote);
+
+      expect(result.notes.filter((n) => n.termId === 'tcp')).toHaveLength(1);
+      expect(result.notes.find((n) => n.termId === 'tcp')?.body).toBe('Bの版');
+    });
+
+    /** 競合として積むのは isRealConflict を満たす相手だけ。受け取っただけの端末は数えない */
+    it('片方が「受け取っただけ」なら、その端末は競合に数えない', () => {
+      const local: LocalSnapshot = { notes: [note('tcp', 'Aの新しい版', 5, 'A')], asks: [], aiTerms: [] };
+      const remote = [
+        syncFile('B', [note('tcp', 'Aの古い版', 3, 'A')]), // Bは受け取っただけ(lastEditedBy=A)
+        syncFile('C', [note('tcp', 'Cの版', 4, 'C')]),
+      ];
+
+      const result = mergeSnapshot(local, remote);
+
+      expect(result.conflicts).toHaveLength(1);
+      expect(result.conflicts[0].remote.lastEditedBy).toBe('C');
+    });
+
+    /** 同じ端末の blob が1回のpullに複数入っても、その端末ぶんは1件に畳む(#169と同じ理由) */
+    it('同じ端末の版が複数届いても、その端末の競合は最も新しい1件に畳む', () => {
+      const local: LocalSnapshot = { notes: [note('tcp', 'Aの版', 5, 'A')], asks: [], aiTerms: [] };
+      const remote = [
+        syncFile('B', [note('tcp', 'Bの古い版', 2, 'B')]),
+        syncFile('B', [note('tcp', 'Bの新しい版', 8, 'B')]),
+      ];
+
+      const result = mergeSnapshot(local, remote);
+
+      expect(result.conflicts).toHaveLength(1);
+      expect(result.conflicts[0].remote.body).toBe('Bの新しい版');
+    });
+
+    /**
+     * holdLocalOnConflict(Androidネイティブ)では、PCの決定を採用する判定は従来どおり
+     * **語単位で1つ**。決定を採用しなかった場合に、残りの相手ぶんの競合が記録される。
+     */
+    it('holdLocalOnConflict でも、採用しなかった相手ぶんの競合を記録する', () => {
+      const local: LocalSnapshot = { notes: [note('tcp', 'Aの版', 5, 'A')], asks: [], aiTerms: [] };
+      const remote = [syncFile('B', [note('tcp', 'Bの版', 3, 'B')]), syncFile('C', [note('tcp', 'Cの版', 4, 'C')])];
+
+      const result = mergeSnapshot(local, remote, {
+        holdLocalOnConflict: true,
+        openConflictBaselines: new Map(), // baselineが無い=決定とみなさない
+      });
+
+      expect(result.peerDecisions).toHaveLength(0);
+      expect(result.notes.find((n) => n.termId === 'tcp')?.body).toBe('Aの版'); // 自分の版を保持
+      expect(result.conflicts.map((c) => c.remote.lastEditedBy).sort()).toEqual(['B', 'C']);
+    });
+  });
+
 });
