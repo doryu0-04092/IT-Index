@@ -1,5 +1,5 @@
 import { ApiRequestError } from './apiClient';
-import { runSync, type SyncEngineDeps, type SyncRunResult } from './syncEngine';
+import { runSync, SyncKeyMissingError, type SyncEngineDeps, type SyncRunResult } from './syncEngine';
 import { runPendingBlobCleanup } from './syncKeyCleanup';
 
 /**
@@ -33,7 +33,7 @@ export interface AutoPullDeps {
 }
 
 export type AutoPullOutcome =
-  | { status: 'skipped'; reason: 'not-authed' | 'not-ready' | 'offline' }
+  | { status: 'skipped'; reason: 'not-authed' | 'not-ready' | 'offline' | 'no-key' }
   | { status: 'succeeded'; result: SyncRunResult }
   | { status: 'failed'; reason: 'unlicensed' | 'other' };
 
@@ -54,6 +54,11 @@ export async function runAutoPull(deps: AutoPullDeps): Promise<AutoPullOutcome> 
     const result = await runSync(deps.syncDeps, deps.token);
     return { status: 'succeeded', result };
   } catch (err) {
+    // 鍵が無い(#226)。同期の前提が揃っていないだけなので、起動時に割り込まない——
+    // 同期タブを開けば「鍵を作る/受け取る」の案内が出る
+    if (err instanceof SyncKeyMissingError) {
+      return { status: 'skipped', reason: 'no-key' };
+    }
     // 未ライセンス(403)は「使えない」であって異常ではない。他の失敗と区別はするが、
     // どちらも画面には出さない
     if (err instanceof ApiRequestError && err.status === 403) {

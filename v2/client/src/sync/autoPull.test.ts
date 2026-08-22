@@ -8,13 +8,21 @@ import { createSyncEventsRepository } from '../repositories/syncEvents';
 import { createSyncStateRepository } from '../repositories/syncState';
 import { createTermsRepository } from '../repositories/terms';
 import { runAutoPull, shouldRefreshAfterAutoPull, type AutoPullOutcome } from './autoPull';
+import { generateDataKey } from './syncCrypto';
+import { setDataKey } from './syncKeyStore';
 import type { SyncEngineDeps, SyncRunResult } from './syncEngine';
 
 const dbs: ItIndexDB[] = [];
 
-function makeSyncDeps(): SyncEngineDeps {
+/**
+ * @param withKey 同期の前提となる鍵を用意するか(#226)。
+ *   エンジンは鍵を自動生成しなくなったので、渡さない限り同期は skipped('no-key') になる。
+ *   既定でtrueにしてあるのは、鍵の有無を論点にしないテストを素直に書けるようにするため。
+ */
+function makeSyncDeps({ withKey = true }: { withKey?: boolean } = {}): SyncEngineDeps {
   const db = new ItIndexDB(`test-autoPull-${Math.random()}`);
   dbs.push(db);
+  if (withKey) setDataKey('acc-1', generateDataKey());
   return {
     db,
     termsRepo: createTermsRepository(db),
@@ -121,6 +129,27 @@ describe('runAutoPull', () => {
 
     expect(outcome).toEqual({ status: 'failed', reason: 'other' });
   });
+
+  /**
+   * 鍵が無ければ同期しない(#226)。
+   *
+   * 以前は同期エンジンが鍵を自動生成していたため、**起動しただけで**受け渡しを
+   * 一度もしていない端末が独自の鍵で push でき、鍵の受け渡しという仕組みが迂回できた。
+   * 画面のボタンを塞ぐだけでは足りない——自動pullはボタンを通らないため、エンジン側で止める。
+   */
+  it('鍵が無ければ同期せず、pushもpullも行わない(#226)', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const outcome = await runAutoPull({
+      token: 'tok',
+      syncDeps: makeSyncDeps({ withKey: false }),
+      online: true,
+    });
+
+    expect(outcome).toEqual({ status: 'skipped', reason: 'no-key' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('shouldRefreshAfterAutoPull', () => {
@@ -146,4 +175,9 @@ describe('shouldRefreshAfterAutoPull', () => {
     expect(shouldRefreshAfterAutoPull({ status: 'skipped', reason: 'offline' })).toBe(false);
     expect(shouldRefreshAfterAutoPull({ status: 'failed', reason: 'unlicensed' })).toBe(false);
   });
+  /** 鍵が無い間は画面の再読込も走らせない(何も起きていないため) */
+  it('鍵が無い場合はshouldRefreshAfterAutoPullがfalse(#226)', () => {
+    expect(shouldRefreshAfterAutoPull({ status: 'skipped', reason: 'no-key' })).toBe(false);
+  });
+
 });

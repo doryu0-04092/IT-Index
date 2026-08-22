@@ -35,12 +35,21 @@ export function clearDataKey(accountId: string): void {
   localStorage.removeItem(storageKey(accountId));
 }
 
+/** 鍵を持っているか(#226)。同期の可否と画面の出し分けに使う */
+export function hasDataKey(accountId: string): boolean {
+  return getDataKey(accountId) !== null;
+}
+
 /**
  * 鍵が無ければ作って保存し、あればそれを返す。
  *
- * **最初にpushする端末がここで鍵を作る。** 2台目は「復号できない差分が届く」ことで
- * 鍵が揃っていないと分かるので、そこで受け渡しへ誘導する(SyncScreen)。
- * 先に鍵の受け渡しを済ませていなくても同期を始められるようにするための入口。
+ * **呼んでよいのは「利用者が鍵を作る/渡すと決めた」経路だけ(#226)。**
+ * 同期の実行経路からは呼ばない——以前は syncEngine がこれを呼んでいたため、
+ * 鍵の受け渡しを一度もしていない端末が独自の鍵で push でき、
+ * **鍵の受け渡しという仕組みそのものが迂回できた**(起動時の自動pullでも起きた)。
+ *
+ * 現在の呼び出し元は、QRの表示・数字コードでの受け渡し・
+ * 「この端末で新しく鍵を作る」の3つ。いずれも利用者の明示的な操作が起点。
  */
 export function getOrCreateDataKey(accountId: string): string {
   const existing = getDataKey(accountId);

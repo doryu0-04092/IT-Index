@@ -10,6 +10,8 @@ import { createSyncEventsRepository } from '../repositories/syncEvents';
 import { createSyncStateRepository } from '../repositories/syncState';
 import { createTermsRepository } from '../repositories/terms';
 import { ApiRequestError } from '../sync/apiClient';
+import { generateDataKey } from '../sync/syncCrypto';
+import { setDataKey } from '../sync/syncKeyStore';
 import SyncScreen from './SyncScreen';
 
 function jsonResponse(status: number, body: unknown) {
@@ -80,8 +82,14 @@ function renderSyncScreen(
     onSyncApplied?: () => void;
     onSyncNotify?: (message: string, variant: 'error' | 'info') => void;
     onGoToConflictHistory?: () => void;
+    /**
+     * 同期の前提となる鍵を用意するか(#226)。エンジンは鍵を自動生成しなくなったので、
+     * 用意しないと同期できない。鍵の有無を論点にしないテストのため既定でtrue。
+     */
+    withKey?: boolean;
   } = {},
 ) {
+  if (options.withKey !== false) setDataKey('acc-1', generateDataKey());
   render(
     <SyncScreen
       db={deps.db}
@@ -101,6 +109,17 @@ function renderSyncScreen(
     />,
   );
   return deps;
+}
+
+/**
+ * 「今すぐ同期」を押す。鍵の判定は accountId 確定の次のtickで入る(#226)ため、
+ * 押せるようになるまで待ってから押す(実際の利用者の操作と同じ)。
+ */
+async function clickSyncNow() {
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: '今すぐ同期' }).hasAttribute('disabled')).toBe(false),
+  );
+  fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
 }
 
 describe('SyncScreen', () => {
@@ -197,7 +216,7 @@ describe('SyncScreen', () => {
     renderSyncScreen();
     await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
 
-    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+    await clickSyncNow();
 
     // 表示は「実際に変わった語数」(#202)。受信blobの件数ではない
     await waitFor(() => expect(screen.getByText(/変わった内容はありません/)).toBeTruthy());
@@ -226,8 +245,7 @@ describe('SyncScreen', () => {
 
     renderSyncScreen(createSyncDeps(), { onSyncNotify });
     await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
-
-    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+    await clickSyncNow();
 
     await waitFor(() => expect(onSyncNotify).toHaveBeenCalled());
     const [message, variant] = onSyncNotify.mock.calls[0] as [string, string];
@@ -449,7 +467,7 @@ describe('SyncScreen', () => {
 
     renderSyncScreen(deps, { onSyncApplied });
     await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+    await clickSyncNow();
 
     await waitFor(() => expect(onSyncApplied).toHaveBeenCalledTimes(1));
   });
@@ -468,7 +486,7 @@ describe('SyncScreen', () => {
 
     renderSyncScreen(createSyncDeps(), { onSyncApplied });
     await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }));
+    await clickSyncNow();
 
     await waitFor(() => expect(screen.getByText(/変わった内容はありません/)).toBeTruthy());
     expect(onSyncApplied).not.toHaveBeenCalled();
@@ -575,6 +593,49 @@ describe('SyncScreen', () => {
     const link = await waitFor(() => screen.getByRole('button', { name: '競合履歴を見る' }));
     fireEvent.click(link);
     expect(onGoToConflictHistory).toHaveBeenCalled();
+  });
+
+  /**
+   * 鍵の受け渡しを同期の前提にする(#226)。
+   *
+   * 以前は同期エンジンが鍵を自動生成していたため、受け渡しを一度もしていない端末でも
+   * 同期でき、**鍵の受け渡しという仕組みそのものが迂回できた**。1台目は作る、
+   * 2台目以降は受け取る——どちらを選ぶかで結果が大きく変わるため、暗黙に作らず必ず選ばせる。
+   */
+  describe('鍵が無い状態(#226)', () => {
+    async function renderAuthed(withKey = false) {
+      localStorage.setItem('it-index-v2:token', 'tok-1');
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' })),
+      );
+      renderSyncScreen(createSyncDeps(), { withKey });
+      await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
+    }
+
+    it('鍵が無ければ「今すぐ同期」を押せず、作る/受け取るの案内を出す', async () => {
+      await renderAuthed();
+
+      expect(screen.getByTestId('sync-key-required')).toBeTruthy();
+      expect(screen.getByRole('button', { name: '今すぐ同期' }).hasAttribute('disabled')).toBe(true);
+      expect(screen.getByRole('button', { name: 'この端末で新しく鍵を作る' })).toBeTruthy();
+    });
+
+    it('「この端末で新しく鍵を作る」を押すと同期できるようになる', async () => {
+      await renderAuthed();
+
+      fireEvent.click(screen.getByRole('button', { name: 'この端末で新しく鍵を作る' }));
+
+      await waitFor(() => expect(screen.queryByTestId('sync-key-required')).toBeNull());
+      expect(screen.getByRole('button', { name: '今すぐ同期' }).hasAttribute('disabled')).toBe(false);
+    });
+
+    it('鍵を持っていれば案内を出さない', async () => {
+      await renderAuthed(true);
+
+      await waitFor(() => expect(screen.queryByTestId('sync-key-required')).toBeNull());
+      expect(screen.getByRole('button', { name: '今すぐ同期' }).hasAttribute('disabled')).toBe(false);
+    });
   });
 
 });

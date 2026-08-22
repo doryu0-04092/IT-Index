@@ -22,7 +22,6 @@ function jsonResponse(status: number, body: unknown) {
 }
 
 const onKeyAdopted = vi.fn<() => Promise<void>>();
-const onSyncNow = vi.fn();
 
 function renderSection(undecryptableBlobs = 0) {
   render(
@@ -31,8 +30,6 @@ function renderSection(undecryptableBlobs = 0) {
       accountId={ACCOUNT}
       undecryptableBlobs={undecryptableBlobs}
       onKeyAdopted={onKeyAdopted}
-      onSyncNow={onSyncNow}
-      syncBusy={false}
     />,
   );
 }
@@ -51,7 +48,6 @@ describe('KeyTransferSection', () => {
     startQrScan.mockResolvedValue(() => {});
     onKeyAdopted.mockReset();
     onKeyAdopted.mockResolvedValue(undefined);
-    onSyncNow.mockReset();
   });
 
   afterEach(() => {
@@ -223,9 +219,8 @@ describe('KeyTransferSection', () => {
     expect(done.textContent).toContain('鍵を受け取りました');
     // 鍵の受け渡しと同期は別であることを、この場で伝える
     expect(done.textContent).toContain('まだデータは同期されていません');
-
-    fireEvent.click(within(done).getByRole('button', { name: '今すぐ同期' }));
-    expect(onSyncNow).toHaveBeenCalledTimes(1);
+    // 「今すぐ同期」はこの画面の上部にあり、ここには置かない(#226。同じ操作を2箇所に置かない)
+    expect(within(done).queryByRole('button', { name: '今すぐ同期' })).toBeNull();
   });
 
   it('古い差分の削除に失敗したら警告を出し、やり直しで消せるようにする', async () => {
