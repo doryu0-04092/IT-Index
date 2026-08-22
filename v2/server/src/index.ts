@@ -260,6 +260,63 @@ app.get('/api/auth/me', requireAuth, async (c) => {
 });
 
 /**
+ * パスワードの変更(ログイン中のみ)。**現在のパスワードを必ず検証する**——トークンだけで
+ * 変更できると、端末を一時的に触られただけで乗っ取られる。
+ *
+ * **「ログインできない状態からの再設定」はここでは扱わない。** それには本人性を確認する
+ * 別の経路(メール送信等)が要り、Workers + D1 の構成に新しい依存・秘密情報・費用が乗る。
+ * 現状は「1台でもログインできる端末があれば直せる」ところまでを提供する。
+ *
+ * 新しいパスワードは signup と**同じ** validatePassword を通す。ここを緩めると、
+ * 登録時の要件(#205)を変更経由で迂回できてしまう。
+ */
+app.post('/api/auth/password', requireAuth, async (c) => {
+  const accountId = c.get('accountId');
+  const body = await c.req
+    .json<{ currentPassword?: string; newPassword?: string }>()
+    .catch(() => null);
+  const currentPassword = body?.currentPassword;
+  const newPassword = body?.newPassword;
+
+  if (!currentPassword || !newPassword) {
+    return c.json(
+      { error: { code: 'invalid_request', message: '現在のパスワードと新しいパスワードが必要です' } },
+      400
+    );
+  }
+
+  const account = await c.env.DB.prepare('SELECT password_hash FROM accounts WHERE id = ?1')
+    .bind(accountId)
+    .first<{ password_hash: string }>();
+  if (!account) {
+    return c.json({ error: { code: 'unauthorized', message: '認証が必要です' } }, 401);
+  }
+
+  const ok = await verifyPassword(currentPassword, account.password_hash);
+  if (!ok) {
+    // ログインの invalid_credentials とは別のコードにする——ここは本人が認証済みで、
+    // 「どちらが違うのか」を隠す必要が無い(隠すと直せない)
+    return c.json(
+      { error: { code: 'invalid_current_password', message: '現在のパスワードが正しくありません' } },
+      401
+    );
+  }
+
+  const policy = validatePassword(newPassword);
+  if (!policy.ok) {
+    return c.json({ error: { code: 'weak_password', message: policy.message } }, 400);
+  }
+
+  await c.env.DB.prepare('UPDATE accounts SET password_hash = ?1 WHERE id = ?2')
+    .bind(await hashPassword(newPassword), accountId)
+    .run();
+
+  // トークンは無効化しない。JWTは自前で失効させる仕組みが無く、ここで
+  // 「他端末からログアウトさせた」と見せかけると事実と食い違う(できないことを謳わない)。
+  return c.json({ ok: true }, 200);
+});
+
+/**
  * お支払い方法(表示情報)の登録・変更。**有効なライセンスを持つアカウントだけ**が呼べる——
  * ライセンスと無関係なカードを登録できると、設定画面が「引き落とされているカード」として
  * 実態のないカードを表示してしまうため(この不整合が元の不具合の一部)。

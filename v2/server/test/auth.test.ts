@@ -157,3 +157,70 @@ describe('auth', () => {
     expect(body.error.code).toBe('unauthorized');
   });
 });
+
+
+describe('パスワードの変更 (#220)', () => {
+  async function changePassword(token: string, currentPassword: string, newPassword: string) {
+    return exports.default.fetch(`${BASE}/api/auth/password`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  }
+
+  async function newAccount() {
+    const email = `user-${crypto.randomUUID()}@example.com`;
+    const res = await signup(email, 'TestPass2026');
+    const { token } = await res.json<{ token: string }>();
+    return { email, token };
+  }
+
+  it('変更後は新しいパスワードで入れ、古いパスワードでは入れない', async () => {
+    const { email, token } = await newAccount();
+
+    expect((await changePassword(token, 'TestPass2026', 'NewPass2026x')).status).toBe(200);
+    expect((await login(email, 'NewPass2026x')).status).toBe(200);
+    expect((await login(email, 'TestPass2026')).status).toBe(401);
+  });
+
+  it('現在のパスワードが違えば変更できない(トークンだけでは変えられない)', async () => {
+    const { email, token } = await newAccount();
+
+    const res = await changePassword(token, 'WrongPass2026', 'NewPass2026x');
+    expect(res.status).toBe(401);
+    const body = await res.json<{ error: { code: string } }>();
+    expect(body.error.code).toBe('invalid_current_password');
+
+    // 変更されていないこと
+    expect((await login(email, 'TestPass2026')).status).toBe(200);
+  });
+
+  it('新しいパスワードにも登録時と同じ要件が効く(変更経由で迂回できない)', async () => {
+    const { email, token } = await newAccount();
+
+    const res = await changePassword(token, 'TestPass2026', 'weak');
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: { code: string } }>();
+    expect(body.error.code).toBe('weak_password');
+
+    expect((await login(email, 'TestPass2026')).status).toBe(200);
+  });
+
+  it('未ログインでは変更できない', async () => {
+    const res = await exports.default.fetch(`${BASE}/api/auth/password`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ currentPassword: 'TestPass2026', newPassword: 'NewPass2026x' }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('他人のパスワードは変えられない(トークンのアカウントだけが対象)', async () => {
+    const a = await newAccount();
+    const b = await newAccount();
+
+    // aのトークンで変更しても、bは影響を受けない
+    expect((await changePassword(a.token, 'TestPass2026', 'NewPass2026x')).status).toBe(200);
+    expect((await login(b.email, 'TestPass2026')).status).toBe(200);
+  });
+});
