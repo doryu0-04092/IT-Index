@@ -4,7 +4,7 @@ import type { NoteConflictRecord } from '../types';
 import { groupConflictsByTerm, localSideOf, MAX_CONFLICT_DEVICES } from './groupConflicts';
 
 function note(body: string, updatedAt: number, lastEditedBy: string): NoteRecord {
-  return { termId: 'term-a', body, diagrams: [], updatedAt, lastEditedBy, noteHistory: [] };
+  return { termId: 'term-a', body, diagrams: [], updatedAt, lastEditedBy, resolvedAt: null, noteHistory: [] };
 }
 
 function conflict(overrides: {

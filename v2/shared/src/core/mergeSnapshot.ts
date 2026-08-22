@@ -25,17 +25,20 @@ export interface NoteConflict {
 }
 
 /**
- * マージ規則のオプション(#157)。プラットフォーム名はsharedに持ち込まず、方針名で抽象化する。
- * 省略時は従来どおり(newest-wins + 競合記録)。
+ * マージ規則のオプション(#157 → #234で意味を変更)。
+ *
+ * **競合中は常に自分の版を保持する。** 以前は端末の種類で挙動を分けていた
+ * (Androidは保持・PCはnewest-wins)が、PC側で「利用者が何もしていないのに自分の本文が
+ * 相手の版へ置き換わる」ことが実測で分かったため、保持に統一した。
  */
 export interface MergeOptions {
   /**
    * trueなら競合時にlocalを保持し、LWWで上書きしない(Androidネイティブ向け)。
    * 競合の決着はPC側で付け、その決定が届いたときだけ採用する(openConflictBaselines参照)。
    */
-  holdLocalOnConflict?: boolean;
+
   /**
-   * holdLocalOnConflict時のみ使用。termId → その端末で未クローズ競合が検出された時点の
+   * termId → その端末で未クローズ競合が検出された時点の
    * remote.updatedAt。これより新しいremote版は「相手側(PC)の決定」とみなして採用する。
    * PC側の解消はapplyConflictResolutionでupdatedAt=現在時刻になるため必ずbaselineを超える。
    * PCが解消せず単に追加編集した場合も決定扱いになるが、PC権威モデルとして許容する(#157)。
@@ -43,7 +46,7 @@ export interface MergeOptions {
   openConflictBaselines?: Map<string, number>;
 }
 
-/** holdLocalOnConflict時に「相手側の決定」として採用したnote(呼び出し側が競合のクローズに使う) */
+/** 「相手側の決定」として採用したnote(呼び出し側が競合のクローズに使う) */
 export interface PeerDecision {
   termId: string;
   adopted: NoteRecord;
@@ -54,7 +57,7 @@ export interface MergeResult {
   conflicts: NoteConflict[];
   asks: AskRecord[];
   terms: TermRecord[];
-  /** holdLocalOnConflict時のみ非空。省略モードでは常に[] */
+  /** 相手の解消を採用した時だけ非空 */
   peerDecisions: PeerDecision[];
 }
 
@@ -111,7 +114,7 @@ export function mergeSnapshot(
       }
     }
     const conflictingRemotes = [...conflictingByDevice.values()].sort((a, b) => b.updatedAt - a.updatedAt);
-    // 内容の採否(newest-wins・PC決定の判定)は従来どおり**最も新しい1件**で決める
+    // 内容の採否(相手の解消を採用するかの判定)は**最も新しい1件**で決める
     const conflictingRemote = conflictingRemotes[0];
 
     if (localNote === undefined || conflictingRemote === undefined) {
@@ -120,25 +123,55 @@ export function mergeSnapshot(
       continue;
     }
 
-    if (!options?.holdLocalOnConflict) {
-      // 従来動作(PC): newest-winsで先に内容を確定し、競合としても記録する。
-      // 記録は競合している相手ごと(#224)——採用される内容は1つでも、
-      // 「誰と食い違っているか」は端末の数だけある
-      notes.push(newest);
-      for (const remote of conflictingRemotes) conflicts.push({ termId, local: localNote, remote });
-      continue;
-    }
+    /*
+     * **競合したら自分の版を保持する(#234)。相手の内容を採るのは、それが解消の結果の時だけ。**
+     *
+     * 以前はPC側だけ newest-wins で内容を確定していたため、**利用者が何もしていないのに
+     * 自分の書いた本文が相手の版へ置き換わっていた**(しかも noteHistory にも残らず、
+     * 競合レコードのスナップショットにしか残らなかった)。実測で確認して方針を変えた。
+     *
+     * 採用の条件は2つとも要る:
+     *
+     * 1. `resolvedAt` がある = **相手が競合を解消した結果**である。
+     *    単なる追加編集を「決定」と扱うと、結局は黙って上書きされることになる
+     *    (#157はこれを「PC権威モデルとして許容する」としていたが、方針を変えた)
+     * 2. 競合検出時に見た版より新しい = **まだ取り込んでいない解消**である。
+     *    古い解消を採ると、こちらが後から決めた内容が巻き戻る
+     *
+     * baselineが無い(=この語の競合をまだ記録していない)場合は採用しない。
+     * 初めて競合を検出した回に相手の解消を採ると、こちらの利用者が一度も見ないまま
+     * 内容が変わることになるため。
+     */
+    const baseline = options?.openConflictBaselines?.get(termId);
+    /*
+     * 解消の版は**競合相手に限定せず**、この語のremote全体から探す。
+     *
+     * 限定すると取りこぼす: 相手が解消した内容がこちらの過去版と一致していると
+     * `isRealConflict` が false になり(「相手はこちらの過去版を持っているだけ」の判定)、
+     * 競合相手の一覧から外れる。他の端末とはまだ競合しているので保持の分岐に入り、
+     * **相手の決定が捨てられる**。5端末の繰り返しシナリオで実際に踏んだ。
+     */
+    const peerDecision = remoteNotes
+      .filter(
+        (r) =>
+          // 値が入っている時だけ解消の結果とみなす(undefinedは「解消していない」)
+          typeof r.resolvedAt === 'number' &&
+          // こちらの版より新しい解消だけを採る。同じか古いものは既に反映済みか、巻き戻し
+          r.updatedAt > localNote.updatedAt &&
+          // 競合を記録済みなら、その時に見た版より新しいことも要る。
+          // baselineが無い(=まだ競合を見ていない)場合もここは通す——**通さないと、
+          // 一度も競合を見ていない端末に解消結果が永久に届かない**(実ブラウザで踏んだ)
+          (baseline === undefined || r.updatedAt > baseline),
+      )
+      .sort((a, b) => b.updatedAt - a.updatedAt)[0];
 
-    // holdLocalOnConflict(Androidネイティブ): 競合検出時のremote版より新しい版が来ていれば
-    // 「相手側(PC)の決定」とみなして採用し、そうでなければ自分の版を保持する。
-    // 保持を入れないと「自分の書いた内容がLWWで勝手に変わった」状態から競合に気づくことになる。
-    const baseline = options.openConflictBaselines?.get(termId);
-    if (baseline !== undefined && conflictingRemote.updatedAt > baseline) {
-      notes.push(conflictingRemote);
-      peerDecisions.push({ termId, adopted: conflictingRemote });
+    if (peerDecision !== undefined) {
+      notes.push(peerDecision);
+      peerDecisions.push({ termId, adopted: peerDecision });
     } else {
       notes.push(localNote);
-      // 決定として採用しなかった場合も、競合は相手ごとに記録する(#224)
+      // 競合は相手ごとに記録する(#224)——採用される内容は1つでも、
+      // 「誰と食い違っているか」は端末の数だけある
       for (const remote of conflictingRemotes) conflicts.push({ termId, local: localNote, remote });
     }
   }

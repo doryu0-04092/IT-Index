@@ -58,6 +58,7 @@ describe('createNotesRepository', () => {
       diagrams: [],
       updatedAt: 200,
       lastEditedBy: 'device-2',
+      resolvedAt: null,
       noteHistory: [], // 送信側はstripNoteHistoryで空配列にしてくる
     });
 
@@ -76,6 +77,7 @@ describe('createNotesRepository', () => {
       diagrams: [],
       updatedAt: 100,
       lastEditedBy: 'device-2',
+      resolvedAt: null,
       noteHistory: [],
     });
 
@@ -141,6 +143,7 @@ describe('createNotesRepository', () => {
       diagrams: [],
       updatedAt,
       lastEditedBy: 'device-pc',
+      resolvedAt: null,
       noteHistory: [],
     });
 

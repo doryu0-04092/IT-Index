@@ -185,4 +185,61 @@ test.describe('5端末の競合が画面にどう出るか', () => {
       for (const context of contexts) await context.close();
     }
   });
+  /**
+   * **競合の解消をして初めて、その内容が他の端末でも共有される(#234)。**
+   *
+   * 以前は競合していても newest-wins で内容を確定していたため、利用者が何もしていないのに
+   * 自分の書いた本文が相手の版へ置き換わっていた。画面から見えるのはここなので、
+   * 実ブラウザでも固定しておく。
+   */
+  test('解消するまで自分の内容のまま。解消して初めて相手へ届く(#234)', async ({ browser, request }) => {
+    const email = uniqueEmail();
+    const signupRes = await request.post('/api/auth/signup', { data: { email, password: PASSWORD } });
+    expect(signupRes.status()).toBe(201);
+    const { token } = (await signupRes.json()) as { token: string };
+    const meRes = await request.get('/api/auth/me', { headers: { authorization: `Bearer ${token}` } });
+    const { accountId } = (await meRes.json()) as { accountId: string };
+    const dataKey = makeDataKey();
+
+    const contexts: BrowserContext[] = [];
+    try {
+      const contextA = await browser.newContext();
+      const contextB = await browser.newContext();
+      contexts.push(contextA, contextB);
+      const deviceA = await openDevice(contextA, { token, accountId, dataKey });
+      const deviceB = await openDevice(contextB, { token, accountId, dataKey });
+
+      // 2端末が同じ語を別内容に。**Bの方が後に書く**(=更新が新しい)
+      await writeNote(deviceA, 'Aが書いた内容');
+      await writeNote(deviceB, 'Bが書いた内容');
+      await syncNow(deviceB);
+      await syncNow(deviceA);
+
+      // **相手の方が新しくても、Aのノートは自分の内容のまま**
+      await deviceA.getByRole('button', { name: '検索', exact: true }).click();
+      await deviceA.getByRole('combobox', { name: '用語を検索' }).fill('TCP/IP');
+      await deviceA.getByRole('option', { name: TERM_OPTION }).click();
+      await expect(deviceA.getByRole('textbox', { name: 'ノート本文' })).toHaveValue('Aが書いた内容');
+
+      // Aが「この端末の内容」で解消 → push
+      await deviceA.getByRole('button', { name: '同期', exact: true }).click();
+      await deviceA
+        .getByTestId(/^conflict-group-/)
+        .getByRole('button', { name: 'こちらを採用' })
+        .first()
+        .click();
+      await expect(deviceA.getByRole('heading', { name: /^未解決の競合/ })).toBeHidden({ timeout: 15_000 });
+      await syncNow(deviceA);
+
+      // **解消して初めて、Bへ届く**
+      await syncNow(deviceB);
+      await deviceB.getByRole('button', { name: '検索', exact: true }).click();
+      await deviceB.getByRole('combobox', { name: '用語を検索' }).fill('TCP/IP');
+      await deviceB.getByRole('option', { name: TERM_OPTION }).click();
+      await expect(deviceB.getByRole('textbox', { name: 'ノート本文' })).toHaveValue('Aが書いた内容');
+    } finally {
+      for (const context of contexts) await context.close();
+    }
+  });
+
 });

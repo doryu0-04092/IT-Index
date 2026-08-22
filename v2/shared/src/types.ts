@@ -96,6 +96,17 @@ export interface NoteRecord {
   diagrams: string[]; // Mermaid文字列。body とは独立して壊れてよい
   updatedAt: number;
   lastEditedBy: string; // deviceId
+  /**
+   * **この版が競合の解消の結果なら、その時刻(#234)。** 通常の編集では null。
+   *
+   * 「競合の解消をして初めて他の端末でも共有される」を成立させるために要る。
+   * 以前は「相手の版が競合検出時より新しければ相手の決定とみなす」という推定で、
+   * **解消と単なる追加編集を区別できなかった**——結果として、利用者が何もしていないのに
+   * 相手の追加編集で自分の本文が置き換わっていた。
+   *
+   * **同期対象**(相手の端末がこれを見て採否を決める)。noteHistoryと違い落とさない。
+   */
+  resolvedAt: number | null;
   noteHistory: NoteHistoryEntry[]; // 同期対象外。ロールバック用
 }
 

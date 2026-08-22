@@ -33,7 +33,6 @@ function makeSyncDeps({ withKey = true }: { withKey?: boolean } = {}): SyncEngin
     syncStateRepo: createSyncStateRepository(db),
     accountId: 'acc-1',
     deviceId: 'device-1',
-    holdLocalOnConflict: false,
   };
 }
 

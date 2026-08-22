@@ -15,7 +15,7 @@ import { generateDataKey } from './syncCrypto';
 import { setDataKey } from './syncKeyStore';
 import { pushToRelay, runSync, type SyncEngineDeps } from './syncEngine';
 
-function makeDeps(deviceId: string, holdLocalOnConflict: boolean): SyncEngineDeps {
+function makeDeps(deviceId: string): SyncEngineDeps {
   const db = new ItIndexDB(`test-inv179-${Math.random()}`);
   // 同期の前提として鍵を用意する(#226。エンジンは鍵を自動生成しなくなった)
   setDataKey('test-account', generateDataKey());
@@ -29,7 +29,6 @@ function makeDeps(deviceId: string, holdLocalOnConflict: boolean): SyncEngineDep
     syncStateRepo: createSyncStateRepository(db),
     accountId: 'test-account',
     deviceId,
-    holdLocalOnConflict,
   };
 }
 
@@ -82,8 +81,8 @@ describe('削除→再取り込みの伝播(#179回帰)', () => {
   it('S1: Androidが削除→再取り込み(自動push)→PCの同期1回で再取り込み後の内容が届く', async () => {
     const relay = makeRelay();
     vi.stubGlobal('fetch', relay.fetchMock);
-    const pc = track(makeDeps('device-pc', false));
-    const android = track(makeDeps('device-an', true));
+    const pc = track(makeDeps('device-pc'));
+    const android = track(makeDeps('device-an'));
 
     // Androidで取り込み→自動push→両端末が同期して揃う
     const termId = await aiCommit(android, 'ゼロトラスト', '最初の説明', 1000);
@@ -108,8 +107,8 @@ describe('削除→再取り込みの伝播(#179回帰)', () => {
   it('S2: 削除が一度同期で両端末に渡った後に再取り込み→PCで復活する', async () => {
     const relay = makeRelay();
     vi.stubGlobal('fetch', relay.fetchMock);
-    const pc = track(makeDeps('device-pc', false));
-    const android = track(makeDeps('device-an', true));
+    const pc = track(makeDeps('device-pc'));
+    const android = track(makeDeps('device-an'));
 
     const termId = await aiCommit(android, 'ゼロトラスト', '最初の説明', 1000);
     await pushToRelay(android, 'tok');
@@ -134,8 +133,8 @@ describe('削除→再取り込みの伝播(#179回帰)', () => {
   it('S3: 両端末が独自に同じ語を取り込み→Androidが削除→再取り込み→PCに競合として確立される', async () => {
     const relay = makeRelay();
     vi.stubGlobal('fetch', relay.fetchMock);
-    const pc = track(makeDeps('device-pc', false));
-    const android = track(makeDeps('device-an', true));
+    const pc = track(makeDeps('device-pc'));
+    const android = track(makeDeps('device-an'));
 
     // 両端末が独自に同じ語を取り込む(idは正規化から作られるため同一になる)
     const termId = await aiCommit(android, 'ゼロトラスト', 'Android側の説明', 1000);
@@ -154,15 +153,15 @@ describe('削除→再取り込みの伝播(#179回帰)', () => {
     const open = await pc.noteConflictsRepo.getOpen();
     expect(open).toHaveLength(1);
     expect(open[0].remote.body).toBe('Android再取り込みの説明'); // 最新版が競合相手
-    // LWWでは新しい方が先に採用されている(PC画面から解消で選び直せる)
-    expect((await pc.notesRepo.getByTermId(termId))?.body).toBe('Android再取り込みの説明');
+    // #234: 解消するまでPC側の内容は変わらない。相手の版は競合カードから選べる
+    expect((await pc.notesRepo.getByTermId(termId))?.body).toBe('PC側の説明');
   });
 
   it('S4: PC側が削除→再取り込みした場合も、Androidの同期1回で届く(方向の対称性)', async () => {
     const relay = makeRelay();
     vi.stubGlobal('fetch', relay.fetchMock);
-    const pc = track(makeDeps('device-pc', false));
-    const android = track(makeDeps('device-an', true));
+    const pc = track(makeDeps('device-pc'));
+    const android = track(makeDeps('device-an'));
 
     const termId = await aiCommit(pc, 'ゼロトラスト', '最初の説明', 1000);
     await pushToRelay(pc, 'tok');

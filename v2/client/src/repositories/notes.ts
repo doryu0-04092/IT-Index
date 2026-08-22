@@ -69,6 +69,9 @@ export function createNotesRepository(db: ItIndexDB): NotesRepository {
           diagrams: existing?.diagrams ?? [],
           updatedAt: at,
           lastEditedBy: deviceId,
+          // 手入力の保存は「解消の結果」ではない(#234)。ここをnullにしないと、
+          // 単なる追加編集が相手の端末で決定として採用されてしまう
+          resolvedAt: null,
           noteHistory,
         };
         await db.notes.put(next);
@@ -82,7 +85,8 @@ export function createNotesRepository(db: ItIndexDB): NotesRepository {
           ? [...existing.noteHistory, { body: existing.body, diagrams: existing.diagrams, updatedAt: existing.updatedAt }]
           : [];
 
-        const next: NoteRecord = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, noteHistory };
+        // AI確定も「解消の結果」ではない(#234)
+        const next: NoteRecord = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, resolvedAt: null, noteHistory };
         await db.notes.put(next);
       });
     },
@@ -117,7 +121,14 @@ export function createNotesRepository(db: ItIndexDB): NotesRepository {
         }
         remember({ body: rejected.body, diagrams: rejected.diagrams, updatedAt: at });
 
-        const next: NoteRecord = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, noteHistory };
+        /*
+         * **ここだけが resolvedAt を立てる(#234)。**
+         *
+         * 「競合の解消をして初めて他の端末でも共有される」を成立させる印。
+         * 相手の端末はこの印を見て、採用してよい版かどうかを決める
+         * (印が無ければ単なる追加編集なので、相手は自分の版を保持し続ける)。
+         */
+        const next: NoteRecord = { termId, body, diagrams, updatedAt: at, lastEditedBy: deviceId, resolvedAt: at, noteHistory };
         await db.notes.put(next);
       });
     },

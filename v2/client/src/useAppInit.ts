@@ -31,19 +31,6 @@ export interface AppInit {
    */
   isNativeApp: boolean;
   /**
-   * `isNativeApp` の判定が**終わっているか**(#217)。
-   *
-   * `isNativeApp` の初期値 `false` は「PCである」ではなく「まだ分からない」を意味する。
-   * 見た目の出し分けなら未確定のまま描画してもすぐ直るが、**同期に渡す
-   * `holdLocalOnConflict` は取り返しがつかない**——Androidで `false` のまま走ると
-   * newest-wins マージになり、ローカルのノートが履歴に残らないまま上書きされる(#157参照)。
-   * 起動時の自動pull(App.tsx)はこれが true になるまで待つ。
-   *
-   * `detectIsNativeApp()` は読み込みに失敗しても `false` を返して**必ず解決する**
-   * (lib/platform.ts)ため、これが永久に false のままになることは無い。
-   */
-  platformSettled: boolean;
-  /**
    * 既存語への自動反映の範囲(要件定義書§5.3)。設定UIは無く、settingsRepo.get()の既定値
    * ('askedOnly')で動作する。settingsRepo.get()が終わるまでは'askedOnly'を仮の値として使う
    * (この間に確定操作自体が起きることは無い。deviceIdもnullで確定オーケストレーターが
@@ -76,7 +63,6 @@ export function useAppInit(): AppInit {
 
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [isNativeApp, setIsNativeApp] = useState(false);
-  const [platformSettled, setPlatformSettled] = useState(false);
   const [autoUpdateExistingTerms, setAutoUpdateExistingTerms] = useState<AutoUpdateExistingTermsMode>('askedOnly');
   const [seedError, setSeedError] = useState<string | null>(null);
   const [seedSettled, setSeedSettled] = useState(false);
@@ -114,12 +100,8 @@ export function useAppInit(): AppInit {
       setDeviceId(s.deviceId);
       setAutoUpdateExistingTerms(s.autoUpdateExistingTerms);
     });
-    // プラットフォーム判定(#157)。競合解消UIの出し分け(PC=解消可/Androidネイティブ=案内のみ)に使う。
-    // 判定の完了(platformSettled)も併せて立てる——起動時の自動pullが待つため(#217)
-    void detectIsNativeApp().then((native) => {
-      setIsNativeApp(native);
-      setPlatformSettled(true);
-    });
+    // プラットフォーム判定(#157)。競合解消UIの出し分け(PC=解消可/Androidネイティブ=案内のみ)に使う
+    void detectIsNativeApp().then(setIsNativeApp);
     // 起動時クリーンアップ(本人指定)。旧バージョンの残骸——不可視の空セッションと、
     // AI呼び出し失敗で質問だけが残ったセッション(#132以前の保存順によるもの)——を
     // 一度だけ削除する。setStateを呼ばないためeffect内から直接fire-and-forgetしてよい
@@ -143,7 +125,6 @@ export function useAppInit(): AppInit {
     syncStateRepo,
     deviceId,
     isNativeApp,
-    platformSettled,
     autoUpdateExistingTerms,
     seedError,
     seedSettled,

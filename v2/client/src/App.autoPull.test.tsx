@@ -58,24 +58,24 @@ describe('起動時の自動pullとプラットフォーム判定の順序(#217)
    * 上書きされる(sync/syncEngine.ts / repositories/notes.ts の upsertFromSync)。
    * Androidには競合解消UIが無いため戻せない。
    */
-  it('判定が deviceId より遅れて確定しても、Androidネイティブとして自動pullが走る', async () => {
-    let resolveNative!: (value: boolean) => void;
-    vi.mocked(detectIsNativeApp).mockReturnValue(
-      new Promise<boolean>((resolve) => {
-        resolveNative = resolve;
-      }),
-    );
+  /**
+   * #217では「プラットフォーム判定が終わるまで自動pullを走らせない」ことを固定していた。
+   * 判定の結果(`isNativeApp`)を `holdLocalOnConflict` として同期へ渡していたためで、
+   * 未確定のfalseで走るとAndroidのノートが上書きされる恐れがあった。
+   *
+   * **#234でその分岐自体を廃止した**(全端末が同じ規則で動く)ため、待つ理由が無くなった。
+   * ここでは逆に、**判定が終わらなくても自動pullが止まらない**ことを固定する——
+   * 待たせたままにすると、判定の失敗が同期の停止に化ける。
+   */
+  it('プラットフォーム判定が終わらなくても、自動pullは止まらない(#234で待つ必要が無くなった)', async () => {
+    // 判定のPromiseを握ったまま解決しない
+    vi.mocked(detectIsNativeApp).mockReturnValue(new Promise<boolean>(() => {}));
 
     render(<App />);
     await waitForStartup();
 
-    // 判定を握ったままなので、この時点で走っていてはいけない
-    expect(runAutoPull).not.toHaveBeenCalled();
-
-    resolveNative(true);
-
     await waitFor(() => expect(runAutoPull).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(runAutoPull).mock.calls[0][0].syncDeps?.holdLocalOnConflict).toBe(true);
+    expect(vi.mocked(runAutoPull).mock.calls[0][0].syncDeps?.deviceId).toBeTruthy();
   });
 
   /**
@@ -90,7 +90,7 @@ describe('起動時の自動pullとプラットフォーム判定の順序(#217)
     await waitForStartup();
 
     await waitFor(() => expect(runAutoPull).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(runAutoPull).mock.calls[0][0].syncDeps?.holdLocalOnConflict).toBe(false);
+    expect(vi.mocked(runAutoPull).mock.calls[0][0].syncDeps?.deviceId).toBeTruthy();
   });
 
   /** 判定が確定しても、起動につき1回だけ(ref ガードの意図を壊していないこと) */

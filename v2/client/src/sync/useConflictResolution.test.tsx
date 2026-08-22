@@ -14,7 +14,7 @@ import { useConflictResolution } from './useConflictResolution';
  * どちらも「利用者のデータを壊さない」ことが要点。
  */
 function makeConflictRecord(): NoteConflictRecord {
-  const base = { termId: 'tcp-ip', diagrams: [], noteHistory: [] };
+  const base = { termId: 'tcp-ip', diagrams: [], resolvedAt: null, noteHistory: [] };
   return {
     id: 'conflict-1',
     termId: 'tcp-ip',
