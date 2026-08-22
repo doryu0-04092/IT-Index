@@ -6,7 +6,7 @@ import { defineConfig } from 'vitest/config';
 // 自前で読み込むため、ここではディレクトリを指すだけで良い(vitest workspaceの標準的な使い方)。
 export default defineConfig({
   test: {
-    projects: ['shared', 'client', 'server'],
+    projects: ['shared', 'client', 'server', 'integration'],
     /**
      * カバレッジ計測(#171)。同期関連のロジック層に限定して計測する——UIコンポーネントの
      * 全分岐100%は防御コストに見合わないため対象に含めない(#171の合意事項)。

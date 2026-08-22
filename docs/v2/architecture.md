@@ -518,6 +518,60 @@ it-index/
 - **E2E**: 主要フロー(検索→チャット→確定→重み付け、2端末同期)。investigate系の使い捨てスペックは持ち込まない
 - **CI**: PR時に型検査・lint・単体・E2Eを実行。既存のv1向けCI([.github/workflows/](../../.github/workflows/))にv2ジョブを追加する形で開始
 
+### 結合テスト: クライアントの同期エンジンを実サーバー相手に回す(#230)
+
+**同期は799件のテストが緑だったが、クライアントとサーバーを繋いだ検証が1つも無かった。**
+クライアントはサーバーの模型を、サーバーはクライアントの模型を相手にしていた。
+
+しかも**模型が実サーバーとずれていた**。
+
+| | 実サーバー | 模型(`client/src/sync/syncEngine.test.ts`) |
+|---|---|---|
+| `latest` | `COALESCE(MAX(seq), 0)` | `blobs.length` |
+| #202の圧縮(端末ごと最新1件) | あり | 無し |
+
+圧縮が起きると両者は乖離する。**「カーソルが正しく進むか」を実際とは違う条件で確かめていた。**
+
+#### 置き場所と作り
+
+`v2/integration/` を4つ目のvitestプロジェクトとして置く(shared/client/server と並ぶ)。
+サーバーテストに混ぜないのは、**何をするテストか名前で分かるようにする**ため。
+
+**workerd の中でクライアント側も動かす。** `fake-indexeddb`・Dexie・`crypto.subtle` が
+workerd で動くことを実測で確かめたので、`wrangler dev` を別プロセスで立てる必要が無い。
+サーバーは `exports.default.fetch` で実物を叩く(`server/test` と同じ流儀)。
+
+**アプリ側のコードは一切変えない。** `apiClient` の基底URLは
+`getServerBaseUrl() ?? VITE_API_BASE ?? ''` の順なので、`setServerBaseUrl` を入れれば
+実サーバーを向く。テスト用の配線は `globalThis.fetch` の差し替え1箇所だけ。
+
+workerd に `localStorage` が無いため、`integration/setup.ts` で最小の代替を置く
+(`fake-indexeddb` と同じ「ブラウザAPIのテスト用代替」)。
+
+#### 出力は「何が起きたか」を残す(本人指定)
+
+pass/fail だけでは、直ったかどうかを設計意図と突き合わせられない。各ステップの状態を1行で出す。
+
+```
+端末A・B・Cが「tcp-ip」を別々に編集 → B・Cがpush
+端末A: ノート="Aの版" 未解決=2(B,C) 決着=0 カーソル=3
+端末BがAの版に揃えてpush
+端末A: ノート="Aの版" 未解決=1(C) 決着=1(B:converged) カーソル=5
+```
+
+そのまま実機確認の台本になる。
+
+#### 欠陥を捕まえることを確認済み
+
+`mergeSnapshot` を #224 の修正前へ戻すと、3端末のテストが
+`expected [ 'device-C' ] to deeply equal [ 'device-B', 'device-C' ]` で落ちる。
+**実サーバー相手でも欠陥を検出できる**ことを実測で確かめてある。
+
+#### 残る穴
+
+**画面は通っていない。** E2E(`v2/e2e/`)は `vite preview` で `/api` が無いため、
+ログイン・同期・競合表示は画面越しに一度も動かされていない(#231で扱う)。
+
 ### 非同期待ちの予算と並列度(#204)
 
 `waitFor` / `findBy*` の待ち時間は**実時間**で数えるが、待っている仕事(React再レンダー・jsdomの描画)の
