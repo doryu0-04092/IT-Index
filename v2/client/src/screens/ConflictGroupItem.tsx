@@ -87,21 +87,31 @@ export default function ConflictGroupItem({
    * こちら側にも採用ボタンを出さない——出すと相手側だけ操作不可という
    * ちぐはぐな状態になり、押しても解消をPC側へ集約する設計(#157/#165)に反する。
    */
+  /** 解消できる競合。'peer-decision'(相手の決定を採用した記録)だけ対象外(#157/#165) */
+  const resolvable = group.conflicts.filter((c) => c.closedReason !== 'peer-decision');
+
   // 統合はグループ単位(#238)。状態も語(termId)をキーに持つ
   const merging = mergingId === group.termId;
   const mergeError = mergeErrors[group.termId] ?? null;
   const mergeErrorCode = mergeErrorCodes[group.termId] ?? null;
-  /** まだ決着していない競合。統合はこれ全部をまとめて対象にする */
-  const openConflicts = group.conflicts.filter((c) => c.resolution === null && c.closedReason === null);
-  /**
-   * 統合を選び直せる対象(#238)。未解決が無くても、以前の統合結果が残っていて
-   * いまそれを採用していない場合は戻せるようにする——AIは呼び直さない(フック側で判定)。
+  /*
+   * **統合の対象は「解消できる競合」全部(#246)。**
+   *
+   * #238で「未解決があるとき」に狭めたため、**どれかを採用した瞬間にボタンが消えていた**。
+   * 競合履歴に出るのは決着済みが中心なので、履歴タブではほぼ常に出なかった。
+   * 「一度どれかを採用したが、あとで全部まとめたい」ができなくなる。
+   *
+   * 対象外は 'peer-decision'(相手の決定を採用した記録)だけ——解消をPC側へ集約する
+   * 設計(#157/#165)は変えない。
    */
-  const mergeTargets =
-    openConflicts.length > 0 ? openConflicts : resolvableWithMergedCache(group.conflicts);
-  const hasCachedMerge = openConflicts.length === 0 && mergeTargets.length > 0;
+  const mergeTargets = resolvable;
+  /**
+   * 以前の統合結果をそのまま戻せる状態か。**AIを呼ばずに済む**ので文言を分ける。
+   * いま統合結果を採用中なら対象外——押し直しは「やり直し」の意図なので作り直す。
+   */
+  const hasCachedMerge =
+    currentChoice?.resolution !== 'merged' && sharedMergedCache(mergeTargets) !== null;
 
-  const resolvable = group.conflicts.filter((c) => c.closedReason !== 'peer-decision');
   const localTarget = resolvable.length > 0
     ? resolvable.reduce((newest, c) => (c.detectedAt > newest.detectedAt ? c : newest))
     : undefined;
@@ -227,12 +237,15 @@ export default function ConflictGroupItem({
  * 全件が同じ結果を持っている場合だけ「戻せる」——1件でも欠けていれば、
  * その相手の情報が入っていない古い結果なので作り直す必要がある。
  */
-function resolvableWithMergedCache(conflicts: NoteConflictRecord[]): NoteConflictRecord[] {
-  const withCache = conflicts.filter((c) => c.merged !== null && c.closedReason !== 'peer-decision');
-  if (withCache.length === 0 || withCache.length !== conflicts.length) return [];
-  if (withCache.every((c) => c.resolution === 'merged')) return []; // 既に採用中
-  const first = withCache[0].merged;
-  return withCache.every((c) => c.merged?.body === first?.body) ? withCache : [];
+/**
+ * 対象全件が同じ統合結果を持っていればそれを返す(#238)。1件でも欠けていれば null——
+ * その相手の情報が入っていない古い結果なので、作り直す必要がある。
+ */
+function sharedMergedCache(conflicts: NoteConflictRecord[]): { body: string; diagrams: string[] } | null {
+  if (conflicts.length === 0) return null;
+  const first = conflicts[0].merged;
+  if (first === null) return null;
+  return conflicts.every((c) => c.merged !== null && c.merged.body === first.body) ? first : null;
 }
 
 function describeResolution(how: 'local' | 'remote' | 'merged'): string {
