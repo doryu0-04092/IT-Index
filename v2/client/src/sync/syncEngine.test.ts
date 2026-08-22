@@ -528,7 +528,7 @@ describe('syncEngine', () => {
       expect(all[0].remote.body).toBe('相手の内容v2'); // スナップショットが更新されている
     });
 
-    it('新鮮なデータで競合が再発しなければsupersededで閉じ、直近イベントのリストから消える', async () => {
+    it('相手の版とこの端末の内容が一致したらconvergedで閉じ、直近イベントのリストから消える(#224)', async () => {
       const deps = track(makeDeps('device-1'));
       const relay = makeRelay();
       vi.stubGlobal('fetch', relay.fetchMock);
@@ -541,7 +541,7 @@ describe('syncEngine', () => {
       const second = await runSync(deps, 'tok');
 
       const all = await deps.noteConflictsRepo.getAllOrdered();
-      expect(all[0].closedReason).toBe('superseded');
+      expect(all[0].closedReason).toBe('converged');
       expect(await deps.noteConflictsRepo.getBySyncEventId(second.syncEventId)).toHaveLength(0);
       expect(await deps.noteConflictsRepo.getOpen()).toHaveLength(0);
     });
@@ -885,7 +885,13 @@ describe('syncEngine', () => {
       expect((await android.notesRepo.getByTermId('term-x'))?.body).toBe('PC版の内容');
     });
 
-    it('B7: 別peerから新鮮なデータが届き競合が再発しなければsupersededで閉じる(termId単位判定)', async () => {
+    /**
+     * #224 で期待値を反転させた。元は「別peerのデータが届いただけで閉じる」を固定していたが、
+     * それは **差の残っている競合まで閉じてしまう**欠陥そのものだった——実機で
+     * 「競合履歴を一切触っていないのに解消済みになっている」として現れた。
+     * device-2 と食い違ったままなのに、device-3 の受信で閉じてはいけない。
+     */
+    it('B7: 別peerのデータが届いても、その相手(device-2)の版が来ていなければ閉じない(#224)', async () => {
       const deps = track(makeDeps('device-1'));
       const relay = makeRelay();
       vi.stubGlobal('fetch', relay.fetchMock);
@@ -903,9 +909,47 @@ describe('syncEngine', () => {
       });
       await runSync(deps, 'tok');
 
-      const all = await deps.noteConflictsRepo.getAllOrdered();
-      expect(all[0].closedReason).toBe('superseded');
-      expect(await deps.noteConflictsRepo.getOpen()).toHaveLength(0);
+      const open = await deps.noteConflictsRepo.getOpen();
+      expect(open).toHaveLength(1);
+      expect(open[0].peerDeviceId).toBe('device-2');
+      expect(open[0].closedReason).toBeNull();
+    });
+
+    /**
+     * 3端末での決着(#224)。本人の実機報告「3端末で編集しても2行しか出ない」
+     * 「触っていないのに解消済みになる」の両方を1つのシナリオで固定する。
+     */
+    it('B8: 3端末と競合したら相手ごとに記録し、内容が揃った相手だけが閉じる(#224)', async () => {
+      const deps = track(makeDeps('device-1'));
+      const relay = makeRelay();
+      vi.stubGlobal('fetch', relay.fetchMock);
+      await deps.notesRepo.saveBody('term-a', 'この端末の内容', 'device-1', 300);
+      relay.blobs.push({ seq: 1, deviceId: 'device-2', payload: JSON.stringify(fileOf('device-2', 'term-a', '端末2の内容', 400)), createdAt: 1 });
+      relay.blobs.push({ seq: 2, deviceId: 'device-3', payload: JSON.stringify(fileOf('device-3', 'term-a', '端末3の内容', 500)), createdAt: 2 });
+
+      await runSync(deps, 'tok');
+
+      // 相手ごとに1件ずつ記録される(以前は最も新しい1台だけで、常に1件しかできなかった)
+      const afterFirst = await deps.noteConflictsRepo.getOpen();
+      expect(afterFirst.map((c) => c.peerDeviceId).sort()).toEqual(['device-2', 'device-3']);
+      // 内容は newest-wins で端末3の版になっている
+      expect((await deps.notesRepo.getByTermId('term-a'))?.body).toBe('端末3の内容');
+
+      // 端末2だけが、この端末の現在の内容と同じものを送ってくる
+      relay.blobs.push({
+        // seqは直書きしない: 自分のpushと衝突すると pull(seq > since) に乗らない
+        seq: relay.blobs.length + 1,
+        deviceId: 'device-2',
+        payload: JSON.stringify(fileOf('device-2', 'term-a', '端末3の内容', 600)),
+        createdAt: 3,
+      });
+      await runSync(deps, 'tok');
+
+      const open = await deps.noteConflictsRepo.getOpen();
+      expect(open).toHaveLength(1);
+      expect(open[0].peerDeviceId).toBe('device-3'); // 端末3とはまだ食い違っている
+      const closed = (await deps.noteConflictsRepo.getAllOrdered()).find((c) => c.peerDeviceId === 'device-2');
+      expect(closed?.closedReason).toBe('converged');
     });
 
     it('B8: Androidでopen競合が無い状態の競合はbaselineが無く、自版を保持して競合として記録し直す', async () => {

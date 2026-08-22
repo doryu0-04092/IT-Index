@@ -45,10 +45,19 @@ export default function ConflictItem({
   onMerge,
   onGoToSettings,
 }: ConflictItemProps) {
-  // 自動クローズ済み(peer-decision/superseded)は選び直しの対象にしない——どちらも
-  // 「両端末の内容が既に統一された」状態で、ここから選び直すと再び食い違いを作ってしまう
+  /*
+   * **自動で閉じた競合も選び直せる(#224)。**
+   *
+   * 以前は closedReason が付いていれば一律で操作不可にしていた。しかし
+   * 「利用者が一度も選んでいないのに内容が揃って自動クローズ」は普通に起きるため、
+   * それでは選び直す手段が無くなる(退避した版は競合レコードが保持しているのに使えない)。
+   * 選び直した内容は次の同期で相手へ伝わるので、食い違いが残ることはない。
+   *
+   * ただし 'peer-decision'(AndroidがPCの決定を採用した記録)は対象外——
+   * 解消をPC側に集約する設計(#157/#165)を崩さないため。
+   */
   const closed = conflict.closedReason !== null;
-  const interactive = canResolve && !closed;
+  const interactive = canResolve && conflict.closedReason !== 'peer-decision';
   const adoptedBadge = <span className="conflict-adopted-badge">✓ 採用中</span>;
 
   return (
@@ -128,7 +137,9 @@ function describeResolution(how: 'local' | 'remote' | 'merged'): string {
   return `${how === 'local' ? 'この端末の内容' : '相手の端末の内容'}にしました。`;
 }
 
-function describeClosed(reason: 'peer-decision' | 'superseded'): string {
+function describeClosed(reason: 'peer-decision' | 'converged' | 'superseded'): string {
   if (reason === 'peer-decision') return 'パソコン側の解消結果に統一済みです。';
-  return '解消済みです(次の同期で競合が再発しませんでした)。';
+  // 'superseded' は #224 以前の自動クローズ。既存の記録が残るため文言を維持する
+  if (reason === 'superseded') return '解消済みです(次の同期で競合が再発しませんでした)。';
+  return '相手の端末と同じ内容になったため決着しました。';
 }

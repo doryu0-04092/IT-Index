@@ -52,7 +52,7 @@ describe('createNoteConflictsRepository', () => {
     const b = await r.add(makeConflict('term-b'), 'device-2', 2000, EVENT);
     await r.add(makeConflict('term-c'), 'device-2', 3000, EVENT);
     await r.setResolution(a.id, 'local', null, 4000);
-    await r.closeAuto(b.id, 'superseded', 5000);
+    await r.closeAuto(b.id, 'converged', 5000);
 
     const open = await r.getOpen();
     expect(open.map((c) => c.termId)).toEqual(['term-c']);

@@ -49,8 +49,15 @@ export interface NoteConflictsRepository {
    * 同期画面から失いPCで解消できなくなるため、新鮮なデータが届くまではリストに残す。
    */
   carryOver(id: string, syncEventId: string): Promise<void>;
-  /** 自動クローズ(利用者の選択とは別軸)。'peer-decision'=PC側の決定を採用 / 'superseded'=競合が再発しなかった */
-  closeAuto(id: string, reason: 'peer-decision' | 'superseded', at: number): Promise<void>;
+  /**
+   * 自動クローズ(利用者の選択とは別軸)。
+   *
+   * - 'peer-decision' … PC側の決定を採用した(Androidネイティブのみ)
+   * - 'converged' … **その相手の版とこの端末の内容が一致した**(#224)
+   * - 'superseded' … #224以前の自動クローズ。「その語を受信した」だけで閉じていた。
+   *   もう書き込まないが、既存の記録が残るため型からは外さない
+   */
+  closeAuto(id: string, reason: 'peer-decision' | 'converged', at: number): Promise<void>;
   /**
    * どちらを採用するか選ぶ、またはAI統合を選ぶ(v1 ../../../src/repositories/noteConflicts.ts
    * と同じ契約)。mergedは'merged'を選ぶ時だけ渡す——渡された場合のみ更新し、
