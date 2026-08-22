@@ -105,13 +105,21 @@ export default function ConflictGroupItem({
    * 設計(#157/#165)は変えない。
    */
   const mergeTargets = resolvable;
-  /**
-   * **統合が済んだら、ボタンは「統合した内容を採用」に変わる(v1と同じ形。本人指定)。**
-   * キャッシュがある間はAIを二度と呼ばない——元の内容へ選び直しても、このボタンから
-   * いつでも統合結果へ戻せる。「AIで統合」へ戻るのは、新しい端末との競合が増えて
-   * キャッシュにその端末の情報が無い時だけ(sharedMergedCacheが弾く)。
+  /*
+   * **統合ボタン領域は3状態(本人指定)。**
+   *
+   * - **統合前(キャッシュ無し)**: 「AIで統合」。AIを呼ぶのはここだけ
+   * - **統合結果を採用中**: ボタンを出さない——「AIで統合した内容 ✓採用中」で完結して
+   *   いて、ボタンが残ると同じ内容で統合を繰り返す動線になる
+   * - **別の内容へ選び直した(採用中が外れた)**: 「統合した内容を採用」。AIは呼ばず
+   *   キャッシュを適用するだけ。戻したらまたボタンは消える
+   *
+   * 例外: 新しい端末との競合が増えたら、採用中でも「AIで統合」を出し直す——
+   * その端末の情報がキャッシュに入っていないため(sharedMergedCacheの全件一致判定が弾く)。
    */
   const hasCachedMerge = sharedMergedCache(mergeTargets) !== null;
+  const mergedAdopted = currentChoice?.resolution === 'merged';
+  const showMergeButton = mergeTargets.length > 0 && !(mergedAdopted && hasCachedMerge);
 
   const localTarget = resolvable.length > 0
     ? resolvable.reduce((newest, c) => (c.detectedAt > newest.detectedAt ? c : newest))
@@ -191,7 +199,7 @@ export default function ConflictGroupItem({
         </p>
       )}
 
-      {canResolve && mergeTargets.length > 0 && (
+      {canResolve && showMergeButton && (
         /*
          * **統合はこの語ぜんぶを1回で(#238)。** 相手ごとに統合すると、1回目の結果を
          * 2回目でもう一度AIに通すことになり要約の要約で情報が薄まるうえ、決定が
