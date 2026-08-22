@@ -540,6 +540,11 @@ export function App() {
             syncStateRepo={syncStateRepo}
             aiClient={aiClient}
             onSyncNotify={notify}
+            onGoToConflictHistory={() => {
+              // 履歴タブの「競合」を直接開く(#225)。競合の経緯は履歴側が正本で、
+              // 同期画面には直近の同期に紐づく分しか出ない
+              setScreen({ name: 'history', view: 'conflicts' });
+            }}
             onSyncApplied={() => setCommitRefreshTick((t) => t + 1)}
             onResolutionApplied={pushSnapshotToRelay}
             onGoToSettings={() => setScreen({ name: 'settings' })}

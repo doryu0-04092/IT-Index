@@ -79,6 +79,7 @@ function renderSyncScreen(
     isNativeApp?: boolean;
     onSyncApplied?: () => void;
     onSyncNotify?: (message: string, variant: 'error' | 'info') => void;
+    onGoToConflictHistory?: () => void;
   } = {},
 ) {
   render(
@@ -96,6 +97,7 @@ function renderSyncScreen(
       onGoToSettings={options.onGoToSettings}
       onSyncApplied={options.onSyncApplied}
       onSyncNotify={options.onSyncNotify}
+      onGoToConflictHistory={options.onGoToConflictHistory}
     />,
   );
   return deps;
@@ -556,4 +558,23 @@ describe('SyncScreen', () => {
     expect(screen.queryByText(/未解決の競合/)).toBeNull();
     expect(screen.getByText(/現在の選択: 相手の端末の内容にしました。/)).toBeTruthy();
   });
+  /**
+   * 同期画面 → 競合履歴の導線(#225)。同期画面に出るのは**直近の同期に紐づく競合**だけで、
+   * 過去の経緯は履歴タブが正本。行き来できないと、どちらが全体像なのか分からなくなる。
+   */
+  it('競合があるとき、競合履歴への導線が出る(#225)', async () => {
+    const deps = createSyncDeps();
+    await seedConflict(deps, makeConflict('term-a'));
+    const onGoToConflictHistory = vi.fn();
+    localStorage.setItem('it-index-v2:token', 'tok-1');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, { accountId: 'acc-1', email: 'a@example.com' })));
+
+    renderSyncScreen(deps, { onGoToConflictHistory });
+    await waitFor(() => expect(screen.getByText(/ログイン中: a@example.com/)).toBeTruthy());
+
+    const link = await waitFor(() => screen.getByRole('button', { name: '競合履歴を見る' }));
+    fireEvent.click(link);
+    expect(onGoToConflictHistory).toHaveBeenCalled();
+  });
+
 });

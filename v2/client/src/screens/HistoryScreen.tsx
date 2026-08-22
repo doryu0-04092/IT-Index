@@ -9,10 +9,11 @@ import type { ChatRepository } from '../repositories/chat';
 import type { NoteConflictsRepository } from '../repositories/noteConflicts';
 import type { NotesRepository } from '../repositories/notes';
 import type { SyncEventsRepository } from '../repositories/syncEvents';
+import { groupConflictsByTerm } from '../sync/groupConflicts';
 import type { TermsRepository } from '../repositories/terms';
 import { useConflictResolution } from '../sync/useConflictResolution';
 import type { ChatSessionRecord, NoteConflictRecord, SyncEventRecord } from '../types';
-import ConflictItem from './ConflictItem';
+import ConflictGroupItem from './ConflictGroupItem';
 
 /** 「取り込み履歴」タブの状態バッジ(v1 ../../../src/ui/pc/HistoryScreen.tsx:40-51を移植) */
 function chatStatusLabel(status: ChatSessionRecord['status']): string {
@@ -327,18 +328,21 @@ export default function HistoryScreen({
               <h3 className="conflict-event-heading">
                 {group.event ? `${new Date(group.event.at).toLocaleString('ja-JP')} の同期` : '(同期記録なし)'}
               </h3>
+              {/* 同期画面と同じ見せ方にする(#225)。イベントごとの区切りは残し、
+                  その中を単語ごとにまとめて縦一列で描く——競合が画面によって別物に
+                  見えると、同じ語の経緯を追えなくなるため */}
               <ul className="sync-conflict-list">
-                {group.list.map((c) => (
-                  <ConflictItem
-                    key={c.id}
-                    conflict={c}
+                {groupConflictsByTerm(group.list).map((termGroup) => (
+                  <ConflictGroupItem
+                    key={termGroup.termId}
+                    group={termGroup}
                     canResolve={!isNativeApp}
-                    merging={mergingId === c.id}
-                    mergeError={mergeErrors[c.id] ?? null}
-                    mergeErrorCode={mergeErrorCodes[c.id] ?? null}
-                    onChooseLocal={() => chooseLocal(c)}
-                    onChooseRemote={() => chooseRemote(c)}
-                    onMerge={() => void merge(c)}
+                    mergingId={mergingId}
+                    mergeErrors={mergeErrors}
+                    mergeErrorCodes={mergeErrorCodes}
+                    onChooseLocal={chooseLocal}
+                    onChooseRemote={chooseRemote}
+                    onMerge={(c) => void merge(c)}
                     onGoToSettings={onGoToSettings}
                   />
                 ))}
