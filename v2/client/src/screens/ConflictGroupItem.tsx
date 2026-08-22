@@ -106,11 +106,12 @@ export default function ConflictGroupItem({
    */
   const mergeTargets = resolvable;
   /**
-   * 以前の統合結果をそのまま戻せる状態か。**AIを呼ばずに済む**ので文言を分ける。
-   * いま統合結果を採用中なら対象外——押し直しは「やり直し」の意図なので作り直す。
+   * **統合が済んだら、ボタンは「統合した内容を採用」に変わる(v1と同じ形。本人指定)。**
+   * キャッシュがある間はAIを二度と呼ばない——元の内容へ選び直しても、このボタンから
+   * いつでも統合結果へ戻せる。「AIで統合」へ戻るのは、新しい端末との競合が増えて
+   * キャッシュにその端末の情報が無い時だけ(sharedMergedCacheが弾く)。
    */
-  const hasCachedMerge =
-    currentChoice?.resolution !== 'merged' && sharedMergedCache(mergeTargets) !== null;
+  const hasCachedMerge = sharedMergedCache(mergeTargets) !== null;
 
   const localTarget = resolvable.length > 0
     ? resolvable.reduce((newest, c) => (c.detectedAt > newest.detectedAt ? c : newest))
@@ -232,11 +233,6 @@ export default function ConflictGroupItem({
   );
 }
 
-/**
- * 以前の統合結果が残っていて、いまそれを採用していない競合(#238)。
- * 全件が同じ結果を持っている場合だけ「戻せる」——1件でも欠けていれば、
- * その相手の情報が入っていない古い結果なので作り直す必要がある。
- */
 /**
  * 対象全件が同じ統合結果を持っていればそれを返す(#238)。1件でも欠けていれば null——
  * その相手の情報が入っていない古い結果なので、作り直す必要がある。

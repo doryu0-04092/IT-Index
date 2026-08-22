@@ -109,14 +109,7 @@ export function useConflictResolution({
        * 入っていない古い結果なので作り直す。
        */
       const cached = representative.merged;
-      /*
-       * **既に統合結果を採用しているなら、押し直しは「やり直し」。** キャッシュを
-       * 再適用しても何も変わらないので、AIを呼んで作り直す(#246)。
-       * それ以外(未解決がある / 一度別の版を選んだ後)はキャッシュを使い、課金しない。
-       */
-      const alreadyMerged = conflicts.every((c) => c.resolution === 'merged');
       const allShareCache =
-        !alreadyMerged &&
         cached !== null &&
         conflicts.every((c) => c.merged !== null && c.merged.body === cached.body);
 
