@@ -44,7 +44,7 @@ function Harness({
   onAfterResolve: () => Promise<void>;
 }) {
   const conflict = makeConflictRecord();
-  const { chooseLocal, merge, mergeErrors } = useConflictResolution({
+  const { chooseLocal, mergeAll, mergeErrors } = useConflictResolution({
     deviceId,
     notesRepo: createNotesRepository(db),
     noteConflictsRepo: createNoteConflictsRepository(db),
@@ -56,10 +56,11 @@ function Harness({
       <button type="button" onClick={() => chooseLocal(conflict)}>
         こちらを採用
       </button>
-      <button type="button" onClick={() => void merge(conflict)}>
+      <button type="button" onClick={() => void mergeAll([conflict])}>
         AIで統合
       </button>
-      <p data-testid="merge-error">{mergeErrors['conflict-1'] ?? ''}</p>
+      {/* #238: 統合はグループ単位になったので、エラーも語(termId)をキーに持つ */}
+      <p data-testid="merge-error">{mergeErrors[conflict.termId] ?? ''}</p>
     </div>
   );
 }
@@ -112,3 +113,109 @@ describe('useConflictResolution', () => {
     await waitFor(() => expect(screen.getByTestId('merge-error').textContent).toBe('文字列のthrow'));
   });
 });
+/**
+ * **3端末以上を1回で統一する(#238)。**
+ *
+ * 実機で「PC + Android2台で両方を統合したら、どちらも採用中になったのにAndroidの競合が
+ * 解消されない」と報告された。相手ごとに統合していたため、
+ * (1)1回目の結果を2回目でもう一度AIに通して情報が薄まる
+ * (2)決定が2回に分かれて相手が収束しない、の2つが起きていた。
+ */
+describe('mergeAll(3端末以上)', () => {
+  const dbs: ItIndexDB[] = [];
+  afterEach(() => {
+    cleanup();
+    for (const db of dbs) db.close();
+    dbs.length = 0;
+  });
+
+  function makeDb() {
+    const db = new ItIndexDB(`merge-all-${Math.random()}`);
+    dbs.push(db);
+    return db;
+  }
+
+  function conflictWith(peer: string, body: string, id: string): NoteConflictRecord {
+    const base = makeConflictRecord();
+    return {
+      ...base,
+      id,
+      peerDeviceId: peer,
+      remote: { ...base.remote, body, lastEditedBy: peer },
+    };
+  }
+
+  function GroupHarness({ db, aiClient, conflicts }: { db: ItIndexDB; aiClient: AiClient; conflicts: NoteConflictRecord[] }) {
+    const { mergeAll, mergeErrors } = useConflictResolution({
+      deviceId: 'device-pc',
+      notesRepo: createNotesRepository(db),
+      noteConflictsRepo: createNoteConflictsRepository(db),
+      aiClient,
+      onAfterResolve: async () => {},
+    });
+    return (
+      <div>
+        <button type="button" onClick={() => void mergeAll(conflicts)}>
+          まとめて統合
+        </button>
+        <p data-testid="merge-error">{mergeErrors[conflicts[0].termId] ?? ''}</p>
+      </div>
+    );
+  }
+
+  it('相手2台ぶんを1回のAI呼び出しで統合し、全件まとめて決着する', async () => {
+    const db = makeDb();
+    const conflicts = [
+      conflictWith('device-a1', 'Android1の内容', 'c-a1'),
+      conflictWith('device-a2', 'Android2の内容', 'c-a2'),
+    ];
+    const repo = createNoteConflictsRepository(db);
+    for (const c of conflicts) await db.noteConflicts.put(c);
+
+    const aiClient: AiClient = {
+      send: vi.fn().mockResolvedValue({
+        text: JSON.stringify({ body: '3端末ぶんを統合した内容', diagrams: [] }),
+        stopReason: 'end_turn',
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
+    };
+
+    render(<GroupHarness db={db} aiClient={aiClient} conflicts={conflicts} />);
+    fireEvent.click(screen.getByRole('button', { name: 'まとめて統合' }));
+
+    await waitFor(async () => {
+      const note = await createNotesRepository(db).getByTermId(conflicts[0].termId);
+      expect(note?.body).toBe('3端末ぶんを統合した内容');
+    });
+
+    // **AIは1回だけ。** 相手ごとに呼ぶと情報が薄まり、決定も分裂する
+    expect(aiClient.send).toHaveBeenCalledTimes(1);
+
+    // **全件まとめて決着する**(片方だけ採用中、が起きない)
+    const all = await repo.getAllOrdered();
+    expect(all.every((c) => c.resolution === 'merged')).toBe(true);
+    expect(await repo.getOpen()).toHaveLength(0);
+  });
+
+  it('AIが失敗したら何も適用しない(部分的に解消されない)', async () => {
+    const db = makeDb();
+    const conflicts = [
+      conflictWith('device-a1', 'Android1の内容', 'c-a1'),
+      conflictWith('device-a2', 'Android2の内容', 'c-a2'),
+    ];
+    const repo = createNoteConflictsRepository(db);
+    for (const c of conflicts) await db.noteConflicts.put(c);
+
+    const aiClient: AiClient = { send: vi.fn().mockRejectedValue(new Error('上限に達しました')) };
+
+    render(<GroupHarness db={db} aiClient={aiClient} conflicts={conflicts} />);
+    fireEvent.click(screen.getByRole('button', { name: 'まとめて統合' }));
+
+    await waitFor(() => expect(screen.getByTestId('merge-error').textContent).toContain('上限に達しました'));
+
+    // **1件も解消されていない**(中途半端に一部だけ適用されると不整合になる)
+    expect(await repo.getOpen()).toHaveLength(2);
+    expect(await createNotesRepository(db).getByTermId(conflicts[0].termId)).toBeUndefined();
+  });
+});
+

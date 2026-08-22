@@ -153,7 +153,7 @@ export default function SyncScreen({
     );
   }, [noteConflictsRepo, syncEventsRepo]);
 
-  const { mergingId, mergeErrors, mergeErrorCodes, chooseLocal, chooseRemote, merge } = useConflictResolution({
+  const { mergingId, mergeErrors, mergeErrorCodes, chooseLocal, chooseRemote, mergeAll } = useConflictResolution({
     deviceId,
     notesRepo,
     noteConflictsRepo,
@@ -340,7 +340,7 @@ export default function SyncScreen({
                     mergeErrorCodes={mergeErrorCodes}
                     onChooseLocal={chooseLocal}
                     onChooseRemote={chooseRemote}
-                    onMerge={(c) => void merge(c)}
+                    onMergeAll={(conflicts) => void mergeAll(conflicts)}
                     onGoToSettings={onGoToSettings}
                   />
                 ))}
@@ -363,7 +363,7 @@ export default function SyncScreen({
                     mergeErrorCodes={mergeErrorCodes}
                     onChooseLocal={chooseLocal}
                     onChooseRemote={chooseRemote}
-                    onMerge={(c) => void merge(c)}
+                    onMergeAll={(conflicts) => void mergeAll(conflicts)}
                     onGoToSettings={onGoToSettings}
                   />
                 ))}

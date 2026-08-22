@@ -78,7 +78,7 @@ export function buildDistributionMessages(history: AiMessage[], subjectLabel?: s
   return [...history, { role: 'user', content: instruction }];
 }
 
-export const MERGE_SYSTEM_PROMPT = `あなたはIT-Indexという学習アプリの一部です。同じ用語について、既存の説明と新しい説明を渡すので、情報を欠落させずに1つの説明文に統合してください。
+export const MERGE_SYSTEM_PROMPT = `あなたはIT-Indexという学習アプリの一部です。同じ用語について、複数の端末それぞれの説明を渡すので、情報を欠落させずに1つの説明文に統合してください。
 
 出力は次のJSONオブジェクトのみとしてください。前後に説明文を書かないでください。
 
@@ -88,11 +88,46 @@ export const MERGE_SYSTEM_PROMPT = `あなたはIT-Indexという学習アプリ
 }
 
 ルール:
-- 既存の説明にある情報を勝手に削らないでください。重複は整理してよいですが、要約して薄めないでください。
-- 新しい説明で判明した情報（つまずきやすい点、具体例など）を優先的に残してください。
+- **渡されたすべての説明の情報を残してください。** 重複は整理してよいですが、要約して薄めないでください。
+- どれか1つを選ぶのではなく、**全部の内容が入った1つの説明**にしてください。
+- それぞれの端末で判明した情報（つまずきやすい点、具体例など）を優先的に残してください。
 
 品質基準:
 ${buildQualityRules()}`;
+
+/**
+ * 全端末の内容を1回で統一するためのプロンプト(#238)。
+ *
+ * **相手ごとに2版ずつ統合してはいけない。** 1回目の統合結果を2回目でもう一度AIに通すと
+ * **要約の要約になって情報が薄まる**うえ、決定が複数回に分かれて相手端末が収束しない
+ * (実機で報告された: PC + Android2台で両方統合したら、どちらも「採用中」になったのに
+ * Androidの競合が解消されなかった)。
+ *
+ * @param others 相手端末の版。**表示上の上限で畳まれた分も含め全件渡す**(情報を落とさない)
+ */
+export function buildUnifiedMergeMessages(
+  term: string,
+  localBody: string,
+  localDiagrams: string[],
+  others: { body: string; diagrams: string[] }[],
+): AiMessage[] {
+  const joinDiagrams = (diagrams: string[]) =>
+    diagrams.length > 0 ? diagrams.join('\n---\n') : '(なし)';
+  const section = (title: string, body: string, diagrams: string[]) =>
+    `## ${title}の説明
+${body}
+
+## ${title}の図
+${joinDiagrams(diagrams)}`;
+
+  const parts = [
+    `用語: ${term}`,
+    section('この端末', localBody, localDiagrams),
+    ...others.map((o, i) => section(`別の端末${i + 1}`, o.body, o.diagrams)),
+  ];
+
+  return [{ role: 'user', content: parts.join('\n\n') }];
+}
 
 export function buildMergeMessages(
   term: string,

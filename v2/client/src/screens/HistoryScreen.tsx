@@ -126,7 +126,7 @@ export default function HistoryScreen({
     setConflicts(await noteConflictsRepo.getAllOrdered());
   }, [syncEventsRepo, noteConflictsRepo]);
 
-  const { mergingId, mergeErrors, mergeErrorCodes, chooseLocal, chooseRemote, merge } = useConflictResolution({
+  const { mergingId, mergeErrors, mergeErrorCodes, chooseLocal, chooseRemote, mergeAll } = useConflictResolution({
     deviceId,
     notesRepo,
     noteConflictsRepo,
@@ -342,7 +342,7 @@ export default function HistoryScreen({
                     mergeErrorCodes={mergeErrorCodes}
                     onChooseLocal={chooseLocal}
                     onChooseRemote={chooseRemote}
-                    onMerge={(c) => void merge(c)}
+                    onMergeAll={(conflicts) => void mergeAll(conflicts)}
                     onGoToSettings={onGoToSettings}
                   />
                 ))}
