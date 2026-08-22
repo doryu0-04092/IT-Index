@@ -8,12 +8,18 @@ import { createNotesRepository } from '../repositories/notes';
 import { createSyncEventsRepository } from '../repositories/syncEvents';
 import { createSyncStateRepository } from '../repositories/syncState';
 import { createTermsRepository } from '../repositories/terms';
-import { buildOutboundPayload, pullFromRelay, pushToRelay, runSync, type SyncEngineDeps } from './syncEngine';
+import { buildOutboundPayload, pullFromRelay, pushToRelay, runSync, SyncKeyMissingError, type SyncEngineDeps } from './syncEngine';
 import { decryptSyncPayload, encryptSyncPayload, generateDataKey, importDataKey, isSyncEnvelope } from './syncCrypto';
 import { getDataKey, getOrCreateDataKey, setDataKey } from './syncKeyStore';
 
-function makeDeps(deviceId = 'device-1', holdLocalOnConflict = false): SyncEngineDeps {
+/**
+ * @param withKey 同期の前提となる鍵を用意するか(#226)。
+ *   エンジンは鍵を自動生成しなくなったため、渡さないと SyncKeyMissingError になる。
+ *   鍵の有無を論点にしないテストを素直に書けるよう既定でtrue。
+ */
+function makeDeps(deviceId = 'device-1', holdLocalOnConflict = false, withKey = true): SyncEngineDeps {
   const db = new ItIndexDB(`test-syncEngine-${Math.random()}`);
+  if (withKey) setDataKey('test-account', generateDataKey());
   return {
     db,
     termsRepo: createTermsRepository(db),
@@ -270,14 +276,21 @@ describe('syncEngine', () => {
       expect(result.changedTerms).toBe(0);
     });
 
-    it('鍵を持たない端末は、最初のpushで鍵を自動生成する(受け渡し前でも同期を始められる)', async () => {
-      const deps = track(makeDeps('device-1'));
+    /**
+     * #226 で期待値を反転させた。元は「鍵が無ければ最初のpushで自動生成する」を固定していたが、
+     * それは**鍵の受け渡しという仕組みそのものを迂回できる**という欠陥だった。
+     * 受け渡しをしていない端末が独自の鍵でpushすると、相手からは復号できない差分が並ぶ。
+     */
+    it('鍵を持たない端末は同期せず、鍵も作らない(#226)', async () => {
+      const deps = track(makeDeps('device-1', false, false));
       expect(getDataKey(deps.accountId)).toBeNull();
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(201, { seq: 1 })));
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
 
-      await pushToRelay(deps, 'tok');
+      await expect(pushToRelay(deps, 'tok')).rejects.toBeInstanceOf(SyncKeyMissingError);
 
-      expect(getDataKey(deps.accountId)).not.toBeNull();
+      expect(getDataKey(deps.accountId)).toBeNull(); // 黙って作らない
+      expect(fetchMock).not.toHaveBeenCalled();
     });
   });
 

@@ -59,10 +59,6 @@ export interface KeyTransferSectionProps {
    * 呼び出し側は同期カーソルを0へ戻す(消した後に並ぶ新しい差分を読み直すため)。
    */
   onKeyAdopted: () => Promise<void>;
-  /** 「今すぐ同期」を実行する。鍵を受け取った後の誘導ボタンから呼ぶ */
-  onSyncNow: () => void;
-  /** 同期の実行中はボタンを押せないようにする */
-  syncBusy: boolean;
 }
 
 type Mode = 'idle' | 'show-qr' | 'scan-qr' | 'show-code' | 'enter-code';
@@ -72,8 +68,6 @@ export default function KeyTransferSection({
   accountId,
   undecryptableBlobs,
   onKeyAdopted,
-  onSyncNow,
-  syncBusy,
 }: KeyTransferSectionProps) {
   const [mode, setMode] = useState<Mode>('idle');
   // 数字コードの経路は「QRが使えない場合」を開いた時だけ出す(2段階。上の説明を参照)
@@ -328,12 +322,10 @@ export default function KeyTransferSection({
           <p>
             <strong>{message}</strong>
           </p>
+          {/* 「今すぐ同期」はこの画面の上部に既にある。同じ操作を2箇所に置かない(#226) */}
           <p className="status-text-small">
-            まだデータは同期されていません。「今すぐ同期」を実行すると、相手のデータを読み込みます。
+            まだデータは同期されていません。画面上部の「今すぐ同期」で相手のデータを読み込みます。
           </p>
-          <button type="button" className="btn-primary" onClick={onSyncNow} disabled={syncBusy}>
-            {syncBusy ? '同期しています…' : '今すぐ同期'}
-          </button>
         </div>
       )}
       {error && (

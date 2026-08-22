@@ -8,6 +8,7 @@ import { runSync, type SyncEngineDeps, type SyncRunResult } from '../sync/syncEn
 import { groupConflictsByTerm } from '../sync/groupConflicts';
 import { runPendingBlobCleanup } from '../sync/syncKeyCleanup';
 import { formatSyncSummary, formatSyncToast } from '../sync/syncResultMessage';
+import { getOrCreateDataKey, hasDataKey } from '../sync/syncKeyStore';
 import { getAccountId } from '../sync/tokenStore';
 import { useAuthState } from '../sync/useAuthState';
 import { useConflictResolution } from '../sync/useConflictResolution';
@@ -100,6 +101,43 @@ export default function SyncScreen({
 
   const [conflicts, setConflicts] = useState<NoteConflictRecord[]>([]);
   const [resolvedConflicts, setResolvedConflicts] = useState<NoteConflictRecord[]>([]);
+
+  /*
+   * 鍵を持っているか(#226)。**鍵が無ければ同期させない。**
+   *
+   * 以前は同期エンジンが鍵を自動生成していたため、受け渡しを一度もしていない端末でも
+   * 同期でき、鍵の受け渡しという仕組みが迂回できた。作るのは利用者が明示的に選んだ時だけ。
+   * accountId が確定してから判定する(localStorageはアカウント単位)。
+   */
+/*
+   * **localStorageを正本にして描画時に読む。** stateへ写して effect で追随させると、
+   * accountId が確定した直後の1描画だけ「鍵が無い」と誤って描く窓ができる
+   * (ログイン直後に一瞬だけ同期ボタンが押せない)。鍵を作った/受け取った時は
+   * keyRevision を上げて読み直す。
+   */
+  /*
+   * 鍵を持っているか(#226)。**鍵が無ければ同期させない。**
+   *
+   * localStorage が正本だが、**描画中に読むと React Compiler が不純と判定して
+   * このコンポーネントの最適化を丸ごと諦める**(既存の useCallback のメモ化が保てなくなる)。
+   * そのため state へ写し、accountId の確定と鍵の作成・受け取りで追随させる。
+   *
+   * 代償として accountId が確定した直後の1描画だけ「鍵が無い」側で描かれる。
+   * 見た目には同期ボタンが一瞬押せないだけで、押せない間に押せてはいけない操作は無い。
+   */
+  const [keyReady, setKeyReady] = useState(false);
+  useEffect(() => {
+    // localStorage(外部の状態)をReactへ取り込む同期であり、effectで行うのが正しい
+    // (useAppInit.ts・下のloadConflictsと同じ理由でこのルールを無効化する)。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setKeyReady(accountId !== null && hasDataKey(accountId));
+  }, [accountId]);
+
+  function createKeyForThisDevice() {
+    if (accountId === null) return;
+    getOrCreateDataKey(accountId);
+    setKeyReady(true);
+  }
 
   // 未解決の競合は単語ごとにまとめて出す(#203。sync/groupConflicts.ts)
   const conflictGroups = groupConflictsByTerm(conflicts);
@@ -205,9 +243,31 @@ export default function SyncScreen({
       </p>
 
       <div className="sync-actions">
-        <button type="button" className="btn-primary" onClick={() => void handleSyncNow()} disabled={syncBusy || !deviceId}>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => void handleSyncNow()}
+          disabled={syncBusy || !deviceId || !keyReady}
+        >
           {syncBusy ? '同期しています…' : '今すぐ同期'}
         </button>
+        {!keyReady && (
+          /* 鍵が無い状態(#226)。1台目は作る、2台目以降は受け取る——どちらを選ぶかで
+             結果が大きく変わるため、暗黙に作らず必ず選ばせる */
+          <div className="sync-key-required" data-testid="sync-key-required">
+            <p className="status-text">
+              <strong>同期を始めるには、同期用の鍵が必要です。</strong>
+              同期するデータはこの鍵で暗号化され、サーバーは鍵を持ちません。
+            </p>
+            <p className="status-text-small">
+              <strong>すでに他の端末で同期している場合は、その端末から鍵を受け取ってください。</strong>
+              ここで新しく作ると別の鍵になり、相手のデータを読めません(下の「同期の鍵を渡す/受け取る」から受け取れます)。
+            </p>
+            <button type="button" className="btn-secondary" onClick={createKeyForThisDevice}>
+              この端末で新しく鍵を作る
+            </button>
+          </div>
+        )}
         {lastSyncedAt && <p className="status-text">最終同期: {new Date(lastSyncedAt).toLocaleString('ja-JP')}</p>}
         {lastResult && (
           /* 文言はトーストと同じ sync/syncResultMessage.ts が組む(#216)。
@@ -223,13 +283,13 @@ export default function SyncScreen({
           token={auth.token}
           accountId={accountId}
           undecryptableBlobs={lastResult?.undecryptableBlobs ?? 0}
-          syncBusy={syncBusy}
-          onSyncNow={() => void handleSyncNow()}
           // 鍵を受け取った側はサーバー上の古い差分を消すため、自分のカーソルも0へ戻す
           // (消した後に並ぶ新しい差分を読み直すため。KeyTransferSection.adoptKey参照)
           onKeyAdopted={async () => {
             await syncStateRepo.setCursor(0);
             setLastResult(null);
+            // 受け取った時点で同期の前提が揃う(#226)
+            setKeyReady(true);
           }}
         />
       )}

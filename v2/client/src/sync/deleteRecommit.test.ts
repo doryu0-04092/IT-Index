@@ -11,10 +11,14 @@ import { createNotesRepository } from '../repositories/notes';
 import { createSyncEventsRepository } from '../repositories/syncEvents';
 import { createSyncStateRepository } from '../repositories/syncState';
 import { createTermsRepository } from '../repositories/terms';
+import { generateDataKey } from './syncCrypto';
+import { setDataKey } from './syncKeyStore';
 import { pushToRelay, runSync, type SyncEngineDeps } from './syncEngine';
 
 function makeDeps(deviceId: string, holdLocalOnConflict: boolean): SyncEngineDeps {
   const db = new ItIndexDB(`test-inv179-${Math.random()}`);
+  // 同期の前提として鍵を用意する(#226。エンジンは鍵を自動生成しなくなった)
+  setDataKey('test-account', generateDataKey());
   return {
     db,
     termsRepo: createTermsRepository(db),

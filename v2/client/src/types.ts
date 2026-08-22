@@ -125,7 +125,11 @@ export interface NoteConflictRecord {
   /**
    * 利用者の選択(resolution)とは別軸の自動クローズ(#157)。
    * - 'peer-decision': 相手側(PC)の解消結果を採用して統一した(Androidネイティブのみ発生)
-   * - 'superseded': 次の同期で新鮮なデータが届き、競合が再発しなかった
+   * - 'converged': **その相手の版を受信し、この端末の現在の内容と一致した**(#224)
+   * - 'superseded': #224以前の自動クローズ。「その語のnoteを受信した」だけで閉じていたため、
+   *   差が残っている競合まで「解消済み」になっていた。**もう書き込まない**が、
+   *   既存の記録が残るため型からは外さない
+   *
    * openの定義 = resolution===null && closedReason===null
    */
   closedReason: 'peer-decision' | 'converged' | 'superseded' | null;
