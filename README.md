@@ -21,7 +21,7 @@ IT用語をかな・カタカナ・英字のどれでも検索できる、個人
 
 ### Android版
 
-1. [**it-index-android-0.4.8.apk をダウンロード**](https://github.com/doryu0-04092/IT-Index/releases/download/v2-android-0.4.8/it-index-android-0.4.8.apk)（[Releases](../../releases) にも同じファイルがあります）をスマートフォンで開きます（ブラウザから直接ダウンロードするか、PCでダウンロードしてから任意の方法で転送しても構いません）
+1. [**it-index-android-0.4.9.apk をダウンロード**](https://github.com/doryu0-04092/IT-Index/releases/download/v2-android-0.4.9/it-index-android-0.4.9.apk)（[Releases](../../releases) にも同じファイルがあります）をスマートフォンで開きます（ブラウザから直接ダウンロードするか、PCでダウンロードしてから任意の方法で転送しても構いません）
 2. ファイルを開くと **「提供元不明のアプリ」** の確認が出ます。Google Play を経由しないアプリはすべてこの扱いになります。表示された設定画面で、ダウンロードに使ったアプリ（Chrome やファイルマネージャー）に「この提供元のアプリを許可」を有効にしてください
 3. 戻ってインストールします
 
